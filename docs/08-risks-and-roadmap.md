@@ -61,6 +61,16 @@ Scope is deliberately small: engine, codec, serial adapter, ratflector client, C
 - C6 **Baseline measurements**: D-RATS defaults vs Aether Layer-0 (identical parameters) on the same rig. This is the reference for all later claims.
 - **Exit:** C1–C6 at the stated levels.
 
+**Status 2026-10-29 (branch `phase-c`):** everything that can be built and tested without D-RATS or radios is done at Simulated/Interoperability level:
+- the engine
+- legacy chat, ping, version, file and form transfer, ICS-213 and positions
+- ratflector client and server
+- capture and support bundle (C5)
+- `aether-bench` for C1/C6
+- a minimal UI
+
+C1 and C3–C4 need a D-RATS station and the owner's radios, and C6 needs the hardware. Procedures: `phase-c/README.md`. Phase D groundwork (CI-V Fast Data check, read and guarded set) is in place, at Simulated level.
+
 ### Phase D — DV Fast Data
 - D1 Hardware profiles for the **IC-9700 and ID-52 PLUS** in Fast mode, plus the **TM-D750** (capability determined by test), with HW-2…HW-5 in fast mode.
 - D2 HW-8 compatibility matrix published.
