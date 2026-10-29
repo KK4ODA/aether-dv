@@ -15,6 +15,7 @@ Date: 2026-10-29 · Status: **research deliverable, no production code** · Lice
 | [09-licensing.md](09-licensing.md) | Licence analysis and recommendation |
 | [adr/](adr/) | ADR-0001 … 0008 (0001, 0002, 0005, 0006, 0008 Accepted) |
 | [decisions.md](decisions.md) | Owner decision log |
+| [phase-b/](phase-b/README.md) | Phase B status report: state machines, model-checking findings, schemas, spikes, CI results |
 | [tools/](tools/) | `model_ddt2.py` (independent DDT2 model, matches upstream vectors); `arq_model.py` (throughput model) |
 | [research-notes/](research-notes/) | Raw research notes: issue-history catalogue (`issues_history.md`), Fast Data hardware research (`fastdata_research.md`) |
 

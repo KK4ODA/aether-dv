@@ -35,9 +35,9 @@ Components:
 
 ## 3. First hardware validation tests (Phase C, in this order)
 
-Available hardware (D3): **IC-9700** (base station; USB port A = CI-V, port B = DV Data, both at once), **ID-52 / ID-52 PLUS** (handheld; USB = DV Data with CI-V over Bluetooth, or the reverse), **Kenwood TM-D750** (mobile; capabilities unverified).
-- Phase C slow-data pair: IC-9700 ⇄ ID-52, with D-RATS 0.4.2 on one end for HW-6/7.
-- Phase D Fast Data pair: IC-9700 ⇄ ID-52 (both documented FD + CI-V control: `1A 05 0077`, `22 03`).
+Available hardware (D3): **IC-9700** (base station; USB port A = CI-V, port B = DV Data, both at once), **ID-52 PLUS** (handheld, USB-C; USB = DV Data with CI-V over Bluetooth, or the reverse), **Kenwood TM-D750** (mobile; capabilities unverified).
+- Phase C slow-data pair: IC-9700 ⇄ ID-52 PLUS, with D-RATS 0.4.2 on one end for HW-6/7.
+- Phase D Fast Data pair: IC-9700 ⇄ ID-52 PLUS (both documented FD + CI-V control: `1A 05 0077`, `22 03`).
 - Kenwood interop: TM-D750 against both Icoms in slow and fast (HW-1, HW-2, HW-5, HW-8). This settles whether it can transmit slow data, as the TH-D74/D75 reportedly cannot.
 - Simplex bench tests use attenuators/dummy loads; over-the-air tests need a second location or a cooperating station.
 

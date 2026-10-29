@@ -119,7 +119,7 @@ The menu path, firmware and figures in this wireframe are **illustrative placeho
 | Ctrl+. | Pause/resume all bulk transfers (chat unaffected) |
 | F6 | Cycle focus regions (rail → list → detail → composer) |
 
-## 5. Design-token system (draft v0)
+## 5. Design-token system (draft v0, **superseded by v1** in `design/mockups/tokens.css`; see `design/README.md`)
 
 Identity: an **instrument panel at night**. Warm graphite surfaces, hairline rules, tabular numerals, and colour reserved for *signal meaning*. Typeface: **IBM Plex Sans / Plex Sans Condensed / Plex Mono** (SIL OFL), bundled for offline use.
 

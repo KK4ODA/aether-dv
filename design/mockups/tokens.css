@@ -1,0 +1,46 @@
+/* Aether DV design tokens v1 (supersedes v0 in docs/06 §5).
+   Identity: an instrument panel at night. Warm graphite surfaces, paper-white
+   text, colour reserved for signal meaning (transport + delivery state).
+   Every colour that carries meaning is paired with a shape and a word. */
+:root {
+  color-scheme: dark;
+  /* surfaces */
+  --bg-base:      #1c1b18;
+  --bg-raised:    #24231f;
+  --bg-sunken:    #161512;
+  --bg-hover:     #2c2a25;
+  --bg-select:    #33302a;
+  --line-hair:    #36342e;
+  --line-strong:  #4a473f;  /* structural rules only */
+  --line-control: #7a7569;  /* borders of interactive controls: >= 3:1 (WCAG 1.4.11) */
+  /* text */
+  --text-1:       #e7e2d7;
+  --text-2:       #b5afa2;
+  --text-3:       #99938a;  /* >= 4.5:1 on base, raised, sunken and hover surfaces */
+  /* transport (badge, path tags, strip band) */
+  --slow:         #86a9e6;  /* DV slow data  ◇ "Slow"     */
+  --fast:         #e8a24a;  /* DV fast data  ◆ "Fast"     */
+  --net:          #b79be6;  /* Internet      ⌁ "Internet" */
+  /* delivery / link state */
+  --ok:           #74c493;  /* delivered, up                 ✓ */
+  --pending:      #d9c062;  /* queued, handed off            ◷ */
+  --unknown:      #9a9488;  /* unconfirmed (hollow)          ◌ */
+  --fail:         #e5706a;  /* failed, lost                  ✕ */
+  --tx:           #f0c45a;
+  --rx:           #66c6d6;
+  --focus:        #9cc0ff;
+
+  --font-ui:    "IBM Plex Sans", system-ui, sans-serif;
+  --font-call:  "IBM Plex Sans Condensed", "IBM Plex Sans", sans-serif;
+  --font-wire:  "IBM Plex Mono", ui-monospace, monospace;
+
+  /* type scale (px): 11 / 12 / 13 / 15 / 18 */
+  --fs-xs: 11px; --fs-sm: 12px; --fs-md: 13px; --fs-lg: 15px; --fs-xl: 18px;
+  --lh: 1.45;
+  /* spacing (4 px grid) */
+  --s1: 2px; --s2: 4px; --s3: 8px; --s4: 12px; --s5: 16px; --s6: 24px;
+  --row: 28px; --row-compact: 24px;
+  --r-sm: 2px; --r-md: 4px;
+  --t-fast: 80ms; --t-base: 140ms;
+}
+@media (prefers-reduced-motion: reduce) { :root { --t-fast: 0ms; --t-base: 0ms; } }

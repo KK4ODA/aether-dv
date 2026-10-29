@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Aether DV</title>
+<link rel="stylesheet" href="app.css">
+<link rel="stylesheet" href="views.css">
+</head>
+<body>
+<div class="app" id="app">
+  <div class="brand"><span class="brand-mark" aria-hidden="true"></span><span class="brand-name">Aether DV</span><span class="brand-call" id="mycall"></span></div>
+
+  <ul class="strip" id="strip" aria-label="Connections">
+    <li class="plate-empty">Not connected to the engine</li>
+  </ul>
+
+  <nav class="rail" aria-label="Sections">
+    <ul>
+      <li><a href="#chat" data-view="chat"><span class="ico" aria-hidden="true">✉</span>Chat<span class="count" id="unread-chat" hidden></span></a></li>
+      <li><a href="#messages" data-view="messages"><span class="ico" aria-hidden="true">▤</span>Messages<span class="count" id="unread-msg" hidden></span></a></li>
+      <li><a href="#transfers" data-view="transfers"><span class="ico" aria-hidden="true">⇅</span>Transfers<span class="count" id="active-xfer" hidden></span></a></li>
+      <li><a href="#stations" data-view="stations"><span class="ico" aria-hidden="true">⌖</span>Stations</a></li>
+      <li class="sep" role="separator"></li>
+      <li><a href="#radios" data-view="radios"><span class="ico" aria-hidden="true">⎍</span>Radio Setup</a></li>
+      <li><a href="#sounds" data-view="sounds"><span class="ico" aria-hidden="true">♪</span>Sounds</a></li>
+      <li><a href="#diagnostics" data-view="diagnostics"><span class="ico" aria-hidden="true">⚕</span>Diagnostics</a></li>
+    </ul>
+  </nav>
+
+  <main class="main" id="main"></main>
+
+  <div class="drawer" id="drawer" role="status" aria-label="Recent engine activity"></div>
+</div>
+<aside class="update" id="update" role="dialog" aria-live="polite" aria-label="Software update" hidden></aside>
+<script src="app.js"></script>
+</body>
+</html>

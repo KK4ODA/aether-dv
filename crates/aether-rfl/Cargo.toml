@@ -1,0 +1,13 @@
+[package]
+name = "aether-rfl"
+description = "Sans-I/O ratflector client connection state machine (SM-6)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+
+[lints]
+workspace = true

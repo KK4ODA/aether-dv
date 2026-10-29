@@ -14,4 +14,4 @@ On every radio studied, DV Fast Data on/off is a radio setting. The computer-fac
 Honest UX; no hidden radio reconfiguration; a possible extra manual step for operators. Revisit if a documented control path is verified (HW-8 plus CI-V tests).
 
 ## Decision record (2026-10-29)
-Owner chose **Slow by default on shared nets, Fast opt-in**. Fast is for point-to-point or for nets whose participants are all proven Fast. Auto switches only between transfers, toward proven-Fast peers, on hardware-verified CI-V profiles. First CI-V control targets are the owner's IC-9700 (`1A 05 0077`) and ID-52 (`22 03`). The Kenwood TM-D750 has no documented control path and is manual-only until shown otherwise.
+Owner chose **Slow by default on shared nets, Fast opt-in**. Fast is for point-to-point or for nets whose participants are all proven Fast. Auto switches only between transfers, toward proven-Fast peers, on hardware-verified CI-V profiles. First CI-V control targets are the owner's IC-9700 (`1A 05 0077`) and ID-52 PLUS (`22 03`). The Kenwood TM-D750 has no documented control path and is manual-only until shown otherwise.

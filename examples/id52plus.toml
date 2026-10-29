@@ -1,0 +1,36 @@
+# aetherd example: Icom ID-52 PLUS, DV data over USB-C.
+# ID-52 PLUS setup (verify on your radio; see docs/03 §3):
+#   [MENU] > SET > Function > USB Connect = Serialport
+#   [MENU] > SET > Function > USB Serialport Function = DV Data
+#   [MENU] > SET > DV Set > DV Data TX = Auto
+#   DV Fast Data OFF for this first test (slow data)
+callsign = "KK4ODA"
+db = "aether-id52.db"
+# files_dir = "received"     # received files (messages/forms go to the database); default: next to the db
+# max_incoming_kib = 4096    # largest incoming transfer accepted (compressed size)
+capture = true                # record all port traffic (.aecap) for test evidence; read with `aecap show`
+api_listen = "127.0.0.1:7374"
+
+# Your fixed position, sent only when you run `aether-cli send-position PORT`.
+# [position]
+# lat = 33.749
+# lon = -84.388
+# comment = "Aether DV"
+# symbol = "/-"            # APRS symbol: table + code ("/-" house, "/>" car)
+
+[[port]]
+kind = "serial"
+name = "ID-52PLUS"
+path = "/dev/serial/by-id/REPLACE-ME"
+baud = 9600
+profile = "icom-id52plus"
+mode = "slow"
+flow = "none"
+
+# Optional: CI-V. On the ID-52 PLUS the USB port is either CI-V or DV Data,
+# so CI-V needs the Bluetooth serial port (Serialport Function = CI-V there).
+# [port.civ]
+# path = "/dev/rfcomm0"
+# baud = 19200
+# addr = "B4"          # reported default for the ID-52; check MENU > SET > Function > CI-V
+# allow_set = false

@@ -39,12 +39,23 @@ Passing through a virtual serial port is never described as RF-tested.
 ## Repository layout
 
 ```
-docs/                 investigation, architecture, ADRs, plans
-docs/tools/           analysis scripts (DDT2 model, ARQ throughput model) — not production code
-docs/research-notes/  raw research notes (issue history, Fast Data hardware research)
+crates/aether-ddt2    D-RATS DDT2 codec (frames, yEnc, envelopes, sessions), golden vectors
+crates/aether-link    ARQ-1 (legacy-compatible reliability) and the half-duplex channel scheduler
+crates/aether-rfl     ratflector client (sans-I/O)
+crates/aether-rfd     ratflector server (aether-rfd)
+crates/aether-store   SQLite storage with forward-only migrations
+crates/aether-forms   D-RATS form documents (ICS-213)
+crates/aether-geo     position reports (NMEA style, DPRS)
+crates/aether-civ     Icom CI-V codec, Fast Data commands
+crates/aetherd        the engine (aetherd) plus aether-cli, aether-bench, aecap
+app/                  desktop app (Tauri 2 shell + UI on the engine API)
+spec/                 machine-checked specs: storage schema, API (OpenRPC), ARQ model
+design/               mockups and design tooling
+docs/                 investigation, architecture, ADRs, plans, phase reports
+examples/             engine configurations for the IC-9700 and ID-52 PLUS
 ```
 
-Planned layout (Phase C onward; see docs/05-architecture.md §4): a Rust workspace under `crates/` (codec, link, radio, store, ratflector client/server, simulator) and a desktop UI under `ui/`.
+Current status and how to run it: [docs/phase-c/README.md](docs/phase-c/README.md).
 
 ## Licence
 
@@ -52,4 +63,4 @@ Code: [GPL-3.0-or-later](LICENSE). Protocol specification documents: CC-BY-4.0. 
 
 ## Acknowledgements
 
-The analysis builds on study of [D-RATS](https://github.com/ham-radio-software/D-Rats) (Dan Smith KK7DS and maintainers), [drats2](https://github.com/ham-radio-software/drats2), [ratflectors](https://github.com/ham-radio-software/ratflectors), [MacRats](https://github.com/w9fyi/macrats), and G4KLX's [ircDDBGateway](https://github.com/g4klx/ircDDBGateway) and [MMDVMHost](https://github.com/g4klx/MMDVMHost). No code from these projects is included in this repository.
+The analysis builds on study of [D-RATS](https://github.com/ham-radio-software/D-Rats) (Dan Smith KK7DS and maintainers), [drats2](https://github.com/ham-radio-software/drats2), [ratflectors](https://github.com/ham-radio-software/ratflectors), [MacRats](https://github.com/w9fyi/macrats), and G4KLX's [ircDDBGateway](https://github.com/g4klx/ircDDBGateway) and [MMDVMHost](https://github.com/g4klx/MMDVMHost). No code from these projects is included in this repository. Test vectors include a few sample position sentences from D-RATS's source, and the ICS-213 template uses D-RATS's form and field identifiers so the two interoperate (D-RATS is GPL-3.0-or-later).

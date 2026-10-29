@@ -1,0 +1,124 @@
+# Build installable packages for all three platforms, with the engine
+# (aetherd, aether-cli) bundled inside the app.
+#
+# * Tag vX.Y.Z: signed updater artifacts (required), then publish the
+#   release and the update feed (latest.json) to the public releases repo.
+# * package/** branches or a manual run: the same packages, signed only if
+#   the key is configured, uploaded as workflow artifacts, nothing published.
+#
+# One-time setup (key, secrets, releases repo): docs/releasing.md.
+# Installers are not OS-code-signed yet (no Authenticode / Apple notarisation
+# certificates; Phase F): expect SmartScreen and Gatekeeper warnings.
+name: package
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+    branches: ["package/**"]
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  RELEASES_REPO: KK4ODA/aether-dv-releases
+
+jobs:
+  bundle:
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            target: x86_64-unknown-linux-gnu
+            bundles: deb,rpm,appimage
+          - os: macos-14
+            target: aarch64-apple-darwin
+            bundles: app,dmg
+          - os: windows-2022
+            target: x86_64-pc-windows-msvc
+            bundles: msi,nsis
+    runs-on: ${{ matrix.os }}
+    env:
+      TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+      TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+      UPDATER_PUBKEY: ${{ vars.UPDATER_PUBKEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: System libraries (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libxdo-dev
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Install the Tauri CLI
+        run: cargo install tauri-cli --version "^2" --locked
+      - name: Build the engine
+        run: cargo build --release --locked -p aetherd
+      - name: Prepare the release configuration
+        shell: bash
+        run: |
+          args=(--target "${{ matrix.target }}")
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then args+=(--tag "$GITHUB_REF_NAME" --require-key); fi
+          python3 app/tools/prepare_release.py "${args[@]}"
+      - name: Build bundles
+        working-directory: app/src-tauri
+        run: cargo tauri build --bundles ${{ matrix.bundles }} --config tauri.release.conf.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: aether-dv-${{ matrix.target }}
+          path: |
+            target/release/bundle/**/*.deb
+            target/release/bundle/**/*.rpm
+            target/release/bundle/**/*.AppImage
+            target/release/bundle/**/*.dmg
+            target/release/bundle/**/*.app.tar.gz
+            target/release/bundle/**/*.msi
+            target/release/bundle/**/*.exe
+            target/release/bundle/**/*.sig
+          if-no-files-found: error
+
+  publish:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: bundle
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Collect assets without spaces (GitHub renames them on upload)
+        run: |
+          mkdir assets
+          find dist -type f -print0 | while IFS= read -r -d '' f; do
+            n=$(basename "$f"); cp "$f" "assets/${n// /-}"
+          done
+          ls -la assets
+      - name: Build the update feed
+        run: |
+          tag="$GITHUB_REF_NAME"; version="${tag#v}"
+          notes="docs/releases/$tag.md"
+          test -f "$notes" || { echo "missing release notes $notes"; exit 1; }
+          python3 app/tools/make_latest_json.py assets "$version" \
+            "https://github.com/$RELEASES_REPO/releases/download/$tag" "$notes" latest.json
+          cat latest.json
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
+        run: |
+          tag="$GITHUB_REF_NAME"; version="${tag#v}"
+          pre=(); [[ "$version" == 0.* || "$version" == *-* ]] && pre=(--prerelease)
+          gh release create "$tag" assets/* latest.json --repo "$RELEASES_REPO" \
+            --title "Aether DV $version" --notes-file "docs/releases/$tag.md" "${pre[@]}"
+      - name: Point the update feed at this release
+        env:
+          GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
+        run: |
+          sha=$(gh api "repos/$RELEASES_REPO/contents/latest.json" --jq .sha 2>/dev/null || true)
+          args=(-X PUT "repos/$RELEASES_REPO/contents/latest.json"
+                -f message="Update feed: $GITHUB_REF_NAME" -f content="$(base64 -w0 latest.json)")
+          [ -n "$sha" ] && args+=(-f sha="$sha")
+          gh api "${args[@]}" --jq .commit.html_url

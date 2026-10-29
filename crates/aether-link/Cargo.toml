@@ -1,0 +1,14 @@
+[package]
+name = "aether-link"
+description = "Sans-I/O link layer: legacy D-RATS stateful ARQ (ARQ-1), later ALP and the channel scheduler"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+aether-ddt2 = { path = "../aether-ddt2" }
+
+[lints]
+workspace = true

@@ -1,0 +1,20 @@
+[package]
+name = "aether-rfd"
+description = "Ratflector server core: legacy-compatible DDT2 forwarding with loop safeguards"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+aether-ddt2 = { path = "../aether-ddt2" }
+tokio = { version = "1.53.3", features = ["rt-multi-thread", "net", "io-util", "macros", "sync", "time", "signal"] }
+tracing = "0.1.44"
+tracing-subscriber = "0.3.23"
+
+[lints]
+workspace = true
+
+[dev-dependencies]
+aether-rfl = { path = "../aether-rfl" }

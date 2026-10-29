@@ -15,7 +15,7 @@ Likelihood and impact use H/M/L.
 | R4 | Remote fast-capability cannot be known, so data is sent that the peer can't decode | H | H | Evidence states (unknown/declared/proven); warnings; slow default toward unknown peers | HW-8 matrix |
 | R5 | Legacy receivers mis-handle Layer-1 optimisations (large windows, uncompressed control frames, no warm-up) | M | H | ADR-0003 gate: interop test per optimisation; per-peer clamp | Interop suite failures |
 | R6 | Mixed 0.3.x / 0.4.x nets behave differently (flow control; DR#262) | L | L | **Owner decision D4: 0.4.x only**; 0.3.x best-effort, no test gate | Field reports |
-| R7 | Ratflector loops or amplification caused by Aether bridges or by mixed server meshes | M | H | Cross-link duplicate suppression, hop limits, rate limits, loop simulation suite | Loop-suite frame counts |
+| R7 | Ratflector loops or amplification caused by Aether bridges or by mixed server meshes (simulated: legacy triangle = 1000× amplification in 60 s; mitigated by per-link windows, RF links ≥30 s) | M | H | Cross-link duplicate suppression, hop limits, rate limits, loop simulation suite | Loop-suite frame counts |
 | R8 | Dedup heuristics drop legitimate legacy repeats | M | M | Cross-link-only rule (`04` §5.2); per-link TTL tuning; metrics | Simulated "ok ok" test |
 | R9 | No access to enough real radios for validation | H | H | Recruit beta testers with specific models early; publish a hardware-test kit (procedures + capture tool) | Phase C staffing |
 | R10 | Regulatory: auto-TX data, unattended bridges, identification, third-party traffic differ by country | M | H | Per-jurisdiction notes; control-operator settings; beacon defaults off; ID via radio MYCALL | Pre-release review |
@@ -27,6 +27,7 @@ Likelihood and impact use H/M/L.
 | R16 | The D-RATS community perceives a competing fork | L | M | Engage upstream: share the spec, test vectors and hardware findings; credit sources | Upstream response |
 | R17 | Assumed JARL/Icom facts (e.g. Fast Data framing) prove wrong | M | M | Phase A marks every claim with its evidence level; hardware tests before reliance | — |
 | R18 | Licensing contamination (GPL-2.0-only code, API keys) | L | H | ADR-0008; CI licence scan | CI |
+| R22 | Legacy ARQ wrap and stale-ACK defects (P19/P20) make large transfers to D-RATS stations fail on one side only | M | M | Block sizing ≤256 blocks; RTO discipline; `wrapWarning` in UI; receiver diagnostics; reproduce against real D-RATS in Phase C | Interop test (arq-model-findings reproduction plan) |
 
 ## 2. Milestone roadmap with acceptance criteria
 
@@ -41,6 +42,8 @@ Each phase ends with a review. **A phase is not complete until every criterion h
 - **Exit:** owner review of the open questions in `README.md` §5.
 
 ### Phase B — Architecture (2–4 weeks of design work)
+
+**Status 2026-10-29:** B1–B3 and B5 done; B4 built and audited, **awaiting owner acceptance**. Details: `phase-b/README.md`.
 - B1 ADRs 0001–0008 accepted or amended.
 - B2 Formal state machines (TLA+ or model-based test specs) for legacy ARQ, the scheduler, the ratflector client and message delivery, with legacy defects P1–P18 encoded as negative cases.
 - B3 API schema v0 (engine ↔ UI) and storage schema v0.
@@ -52,14 +55,24 @@ Each phase ends with a review. **A phase is not complete until every criterion h
 Scope is deliberately small: engine, codec, serial adapter, ratflector client, CLI/TUI or minimal UI, durable chat/message store, diagnostics.
 - C1 **Interop (I)**: Aether ⇄ D-RATS 0.4.2 chat, ping, status, ICS-213 form, and a 10 KB file in both directions, via PTY and via a legacy ratflector. 100 % of 50 scripted exchanges.
 - C2 **Ratflector (I)**: reconnect with back-off after server restart and after a NAT-style half-open, detected within 2× the keepalive interval. No message loss for queued items.
-- C3 **Hardware (H)**: HW-0…HW-7 on the **IC-9700 and ID-52** in **DV slow** mode, with results published as a hardware profile.
+- C3 **Hardware (H)**: HW-0…HW-7 on the **IC-9700 and ID-52 PLUS** in **DV slow** mode, with results published as a hardware profile.
 - C4 **Over the air (A)**: one chat + form + 10 KB file between Aether and D-RATS over a real simplex path.
 - C5 **Diagnostics**: `.aecap` capture of every test, replayable in the simulator; support-bundle export.
 - C6 **Baseline measurements**: D-RATS defaults vs Aether Layer-0 (identical parameters) on the same rig. This is the reference for all later claims.
 - **Exit:** C1–C6 at the stated levels.
 
+**Status 2026-10-29 (branch `phase-c`):** everything that can be built and tested without D-RATS or radios is done at Simulated/Interoperability level:
+- the engine
+- legacy chat, ping, version, file and form transfer, ICS-213 and positions
+- ratflector client and server
+- capture and support bundle (C5)
+- `aether-bench` for C1/C6
+- a minimal UI
+
+C1 and C3–C4 need a D-RATS station and the owner's radios, and C6 needs the hardware. Procedures: `phase-c/README.md`. Phase D groundwork (CI-V Fast Data check, read and guarded set) is in place, at Simulated level.
+
 ### Phase D — DV Fast Data
-- D1 Hardware profiles for the **IC-9700 and ID-52** in Fast mode, plus the **TM-D750** (capability determined by test), with HW-2…HW-5 in fast mode.
+- D1 Hardware profiles for the **IC-9700 and ID-52 PLUS** in Fast mode, plus the **TM-D750** (capability determined by test), with HW-2…HW-5 in fast mode.
 - D2 HW-8 compatibility matrix published.
 - D3 End-to-end fast messaging and file transfer Aether ⇄ Aether (A level) and Aether ⇄ D-RATS on fast-configured radios (A level).
 - D4 Performance report: goodput and latency for all workloads in `07` §4, slow vs fast, D-RATS vs Aether Layer-1, with N ≥ 10.

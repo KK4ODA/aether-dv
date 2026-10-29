@@ -1,0 +1,178 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Aether DV — Connections (mockup)</title>
+<link rel="stylesheet" href="app.css">
+<style>
+.conn { display: grid; grid-template-columns: 280px 1fr; height: 100%; }
+.ports { border-right: 1px solid var(--line-hair); overflow: auto; }
+.ports h2 { font-size: var(--fs-sm); font-weight: 600; color: var(--text-2); margin: 0; padding: var(--s4) var(--s5) var(--s2); }
+.ports ul { list-style: none; margin: 0; padding: 0; }
+.ports li a { display: grid; grid-template-columns: 6px 1fr auto; gap: var(--s4); align-items: center; padding: var(--s3) var(--s5) var(--s3) 0;
+  color: var(--text-1); text-decoration: none; }
+.ports li a:hover { background: var(--bg-hover); }
+.ports li a[aria-current="true"] { background: var(--bg-raised); }
+.ports .band { align-self: stretch; }
+.ports .slow .band { background: var(--slow); } .ports .fast .band { background: var(--fast); } .ports .net .band { background: var(--net); } .ports .unk .band { background: var(--line-strong); }
+.ports .sub { display: block; font-size: var(--fs-sm); color: var(--text-2); }
+.ports .add { padding: var(--s4) var(--s5); }
+
+.detail { overflow: auto; padding: var(--s5) var(--s6) var(--s6); max-width: 1040px; }
+.detail-head { display: flex; align-items: baseline; gap: var(--s4); }
+.detail-head h1 { margin: 0; font-size: var(--fs-xl); font-weight: 600; }
+.detail .path { color: var(--text-3); font-size: var(--fs-sm); margin: 2px 0 var(--s5); }
+.cols { display: grid; grid-template-columns: 1.25fr 1fr; gap: var(--s6); }
+section.panel { border-top: 1px solid var(--line-strong); padding-top: var(--s4); margin-bottom: var(--s6); }
+section.panel h2 { font-size: var(--fs-md); font-weight: 600; margin: 0 0 var(--s4); }
+.seg { display: inline-flex; border: 1px solid var(--line-control); border-radius: var(--r-md); overflow: hidden; }
+.seg label { display: inline-flex; align-items: center; gap: 6px; padding: 0 var(--s4); height: 30px; cursor: pointer; border-right: 1px solid var(--line-control); }
+.seg label:last-child { border-right: 0; }
+.seg input { position: absolute; opacity: 0; }
+.seg input:checked + span { color: var(--bg-base); }
+.seg label:has(input:checked) { background: var(--text-1); color: var(--bg-base); font-weight: 600; }
+.seg label:has(input:focus-visible) { outline: 2px solid var(--focus); outline-offset: -2px; }
+.explain { color: var(--text-2); margin: var(--s3) 0 0; max-width: 64ch; }
+.readout { display: grid; grid-template-columns: auto 1fr auto; gap: var(--s2) var(--s4); align-items: center; margin-top: var(--s4);
+  padding: var(--s4); background: var(--bg-raised); border-radius: var(--r-md); }
+.readout .big { font-size: var(--fs-lg); font-weight: 600; color: var(--fast); }
+.peers { width: 100%; border-collapse: collapse; }
+.peers th { text-align: left; font-weight: 500; color: var(--text-3); font-size: var(--fs-sm); padding: 0 0 var(--s2); }
+.peers td { padding: 5px 0; border-top: 1px solid var(--line-hair); vertical-align: top; }
+.peers td:last-child { color: var(--text-2); font-size: var(--fs-sm); }
+.warn { margin-top: var(--s4); border-left: 3px solid var(--pending); padding: var(--s2) var(--s4); color: var(--text-1); background: var(--bg-raised); }
+dl.kv { display: grid; grid-template-columns: max-content 1fr; gap: var(--s2) var(--s5); margin: 0; }
+dl.kv dt { color: var(--text-2); } dl.kv dd { margin: 0; }
+.checks { list-style: none; margin: 0; padding: 0; }
+.checks li { display: grid; grid-template-columns: 20px 1fr auto; gap: var(--s3); padding: 5px 0; border-top: 1px solid var(--line-hair); }
+.checks .src { font-size: var(--fs-xs); color: var(--text-3); white-space: nowrap; }
+.btnrow { display: flex; gap: var(--s3); margin-top: var(--s4); flex-wrap: wrap; }
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="brand"><span class="brand-mark" aria-hidden="true"></span><span class="brand-name">Aether DV</span><span class="brand-call">KK4ODA</span></div>
+
+  <ul class="strip" aria-label="Connections">
+    <li class="plate" data-mode="slow" aria-label="IC-9700, DV slow data, ready, 2 queued">
+      <span class="plate-name">IC-9700</span><span class="plate-mode">◇ Slow</span>
+      <span class="plate-state"><span class="air" aria-hidden="true"><i></i><i class="on-rx"></i></span>Receiving</span>
+      <span class="plate-nums">queue <b>2</b>&ensp;<b>94</b> B/s&ensp;retx <b>3%</b></span>
+    </li>
+    <li class="plate" data-mode="fast" aria-label="ID-52 PLUS, DV fast data, ready, idle">
+      <span class="plate-name">ID-52 PLUS</span><span class="plate-mode">◆ Fast</span>
+      <span class="plate-state"><span class="air" aria-hidden="true"><i></i><i></i></span>Ready</span>
+      <span class="plate-nums">queue <b>0</b>&ensp;last <b>312</b> B/s</span>
+    </li>
+    <li class="plate" data-mode="net" aria-label="Ratflector sewx, internet, connected">
+      <span class="plate-name">sewx ratflector</span><span class="plate-mode">⌁ Internet</span>
+      <span class="plate-state"><span class="air" aria-hidden="true"><i></i><i></i></span>Connected 3 h 12 m</span>
+      <span class="plate-nums">queue <b>0</b>&ensp;14 stations</span>
+    </li>
+    <li class="strip-end"><span>Command palette <kbd>Ctrl K</kbd></span></li>
+  </ul>
+
+  <nav class="rail" aria-label="Sections">
+    <ul>
+      <li><a href="#"><span class="ico" aria-hidden="true">◎</span>Overview</a></li>
+      <li><a href="chat.html"><span class="ico" aria-hidden="true">✉</span>Chat<span class="count" aria-label="5 unread">5</span></a></li>
+      <li><a href="message.html"><span class="ico" aria-hidden="true">▤</span>Messages<span class="count" aria-label="1 unread">1</span></a></li>
+      <li><a href="#"><span class="ico" aria-hidden="true">▦</span>Forms</a></li>
+      <li><a href="transfers.html"><span class="ico" aria-hidden="true">⇅</span>Transfers<span class="count" aria-label="4 active">4</span></a></li>
+      <li><a href="#"><span class="ico" aria-hidden="true">⌖</span>Stations &amp; map</a></li>
+      <li class="sep" role="separator"></li>
+      <li><a href="connections.html" aria-current="page"><span class="ico" aria-hidden="true">⎔</span>Connections</a></li>
+      <li><a href="#"><span class="ico" aria-hidden="true">⚕</span>Diagnostics</a></li>
+      <li><a href="#"><span class="ico" aria-hidden="true">⚙</span>Settings</a></li>
+    </ul>
+  </nav>
+
+    <main class="main conn">
+    <nav class="ports" aria-label="Ports">
+      <h2>Radios</h2>
+      <ul>
+        <li class="slow"><a href="#"><span class="band" aria-hidden="true"></span><span>IC-9700<span class="sub">Slow data, receiving</span></span><span class="st ok"><span class="sr">ready</span></span></a></li>
+        <li class="fast"><a href="#" aria-current="true"><span class="band" aria-hidden="true"></span><span>ID-52 PLUS<span class="sub">Fast data, ready</span></span><span class="st ok"><span class="sr">ready</span></span></a></li>
+        <li class="unk"><a href="#"><span class="band" aria-hidden="true"></span><span>TM-D750<span class="sub">Not connected</span></span><span class="st fail"><span class="sr">absent</span></span></a></li>
+      </ul>
+      <h2>Ratflectors</h2>
+      <ul>
+        <li class="net"><a href="#"><span class="band" aria-hidden="true"></span><span>sewx<span class="sub">Connected, 14 stations</span></span><span class="st ok"><span class="sr">up</span></span></a></li>
+        <li class="net"><a href="#"><span class="band" aria-hidden="true"></span><span>gaares<span class="sub">Retrying in 40 s</span></span><span class="st pending"><span class="sr">backoff</span></span></a></li>
+      </ul>
+      <div class="add"><button class="btn">Add a radio</button> <button class="btn quiet">Add a ratflector</button></div>
+    </nav>
+
+    <section class="detail" aria-labelledby="port-title">
+      <div class="detail-head">
+        <h1 id="port-title">ID-52 PLUS</h1><span class="st ok">Ready</span>
+        <span style="margin-left:auto" class="muted">Handheld, owned by KK4ODA</span>
+      </div>
+      <p class="path">Data over USB-C (/dev/serial/by-id/usb-Icom_ID-52PLUS-if00), control over Bluetooth</p>
+
+      <div class="cols">
+        <div>
+          <section class="panel" aria-labelledby="mode-h">
+            <h2 id="mode-h">Data mode</h2>
+            <div class="seg" role="radiogroup" aria-label="Data mode policy">
+              <label><input type="radio" name="mode"><span>◇ Slow</span></label>
+              <label><input type="radio" name="mode" checked><span>◆ Fast</span></label>
+              <label><input type="radio" name="mode"><span>Auto</span></label>
+            </div>
+            <p class="explain">Fast sends about 3.5 times faster, but stations that only receive slow data can't decode it. Use it for point-to-point links; keep shared nets on Slow.</p>
+            <div class="readout" role="status">
+              <span class="big">◆ Fast data is on</span><span class="muted">Read from the radio over Bluetooth CI-V 6 s ago</span>
+              <button class="btn quiet">Read again</button>
+            </div>
+          </section>
+
+          <section class="panel" aria-labelledby="peer-h">
+            <h2 id="peer-h">Who can receive fast data from this radio</h2>
+            <table class="peers">
+              <thead><tr><th scope="col">Station</th><th scope="col">Fast data</th><th scope="col">Evidence</th></tr></thead>
+              <tbody>
+                <tr><td class="call">KJ4VTR</td><td><span class="st ok">Proven</span></td><td>Acknowledged a fast transfer at 14:06 today</td></tr>
+                <tr><td class="call">N4SHL</td><td><span class="st pending">Declared</span></td><td>Says ID-52A with fast data on; not yet proven</td></tr>
+                <tr><td class="call">W4DRS</td><td><span class="st unknown">Unknown</span></td><td>Runs D-RATS 0.4.2; can't report its radio setting</td></tr>
+                <tr><td class="call">AG4RX</td><td><span class="st fail">Can't receive</span></td><td>IC-2820 has no fast data</td></tr>
+              </tbody>
+            </table>
+            <p class="warn">Sending to W4DRS or AG4RX from this radio won't reach them while fast data is on. Aether will offer to send through the IC-9700 on slow data instead.</p>
+          </section>
+        </div>
+
+        <div>
+          <section class="panel" aria-labelledby="hw-h">
+            <h2 id="hw-h">Radio setup</h2>
+            <ul class="checks">
+              <li><span class="st ok"><span class="sr">done</span></span><span>USB Serialport Function set to DV Data</span><span class="src">checked by Aether</span></li>
+              <li><span class="st ok"><span class="sr">done</span></span><span>Bluetooth Serialport Function set to CI-V</span><span class="src">checked by Aether</span></li>
+              <li><span class="st ok"><span class="sr">done</span></span><span>DV Data TX set to Auto</span><span class="src">read over CI-V</span></li>
+              <li><span class="st pending"><span class="sr">to do</span></span><span>GPS TX mode off, so position beacons don't share the data channel</span><span class="src">you confirm</span></li>
+            </ul>
+            <div class="btnrow"><button class="btn">Show steps on the radio</button><button class="btn">Run hardware tests</button></div>
+          </section>
+
+          <section class="panel" aria-labelledby="meas-h">
+            <h2 id="meas-h">Measured on this radio</h2>
+            <dl class="kv">
+              <dt>Key-up to data</dt><dd>0.71 s typical, 0.94 s worst</dd>
+              <dt>Fast data throughput</dt><dd>312 B/s on the last transfer</dd>
+              <dt>Retransmissions</dt><dd>2.4% over the last hour</dd>
+              <dt>Profile evidence</dt><dd>Hardware-tested, firmware 1.10</dd>
+            </dl>
+            <div class="btnrow"><button class="btn quiet">Open diagnostics</button></div>
+          </section>
+        </div>
+      </div>
+    </section>
+  </main>
+  <div class="drawer" role="status" aria-label="Recent engine activity">
+    <span><time>14:06:44</time>Transmitted 61 bytes on the IC-9700</span>
+    <span><time>14:06:20</time>KJ4VTR heard on the ID-52 PLUS (fast data)</span>
+    <span><time>14:05:58</time>sewx ratflector: 14 stations connected</span>
+  </div>
+</div>
+</body>
+</html>

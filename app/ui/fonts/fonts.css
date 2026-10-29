@@ -1,0 +1,5 @@
+/* IBM Plex (SIL Open Font License 1.1), latin subset, bundled for offline use. */
+@font-face { font-family: "IBM Plex Sans"; font-style: normal; font-weight: 400 600; font-display: swap; src: url(plex-sans-var.woff2) format("woff2"); }
+@font-face { font-family: "IBM Plex Sans Condensed"; font-style: normal; font-weight: 500; font-display: swap; src: url(plex-sans-cond-500.woff2) format("woff2"); }
+@font-face { font-family: "IBM Plex Sans Condensed"; font-style: normal; font-weight: 600; font-display: swap; src: url(plex-sans-cond-600.woff2) format("woff2"); }
+@font-face { font-family: "IBM Plex Mono"; font-style: normal; font-weight: 400; font-display: swap; src: url(plex-mono-400.woff2) format("woff2"); }

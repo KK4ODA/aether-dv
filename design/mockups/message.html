@@ -1,0 +1,174 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Aether DV — Message (mockup)</title>
+<link rel="stylesheet" href="app.css">
+<style>
+.msgview { display: grid; grid-template-columns: 300px 1fr 340px; height: 100%; }
+.list { border-right: 1px solid var(--line-hair); overflow: auto; }
+.folders { display: flex; gap: var(--s2); padding: var(--s3) var(--s5); border-bottom: 1px solid var(--line-hair); flex-wrap: wrap; }
+.folders a { color: var(--text-2); text-decoration: none; padding: 2px 8px; border-radius: var(--r-md); font-size: var(--fs-sm); }
+.folders a[aria-current="true"] { background: var(--bg-select); color: var(--text-1); }
+.items { list-style: none; margin: 0; padding: 0; }
+.items li { padding: var(--s3) var(--s5); border-bottom: 1px solid var(--line-hair); display: grid; gap: 2px; cursor: default; }
+.items li[aria-selected="true"] { background: var(--bg-raised); box-shadow: inset 3px 0 0 var(--text-1); }
+.items .r1 { display: flex; justify-content: space-between; gap: var(--s3); }
+.items .r2 { color: var(--text-2); font-size: var(--fs-sm); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.items .r3 { display: flex; justify-content: space-between; font-size: var(--fs-sm); }
+
+.doc { overflow: auto; padding: var(--s5) var(--s6) var(--s6); }
+.doc-head { display: flex; align-items: baseline; gap: var(--s4); margin-bottom: var(--s4); }
+.doc-head h1 { font-size: var(--fs-xl); font-weight: 600; margin: 0; }
+.doc-actions { margin-left: auto; display: flex; gap: var(--s3); }
+.mid { color: var(--text-3); font-size: var(--fs-sm); margin: 0 0 var(--s5); }
+/* ICS-213 rendered in the paper form's own boxed grid */
+.ics { border: 1px solid var(--line-strong); max-width: 760px; background: var(--bg-raised); }
+.ics-title { display: flex; justify-content: space-between; align-items: baseline; padding: var(--s3) var(--s4); border-bottom: 1px solid var(--line-strong); }
+.ics-title b { font-size: var(--fs-lg); }
+.ics-grid { display: grid; grid-template-columns: repeat(6, 1fr); }
+.box { border-right: 1px solid var(--line-hair); border-bottom: 1px solid var(--line-hair); padding: 6px var(--s4) var(--s3); min-height: 52px; }
+.box:last-child { border-right: 0; }
+.box .k { display: block; font-size: var(--fs-xs); color: var(--text-3); margin-bottom: 2px; }
+.box .v { font-size: var(--fs-md); }
+.c2 { grid-column: span 2; } .c3 { grid-column: span 3; } .c4 { grid-column: span 4; } .c6 { grid-column: span 6; }
+.box.body { min-height: 150px; } .box.body .v { white-space: pre-line; max-width: 70ch; }
+.box.edge { border-right: 0; }
+
+.delivery { border-left: 1px solid var(--line-hair); overflow: auto; padding: var(--s5); }
+.delivery h2 { font-size: var(--fs-md); font-weight: 600; margin: 0 0 var(--s4); }
+.verdict { border: 1px solid var(--line-strong); border-radius: var(--r-md); padding: var(--s4); margin-bottom: var(--s5); background: var(--bg-raised); }
+.verdict .st { font-size: var(--fs-lg); font-weight: 600; }
+.verdict p { margin: var(--s3) 0 0; color: var(--text-2); }
+/* hop ladder: a genuine sequence, so it is drawn as one */
+.ladder { list-style: none; margin: 0; padding: 0; position: relative; }
+.ladder::before { content: ""; position: absolute; left: 7px; top: 8px; bottom: 56px; width: 2px; background: var(--line-strong); }
+.ladder li { position: relative; padding: 0 0 var(--s5) 28px; }
+.ladder li::before { content: ""; position: absolute; left: 1px; top: 4px; width: 10px; height: 10px; border-radius: 50%;
+  background: var(--bg-base); border: 2px solid var(--line-strong); }
+.ladder li.done::before { background: var(--text-1); border-color: var(--text-1); }
+.ladder li.fail::before { background: var(--fail); border-color: var(--fail); }
+.ladder li.open::before { border-style: dashed; border-color: var(--unknown); }
+.ladder .when { color: var(--text-3); font-size: var(--fs-sm); }
+.ladder .what { display: block; }
+.ladder .how { display: flex; gap: var(--s3); align-items: center; flex-wrap: wrap; margin-top: 3px; font-size: var(--fs-sm); color: var(--text-2); }
+.delivery .acts { display: flex; gap: var(--s3); margin-top: var(--s3); }
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="brand"><span class="brand-mark" aria-hidden="true"></span><span class="brand-name">Aether DV</span><span class="brand-call">KK4ODA</span></div>
+
+  <ul class="strip" aria-label="Connections">
+    <li class="plate" data-mode="slow" aria-label="IC-9700, DV slow data, ready, 2 queued">
+      <span class="plate-name">IC-9700</span><span class="plate-mode">◇ Slow</span>
+      <span class="plate-state"><span class="air" aria-hidden="true"><i></i><i class="on-rx"></i></span>Receiving</span>
+      <span class="plate-nums">queue <b>2</b>&ensp;<b>94</b> B/s&ensp;retx <b>3%</b></span>
+    </li>
+    <li class="plate" data-mode="fast" aria-label="ID-52 PLUS, DV fast data, ready, idle">
+      <span class="plate-name">ID-52 PLUS</span><span class="plate-mode">◆ Fast</span>
+      <span class="plate-state"><span class="air" aria-hidden="true"><i></i><i></i></span>Ready</span>
+      <span class="plate-nums">queue <b>0</b>&ensp;last <b>312</b> B/s</span>
+    </li>
+    <li class="plate" data-mode="net" aria-label="Ratflector sewx, internet, connected">
+      <span class="plate-name">sewx ratflector</span><span class="plate-mode">⌁ Internet</span>
+      <span class="plate-state"><span class="air" aria-hidden="true"><i></i><i></i></span>Connected 3 h 12 m</span>
+      <span class="plate-nums">queue <b>0</b>&ensp;14 stations</span>
+    </li>
+    <li class="strip-end"><span>Command palette <kbd>Ctrl K</kbd></span></li>
+  </ul>
+
+  <nav class="rail" aria-label="Sections">
+    <ul>
+      <li><a href="#"><span class="ico" aria-hidden="true">◎</span>Overview</a></li>
+      <li><a href="chat.html"><span class="ico" aria-hidden="true">✉</span>Chat<span class="count" aria-label="5 unread">5</span></a></li>
+      <li><a href="message.html" aria-current="page"><span class="ico" aria-hidden="true">▤</span>Messages<span class="count" aria-label="1 unread">1</span></a></li>
+      <li><a href="#"><span class="ico" aria-hidden="true">▦</span>Forms</a></li>
+      <li><a href="transfers.html"><span class="ico" aria-hidden="true">⇅</span>Transfers<span class="count" aria-label="4 active">4</span></a></li>
+      <li><a href="#"><span class="ico" aria-hidden="true">⌖</span>Stations &amp; map</a></li>
+      <li class="sep" role="separator"></li>
+      <li><a href="connections.html"><span class="ico" aria-hidden="true">⎔</span>Connections</a></li>
+      <li><a href="#"><span class="ico" aria-hidden="true">⚕</span>Diagnostics</a></li>
+      <li><a href="#"><span class="ico" aria-hidden="true">⚙</span>Settings</a></li>
+    </ul>
+  </nav>
+
+    <main class="main msgview">
+    <section class="list" aria-label="Message list">
+      <nav class="folders" aria-label="Folders">
+        <a href="#">Inbox 1</a><a href="#" aria-current="true">Outbox 2</a><a href="#">Sent</a><a href="#">Drafts</a><a href="#">Archive</a>
+      </nav>
+      <ul class="items" role="listbox" aria-label="Outbox">
+        <li role="option" aria-selected="true">
+          <div class="r1"><span class="call">EOC-1</span><span class="faint">14:06</span></div>
+          <div class="r2">ICS-213 Shelter 3 supply request</div>
+          <div class="r3"><span class="st unknown">Unconfirmed</span><span class="faint">Immediate</span></div>
+        </li>
+        <li role="option" aria-selected="false">
+          <div class="r1"><span class="call">EOC-1</span><span class="faint">14:09</span></div>
+          <div class="r2">ICS-213 Generator status, Shelter 3</div>
+          <div class="r3"><span class="st pending">Queued, next try in 40 s</span><span class="faint">Priority</span></div>
+        </li>
+        <li role="option" aria-selected="false">
+          <div class="r1"><span class="call">KJ4VTR</span><span class="faint">13:51</span></div>
+          <div class="r2">ICS-213 Fuel pickup, county garage</div>
+          <div class="r3"><span class="st ok">Delivered</span><span class="faint">Routine</span></div>
+        </li>
+      </ul>
+    </section>
+
+    <article class="doc" aria-labelledby="msg-title">
+      <div class="doc-head">
+        <h1 id="msg-title">Shelter 3 supply request</h1>
+        <div class="doc-actions">
+          <button class="btn">Reply</button><button class="btn">Forward</button><button class="btn quiet">Export</button>
+        </div>
+      </div>
+      <p class="mid">Message ID N4SHL.1c9f3a2.4be1, relayed by KK4ODA</p>
+      <div class="ics" role="group" aria-label="ICS-213 general message">
+        <div class="ics-title"><b>General message (ICS 213)</b><span class="muted">Priority: Immediate</span></div>
+        <div class="ics-grid">
+          <div class="box c4"><span class="k">1. Incident name</span><span class="v">Chattahoochee flooding, October 2026</span></div>
+          <div class="box c2 edge"><span class="k">Date and time</span><span class="v">2026-10-29 14:05</span></div>
+          <div class="box c3"><span class="k">2. To (name and position)</span><span class="v">EOC-1, Logistics Section Chief</span></div>
+          <div class="box c3 edge"><span class="k">3. From (name and position)</span><span class="v">M. Ortiz, Shelter 3 Manager</span></div>
+          <div class="box c6 edge"><span class="k">4. Subject</span><span class="v">Shelter 3 supply request</span></div>
+          <div class="box c6 edge body"><span class="k">7. Message</span><span class="v">Shelter 3 (Gainesville HS) at 212 occupants, capacity 240.
+Request by 18:00: 40 cots, 2 pallets bottled water, 25 gal diesel for the generator.
+Generator currently at 30% fuel. Contact on site: M. Ortiz.</span></div>
+          <div class="box c3"><span class="k">8. Approved by</span><span class="v">M. Ortiz, Shelter Manager</span></div>
+          <div class="box c3 edge"><span class="k">Reply requested</span><span class="v">Yes</span></div>
+        </div>
+      </div>
+    </article>
+
+    <aside class="delivery" aria-labelledby="dl-title">
+      <h2 id="dl-title">Delivery</h2>
+      <div class="verdict" role="status">
+        <span class="st unknown">Unconfirmed at EOC-1</span>
+        <p>The next hop, K4EOC, accepted the message. K4EOC runs D-RATS 0.4.2, which cannot send delivery receipts, so Aether can't confirm EOC-1 received it.</p>
+        <div class="acts"><button class="btn">Ask K4EOC to confirm by chat</button></div>
+      </div>
+      <ol class="ladder" aria-label="Delivery steps">
+        <li class="done"><span class="when">14:05:40</span><span class="what">Received from <span class="call">N4SHL</span>, stored</span>
+          <span class="how"><span class="tag slow">◇ IC-9700 Slow</span>4 blocks, no retries</span></li>
+        <li class="done"><span class="when">14:05:41</span><span class="what">Queued for EOC-1, route via <span class="call">K4EOC</span></span>
+          <span class="how">Static route from routes</span></li>
+        <li class="fail"><span class="when">14:05:44</span><span class="what">Attempt 1 on the IC-9700 failed</span>
+          <span class="how">K4EOC not heard on RF for 18 minutes</span></li>
+        <li class="done"><span class="when">14:06:02</span><span class="what">Handed off to <span class="call">K4EOC</span></span>
+          <span class="how"><span class="tag net">⌁ sewx ratflector</span>Acknowledged by K4EOC's D-RATS (hop only)</span></li>
+        <li class="open"><span class="when">Waiting</span><span class="what">Delivered to EOC-1</span>
+          <span class="how">Needs a receipt from an Aether station; none possible here</span></li>
+      </ol>
+    </aside>
+  </main>
+  <div class="drawer" role="status" aria-label="Recent engine activity">
+    <span><time>14:06:44</time>Transmitted 61 bytes on the IC-9700</span>
+    <span><time>14:06:20</time>KJ4VTR heard on the ID-52 PLUS (fast data)</span>
+    <span><time>14:05:58</time>sewx ratflector: 14 stations connected</span>
+  </div>
+</div>
+</body>
+</html>

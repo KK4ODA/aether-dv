@@ -1,0 +1,16 @@
+[workspace]
+resolver = "2"
+members = ["crates/*", "spikes/*", "app/src-tauri"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.80"
+license = "GPL-3.0-or-later"
+repository = "https://github.com/KK4ODA/aether-dv"
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+
+[profile.release]
+lto = "thin"

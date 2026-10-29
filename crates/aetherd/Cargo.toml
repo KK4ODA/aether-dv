@@ -1,0 +1,42 @@
+[package]
+name = "aetherd"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+aether-civ = { version = "0.1.0", path = "../aether-civ" }
+aether-ddt2 = { version = "0.1.0", path = "../aether-ddt2" }
+aether-forms = { version = "0.1.0", path = "../aether-forms" }
+aether-geo = { version = "0.1.0", path = "../aether-geo" }
+aether-link = { version = "0.1.0", path = "../aether-link" }
+aether-rfl = { version = "0.1.0", path = "../aether-rfl" }
+aether-store = { version = "0.1.0", path = "../aether-store" }
+flate2 = { version = "1.1.10", default-features = false, features = ["rust_backend"] }
+futures-util = "0.3.34"
+getrandom = "0.3.4"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+serialport = { version = "4.10.1", default-features = false }
+sha2 = "0.10.9"
+socket2 = { version = "0.6.5", features = ["all"] }
+tokio = { version = "1.53.3", features = ["full"] }
+tokio-tungstenite = "0.29.0"
+toml = "1.0.7"
+tracing = "0.1.44"
+tracing-subscriber = "0.3.23"
+tungstenite = "0.29.0"
+uuid = { version = "1.29.0", features = ["v7"] }
+
+[lints]
+workspace = true
+
+[dev-dependencies]
+aether-rfd = { path = "../aether-rfd" }
+socket2 = { version = "0.6.5", features = ["all"] }
+tempfile = "3.27.0"
+
+[target.'cfg(target_os = "linux")'.dev-dependencies]
+nix = { version = "0.31.3", features = ["term", "fs"] }
