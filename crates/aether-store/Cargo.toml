@@ -1,0 +1,17 @@
+[package]
+name = "aether-store"
+description = "Durable SQLite storage for the Aether DV engine (ADR-0007)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+rusqlite = { version = "0.40.2", features = ["bundled"] }
+
+[lints]
+workspace = true
+
+[dev-dependencies]
+tempfile = "3.27.0"
