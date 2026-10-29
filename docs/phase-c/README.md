@@ -9,6 +9,7 @@ Branch: `phase-c` (built on `phase-b`). Validation level of everything here: **S
 | `aetherd --config FILE` | Engine. Serial radio ports (half-duplex scheduler) and ratflector ports (legacy handshake, back-off, TCP keepalive). Legacy D-RATS behaviour on chat (session 1) and RPC (session 2): chat, ping/echo replies (broadcast replies rate-limited), status, `RPCGetVersion` with the Aether capability token. Durable SQLite log. Legacy file and form transfer (control NEW/ACK/END, offer and `OK`, ARQ-1) in both directions; received files go to `files_dir`. ICS-213 messages: compose, send directly to a station, receive into the inbox (D-RATS form XML, stored in the database), with the delivery states of SM-7. Position reports (NMEA style and DPRS, from chat lines and from the radio's own GPS-TX output) are parsed, checksum-checked and stored; our own position is sent only on request. Local JSON-RPC/WebSocket API with a token. |
 | `aether-cli` | Terminal client: `ports`, `stations`, `send PORT DST TEXT`, `history`, `ping`, `version`, `send-file PORT CALL PATH`, `transfers [all]`, `cancel ID`, `ics213 CALL SUBJECT MESSAGE [field=value…]`, `msg-send ID [PORT]`, `messages [FOLDER]`, `msg ID`, `positions [CALL]`, `send-position PORT [dprs|nmea]`, `capture-start PORT`, `capture-stop PORT`, `log [N]`, `bundle [captures]`, `tail`. |
 | `aether-rfd` | Ratflector server, legacy-compatible, with loop safeguards and per-client limits. |
+| `aether-bench` | Scripted interop/performance runs against one peer through a running `aetherd`: ping, version, 1 KB / 10 KB / 50 KB file, ICS-213, N rounds; Markdown summary plus a JSON report. Every test is one an unattended D-RATS station answers by itself. |
 | `aecap` | Reads a wire capture: `aecap show FILE [--hex]` decodes every frame and stray byte run in time order; `aecap stats FILE` counts them. |
 | `serial-spike` | Receive-only port lister and hex monitor, for hardware test HW-0/HW-1. |
 
@@ -56,6 +57,19 @@ To try it on a ratflector or over RF once chat works:
 From D-RATS, send a file or a form to your callsign; it appears in `received/` (or `received/forms/`) next to the database, and in `aether-cli tail`.
 
 A finding from building this: the stale-ACK guard in ARQ-1 (P20) originally ignored any ACK that arrived before the *estimated* end of our transmission. On a path faster than the estimate (a ratflector, or a radio faster than 119 B/s) that stalled every window until the RTO. The guard now uses half the estimated air time: stale and duplicated ACKs, which arrive right after a burst starts, are still caught (test `faster_than_estimated_path_is_not_stalled`). HW-4 timing measurements will tell us how good the estimate is.
+
+## Scripted interop run (C1, C6)
+
+D-RATS answers pings and version requests and accepts files and forms automatically, so most of C1 can run unattended against a D-RATS station:
+
+```bash
+./target/release/aether-bench --token-file aetherd.token --port net --peer W4DRS --rounds 50 --out c1-ratflector.json
+./target/release/aether-bench --token-file aetherd.token --port IC-9700 --peer W4DRS --rounds 10 --gap 5 --out c1-rf-slow.json
+```
+
+It prints a table (success %, median and p90 time, goodput) and exits non-zero if anything failed. For C1, the criterion is 100% of 50 exchanges per test. The JSON report plus a support bundle (`aether-cli bundle captures`) is the evidence. Exchanges D-RATS can't start on its own still need a person at the D-RATS station: D-RATS→Aether chat, form and file, and the status message.
+
+For C6 (baseline), run the same suite with D-RATS on both ends using its defaults, timed by hand or from its log, then with Aether on one end. Use the same radios, path and settings.
 
 ## Positions
 

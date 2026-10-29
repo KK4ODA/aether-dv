@@ -26,49 +26,24 @@
 //!   tail                          print chat, port, station and transfer events live
 //! ```
 
-use std::net::TcpStream;
+use std::time::Duration;
 
+use aetherd::client;
 use serde_json::{json, Value};
-use tungstenite::{connect, stream::MaybeTlsStream, Message, WebSocket};
-
-type Ws = WebSocket<MaybeTlsStream<TcpStream>>;
 
 fn die(msg: &str) -> ! {
     eprintln!("{msg}");
     std::process::exit(1)
 }
 
-struct Client {
-    ws: Ws,
-    next: u64,
-}
+/// The API client, exiting with the error message on failure.
+struct Client(client::Client);
 
 impl Client {
     fn call(&mut self, method: &str, params: Value) -> Value {
-        self.next += 1;
-        let id = self.next;
-        let req = json!({ "jsonrpc": "2.0", "id": id, "method": method, "params": params });
-        self.ws
-            .send(Message::text(req.to_string()))
-            .unwrap_or_else(|e| die(&format!("send: {e}")));
-        loop {
-            let m = self
-                .ws
-                .read()
-                .unwrap_or_else(|e| die(&format!("read: {e}")));
-            let Message::Text(t) = m else { continue };
-            let v: Value = serde_json::from_str(&t).unwrap_or(Value::Null);
-            if v.get("id") == Some(&json!(id)) {
-                if let Some(e) = v.get("error") {
-                    die(&format!(
-                        "error {}: {}",
-                        e["code"],
-                        e["message"].as_str().unwrap_or("")
-                    ));
-                }
-                return v["result"].clone();
-            }
-        }
+        self.0
+            .call(method, params)
+            .unwrap_or_else(|e| die(&e.to_string()))
     }
 }
 
@@ -148,13 +123,9 @@ fn main() {
         .unwrap_or_else(|e| die(&format!("cannot read token {}: {e}", token_file.display())))
         .trim()
         .to_string();
-    let (ws, _) = connect(format!("ws://{api}"))
-        .unwrap_or_else(|e| die(&format!("cannot connect to aetherd at {api}: {e}")));
-    let mut c = Client { ws, next: 0 };
-    let hello = c.call(
-        "system.hello",
-        json!({ "clientName": "aether-cli", "apiVersion": "0.1.0", "token": token }),
-    );
+    let mut c =
+        Client(client::Client::connect(&api, &token, "aether-cli").unwrap_or_else(|e| die(&e)));
+    let hello = c.0.hello.clone();
     let cmd = args.first().cloned().unwrap_or_default();
     match cmd.as_str() {
         "ports" => {
@@ -300,10 +271,10 @@ fn main() {
             c.call("events.subscribe", json!({ "topics": ["chat.line", "port.state", "station.heard", "transfer.progress", "message.state", "station.position", "engine.event"] }));
             eprintln!("connected to aetherd {} as {}", hello["engineVersion"], hello["profile"]);
             loop {
-                let m = c.ws.read().unwrap_or_else(|e| die(&format!("read: {e}")));
-                let Message::Text(t) = m else { continue };
-                let v: Value = serde_json::from_str(&t).unwrap_or(Value::Null);
-                let p = &v["params"];
+                let Some(p) = c.0.next_event(Duration::from_secs(3600)).unwrap_or_else(|e| die(&e.to_string())) else {
+                    continue;
+                };
+                let p = &p;
                 match p["topic"].as_str() {
                     Some("chat.line") => println!("{}", line(&p["data"])),
                     Some("transfer.progress") => println!("  {}", transfer(&p["data"])),

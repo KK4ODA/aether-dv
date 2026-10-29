@@ -8,11 +8,13 @@
 //! * [`inbox`]: safe storage of received files
 //! * [`capture`]: `.aecap` wire capture
 //! * [`bundle`]: support bundle (tar)
+//! * [`client`]: blocking API client (CLI tools)
 //! * [`api`]: local JSON-RPC 2.0 over WebSocket (subset of API v0)
 
 pub mod api;
 pub mod bundle;
 pub mod capture;
+pub mod client;
 pub mod config;
 pub mod engine;
 pub mod inbox;
