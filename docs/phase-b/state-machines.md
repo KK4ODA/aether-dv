@@ -178,6 +178,7 @@ Negative cases:
 - **N6.2** (R5) 100 clients reconnecting after a server restart spread over ≥30 s (jitter).
 - **N6.3** A banner split across TCP segments.
 - **N6.4** The server sends 200 to USER: do not send PASS (fixes a legacy quirk; verify no legacy server requires it).
+- **N6.5** Platform timing: on Windows a refused connection to a closed port takes ~2 s to fail, where Linux and macOS fail immediately (observed in CI). The driver must use an explicit connect timeout and must not assume connect failures are instant.
 
 ## SM-7 Message delivery state (`aether-msg`)
 

@@ -150,7 +150,9 @@ fn refused_connection_backs_off() {
         .local_addr()
         .unwrap()
         .port();
-    let (c, log, _) = drive(Config::new("KK4ODA"), port, Duration::from_millis(400));
+    // Windows takes ~2 s to report "connection refused" for a closed local
+    // port (it retries the SYN); Linux and macOS refuse immediately.
+    let (c, log, _) = drive(Config::new("KK4ODA"), port, Duration::from_secs(5));
     assert_eq!(c.state(), State::Backoff);
     assert!(log.iter().any(|a| matches!(a, Action::Retrying { .. })));
 }
