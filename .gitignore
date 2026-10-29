@@ -22,3 +22,5 @@ __pycache__/
 *.swp
 .DS_Store
 Thumbs.db
+
+# Cargo lockfile is committed (applications); build output ignored above
