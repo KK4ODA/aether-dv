@@ -2,7 +2,7 @@
 
 A modern, open-source D-STAR data communications platform for amateur radio. It aims to be an independent successor to D-RATS: interoperable with existing D-RATS stations and ratflectors, and supporting both conventional DV slow data and Icom DV Fast Data.
 
-> **Status: Phase A (technical investigation) complete; Phase B (architecture) in review.**
+> **Status: Phase A (technical investigation) complete; owner decisions recorded ([docs/decisions.md](docs/decisions.md)); Phase B (architecture) next.**
 > There is no application code yet, by design. Nothing in this repository has been tested on radio hardware or against a running D-RATS installation.
 
 ## Goals, in priority order
@@ -48,7 +48,7 @@ Planned layout (Phase C onward; see docs/05-architecture.md §4): a Rust workspa
 
 ## Licence
 
-Not yet chosen; [ADR-0008](docs/adr/0008-licence.md) proposes GPL-3.0-or-later for code and CC-BY-4.0 for the protocol specification. Until a LICENSE file is added, all rights are reserved by the authors.
+Code: [GPL-3.0-or-later](LICENSE). Protocol specification documents: CC-BY-4.0. See [ADR-0008](docs/adr/0008-licence.md).
 
 ## Acknowledgements
 

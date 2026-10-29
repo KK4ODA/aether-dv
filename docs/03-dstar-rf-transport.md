@@ -109,6 +109,7 @@ Unknowns about the control path, all hardware-test items:
 | IC-7100, IC-9100, IC-R30, ID-31/ID-51 (non-PLUS), ID-880/IC-80/IC-92/IC-2820 etc. | Yes | **No** | — | various (IC-91/92/2820 at 38400 per D-RATS wiki) | — | n/a |
 | **Kenwood TH-D74** | **Receive only (reported)** | Yes, "Data Mode", reportedly Icom-compatible [COMM: MMDVMHost#470] | — | USB (`ttyACM`, D-Rats#309) | Yes | n/a |
 | **Kenwood TH-D75** | Reported as for TH-D74 [COMM] | Yes (manual wording "fast data TX") [COMM: macrats] | Menu 614 ≠ Off required [COMM] | USB-C CDC (DTR must be asserted) | SPP via RFCOMM ch. 2 (Menu 984) | n/a |
+| **Kenwood TM-D750 / TM-D750E** (2026 mobile; owner has one) | **[UNK]** | **[UNK]** | Released Aug 2026 (Kenwood press release 2026-07-30) | USB, Bluetooth; D-STAR "Reflector Terminal Mode" over USB/BT uses MMDVM commands; built-in KISS TNC for APRS [retailer listings] | Yes | **[UNK]**; no documented control path found |
 
 Matrix maintenance: this table becomes `profiles/*.toml` in the codebase, and each cell carries its evidence level. The UI shows "unverified" for anything below Hardware level.
 

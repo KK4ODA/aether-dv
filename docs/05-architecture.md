@@ -185,11 +185,11 @@ Mode policy (operator-visible, per port):
 
 | ADR | Title | Status |
 |---|---|---|
-| 0001 | Rust engine + Tauri 2 UI, engine as separate process | Proposed |
-| 0002 | Legacy DDT2 as mandatory baseline; positional session ids preserved | Proposed |
+| 0001 | Rust engine + Tauri 2 UI, engine as separate process | **Accepted** |
+| 0002 | Legacy DDT2 as mandatory baseline; positional session ids preserved | **Accepted** |
 | 0003 | Sender-local legacy-wire optimisations, gated by interop tests | Proposed |
 | 0004 | ALP inside DDT2, capability discovery via RPCGetVersion | Proposed |
-| 0005 | Fast Data = radio setting + ModeProfile; no automatic radio switching without a documented control path | Proposed |
-| 0006 | UI framework (Svelte 5) and design-token system | Proposed |
+| 0005 | Fast Data = radio setting + ModeProfile; no automatic radio switching without a documented control path | **Accepted** |
+| 0006 | UI framework (Svelte 5) and design-token system | **Accepted** |
 | 0007 | SQLite WAL durable store, append-only delivery journal | Proposed |
-| 0008 | Licence: GPL-3.0-or-later | Proposed |
+| 0008 | Licence: GPL-3.0-or-later | **Accepted** |

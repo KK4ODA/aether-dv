@@ -155,7 +155,13 @@ Rules:
 - Contrast: all text is at least WCAG AA against its surface; the light theme must be verified separately.
 - No colour-only state; reduced-motion is respected; TX/RX indicators use a steady state, not blinking.
 
-## 6. Open UX questions for the owner
+## 6. UX decisions (owner, 2026-10-29)
+
+- Launch screen: **Chat** (D6).
+- Multi-port chat: **per-port channels plus an optional merged "All traffic" view** (D7).
+- Forms: **ICS-213 only** in the first release; designer deferred (D8).
+
+### Original questions (for the record)
 
 1. Primary screen at launch: Chat (net-centric) or Overview (dashboard)? The proposal is **Chat**, with Overview one keystroke away.
 2. Does a multi-port station (one radio + two ratflectors) want a merged net view, or strictly per-port channels? The proposal is per-port channels plus an optional "All traffic" merged view.

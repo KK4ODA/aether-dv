@@ -14,7 +14,7 @@ Likelihood and impact use H/M/L.
 | R3 | Fast Data real-world goodput is far below 3480 bps (overhead, radio pacing, loss without FEC) | M | M | Measure first (Phase D); tune ModeProfile; don't promise ratios | HW-5, HW-7 results |
 | R4 | Remote fast-capability cannot be known, so data is sent that the peer can't decode | H | H | Evidence states (unknown/declared/proven); warnings; slow default toward unknown peers | HW-8 matrix |
 | R5 | Legacy receivers mis-handle Layer-1 optimisations (large windows, uncompressed control frames, no warm-up) | M | H | ADR-0003 gate: interop test per optimisation; per-peer clamp | Interop suite failures |
-| R6 | Mixed 0.3.x / 0.4.x nets behave differently (flow control; DR#262) | M | M | Test against both if 0.3.x is still in use; ask the community | Field reports |
+| R6 | Mixed 0.3.x / 0.4.x nets behave differently (flow control; DR#262) | L | L | **Owner decision D4: 0.4.x only**; 0.3.x best-effort, no test gate | Field reports |
 | R7 | Ratflector loops or amplification caused by Aether bridges or by mixed server meshes | M | H | Cross-link duplicate suppression, hop limits, rate limits, loop simulation suite | Loop-suite frame counts |
 | R8 | Dedup heuristics drop legitimate legacy repeats | M | M | Cross-link-only rule (`04` §5.2); per-link TTL tuning; metrics | Simulated "ok ok" test |
 | R9 | No access to enough real radios for validation | H | H | Recruit beta testers with specific models early; publish a hardware-test kit (procedures + capture tool) | Phase C staffing |
@@ -52,14 +52,14 @@ Each phase ends with a review. **A phase is not complete until every criterion h
 Scope is deliberately small: engine, codec, serial adapter, ratflector client, CLI/TUI or minimal UI, durable chat/message store, diagnostics.
 - C1 **Interop (I)**: Aether ⇄ D-RATS 0.4.2 chat, ping, status, ICS-213 form, and a 10 KB file in both directions, via PTY and via a legacy ratflector. 100 % of 50 scripted exchanges.
 - C2 **Ratflector (I)**: reconnect with back-off after server restart and after a NAT-style half-open, detected within 2× the keepalive interval. No message loss for queued items.
-- C3 **Hardware (H)**: HW-0…HW-7 on at least one Icom radio in **DV slow** mode, with results published as a hardware profile.
+- C3 **Hardware (H)**: HW-0…HW-7 on the **IC-9700 and ID-52** in **DV slow** mode, with results published as a hardware profile.
 - C4 **Over the air (A)**: one chat + form + 10 KB file between Aether and D-RATS over a real simplex path.
 - C5 **Diagnostics**: `.aecap` capture of every test, replayable in the simulator; support-bundle export.
 - C6 **Baseline measurements**: D-RATS defaults vs Aether Layer-0 (identical parameters) on the same rig. This is the reference for all later claims.
 - **Exit:** C1–C6 at the stated levels.
 
 ### Phase D — DV Fast Data
-- D1 Hardware profiles for ≥2 Fast-Data radios (e.g. IC-705 and ID-52/ID-52 PLUS or IC-9700), with HW-2…HW-5 in fast mode.
+- D1 Hardware profiles for the **IC-9700 and ID-52** in Fast mode, plus the **TM-D750** (capability determined by test), with HW-2…HW-5 in fast mode.
 - D2 HW-8 compatibility matrix published.
 - D3 End-to-end fast messaging and file transfer Aether ⇄ Aether (A level) and Aether ⇄ D-RATS on fast-configured radios (A level).
 - D4 Performance report: goodput and latency for all workloads in `07` §4, slow vs fast, D-RATS vs Aether Layer-1, with N ≥ 10.
@@ -69,7 +69,7 @@ Scope is deliberately small: engine, codec, serial adapter, ratflector client, C
 ### Phase E — Enhanced transport and full UI
 - E1 Layer-1 optimisations individually gated (ADR-0003), each with a measured gain ≥10 % or dropped.
 - E2 ALP v1 (receipts, resumable content-addressed transfers, SACK) **only for features whose need is shown by Phase C/D data**.
-- E3 Full UI: messaging, forms (ICS-213/214, HICS-260, Radiogram), transfers, map with offline tiles, connections, diagnostics; screen-reader pass.
+- E3 Full UI: messaging, forms (**ICS-213** for the first release; others after), transfers, map with offline tiles, connections, diagnostics; screen-reader pass.
 - E4 Crash/power-loss tests pass (ADR-0007).
 - **Exit:** a 72-hour soak test with fault injection, with no lost queued messages and no stuck transfers.
 

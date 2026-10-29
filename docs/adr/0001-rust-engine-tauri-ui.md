@@ -1,6 +1,6 @@
 # ADR-0001: Rust engine as a separate process + Tauri 2 desktop UI
 
-Status: Proposed · Date: 2026-10-29
+Status: **Accepted** 2026-10-29 (owner decision) · Proposed: 2026-10-29
 
 ## Context
 The RF engine must survive UI failure, run headless on a Raspberry Pi, and share code with the ratflector server. It needs reliable serial I/O, explicit concurrency, memory safety, and painless installers on Windows, macOS and Linux. The legacy Python/GTK stack failed on packaging (no native Windows build, MSYS2/MobaXterm workarounds), on accessibility on macOS (DR#315), and on headless operation (DR#241). drats2 stalled on Python packaging boilerplate.

@@ -13,7 +13,8 @@ Date: 2026-10-29 · Status: **research deliverable, no production code** · Lice
 | [07-test-and-validation-plan.md](07-test-and-validation-plan.md) | Validation levels, simulator, first hardware tests, performance protocol, model predictions |
 | [08-risks-and-roadmap.md](08-risks-and-roadmap.md) | Risk register, phase plan with acceptance criteria |
 | [09-licensing.md](09-licensing.md) | Licence analysis and recommendation |
-| [adr/](adr/) | ADR-0001 … 0008 |
+| [adr/](adr/) | ADR-0001 … 0008 (0001, 0002, 0005, 0006, 0008 Accepted) |
+| [decisions.md](decisions.md) | Owner decision log |
 | [tools/](tools/) | `model_ddt2.py` (independent DDT2 model, matches upstream vectors); `arq_model.py` (throughput model) |
 | [research-notes/](research-notes/) | Raw research notes: issue-history catalogue (`issues_history.md`), Fast Data hardware research (`fastdata_research.md`) |
 
@@ -167,7 +168,11 @@ See `08`. Top risks:
 - Fast Data on/off **is** programmatically controllable on current Icom models (documented CI-V). It is not menu-only.
 - Kenwood TH-D74/D75 reportedly support Fast Data but **not slow-data transmit**. Icom↔Kenwood interop therefore needs Fast Data (community report; verify).
 
-## 5. Open questions for the owner (Phase A exit)
+## 5. Owner decisions (2026-10-29)
+
+All Phase A questions are answered; see [decisions.md](decisions.md). In short: Rust + Tauri; GPL-3.0-or-later; test radios IC-9700, ID-52 and Kenwood TM-D750; D-RATS 0.4.x only; Slow default with Fast opt-in; Chat as the launch screen; per-port chat with an optional merged view; ICS-213 only in the first release.
+
+### Original questions (for the record)
 1. **Stack**: accept Rust + Tauri (ADR-0001), or weight contributor familiarity higher (PySide6)?
 2. **Licence**: accept GPL-3.0-or-later (ADR-0008)?
 3. **Hardware**: which radios do you (and willing testers) own? Phase C needs at least one Icom DV radio plus a second D-STAR station. Phase D needs two Fast-Data radios. The radio list drives which profiles get verified first.
