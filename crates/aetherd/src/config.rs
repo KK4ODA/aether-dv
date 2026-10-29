@@ -6,6 +6,8 @@
 //! api_listen = "127.0.0.1:7373"
 //! files_dir = "received"           # optional; default "received" next to the DB
 //! max_incoming_kib = 4096          # optional; largest incoming transfer (compressed)
+//! capture = false                  # optional; capture every port's traffic from start
+//! capture_dir = "captures"         # optional; default "captures" next to the DB
 //!
 //! [[port]]
 //! kind = "ratflector"
@@ -43,6 +45,11 @@ pub struct Config {
     /// Largest incoming legacy transfer, in KiB of zlib stream.
     #[serde(default = "default_max_incoming")]
     pub max_incoming_kib: u32,
+    /// Start a wire capture (`.aecap`) on every port at start-up.
+    #[serde(default)]
+    pub capture: bool,
+    /// Where captures and support bundles go.
+    pub capture_dir: Option<PathBuf>,
     #[serde(default, rename = "port")]
     pub ports: Vec<PortConfig>,
 }

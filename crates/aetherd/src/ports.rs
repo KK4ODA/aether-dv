@@ -8,6 +8,8 @@ use std::time::{Duration, Instant};
 
 use aether_ddt2::{Deframer, Event, Frame};
 use aether_link::scheduler::{Item, ModeProfile, Priority, Scheduler};
+
+use crate::capture::Tap;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
 use tokio::net::TcpStream;
@@ -84,6 +86,7 @@ async fn emit(tx: &mpsc::Sender<PortEvt>, evs: Vec<PortEvt>) -> bool {
 // Ratflector
 
 pub struct RflParams {
+    pub tap: Tap,
     pub name: String,
     pub host: String,
     pub tcp_port: u16,
@@ -186,7 +189,10 @@ pub async fn run_ratflector(
                             }
                         }
                     }
-                    Action::Deliver(b) => deliver(&p.name, &mut deframer, &b, &mut out),
+                    Action::Deliver(b) => {
+                        p.tap.rx(&b);
+                        deliver(&p.name, &mut deframer, &b, &mut out)
+                    }
                     Action::Close => {
                         rd = None;
                         wr = None;
@@ -198,7 +204,9 @@ pub async fn run_ratflector(
                             state: "up",
                             detail: Some(format!("{reason:?}")),
                         });
+                        p.tap.note(&format!("up: {reason:?}"));
                         while let Some((b, tok)) = waiting.pop_front() {
+                            p.tap.tx(&b);
                             let ok = match wr.as_mut() {
                                 Some(w) => w.write_all(&b).await.is_ok(),
                                 None => false,
@@ -244,13 +252,17 @@ pub async fn run_ratflector(
             .map(|ms| epoch + Duration::from_millis(ms));
         tokio::select! {
             r = read_opt(&mut rd, &mut buf) => match r {
-                Ok(0) | Err(_) => actions.extend(client.on_disconnected(now())),
+                Ok(0) | Err(_) => {
+                    p.tap.note("disconnected");
+                    actions.extend(client.on_disconnected(now()))
+                }
                 Ok(n) => actions.extend(client.on_bytes(now(), &buf[..n])),
             },
             c = cmd.recv() => match c {
                 None => return,
                 Some(PortCmd::Send { bytes, token, .. }) => {
                     if let (State::Up, Some(w)) = (client.state(), wr.as_mut()) {
+                        p.tap.tx(&bytes);
                         let ok = w.write_all(&bytes).await.is_ok();
                         let ev = match (ok, token) {
                             (true, Some(t)) => vec![PortEvt::Transmitted { port: p.name.clone(), token: t }],
@@ -277,6 +289,7 @@ pub async fn run_ratflector(
 // Serial radio
 
 pub struct SerialParams {
+    pub tap: Tap,
     pub name: String,
     pub path: String,
     pub baud: u32,
@@ -412,6 +425,7 @@ pub async fn run_serial(
         let lost_reason = loop {
             if let Some(burst) = sched.poll(now()) {
                 let ids = burst.items.iter().map(|i| i.id).collect();
+                p.tap.tx(&burst.bytes);
                 if wr_tx.send((ids, burst.bytes)).is_err() {
                     break "writer stopped".to_string();
                 }
@@ -425,6 +439,7 @@ pub async fn run_serial(
                     None => break "port threads stopped".to_string(),
                     Some(Io::Lost(e)) => break e,
                     Some(Io::Rx(b)) => {
+                        p.tap.rx(&b);
                         sched.on_rx(now());
                         let mut out = Vec::new();
                         deliver(&p.name, &mut deframer, &b, &mut out);
@@ -457,6 +472,7 @@ pub async fn run_serial(
             }
         };
         // SM-1 Lost: report everything not yet transmitted, then reopen.
+        p.tap.note(&format!("lost: {lost_reason}"));
         let failed = sched.on_link_down();
         let mut out = vec![PortEvt::State {
             port: p.name.clone(),

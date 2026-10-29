@@ -19,7 +19,10 @@ use crate::ports::{run_ratflector, run_serial, PortCmd, PortEvt, RflParams, Seri
 use crate::station::{Effect, Station};
 use crate::xfer::{self, Class, Dir, Snapshot, Transfers, XEffect};
 
+mod diag;
 mod messages;
+use crate::capture::Tap;
+pub use diag::DiagCmd;
 pub use messages::MsgCmd;
 
 pub type Reply<T> = oneshot::Sender<Result<T, ApiError>>;
@@ -78,6 +81,8 @@ pub enum Cmd {
     },
     /// `messages.*` and `forms.*`.
     Message(MsgCmd, Reply<Value>),
+    /// `diag.*`.
+    Diag(DiagCmd, Reply<Value>),
     Transfers {
         include_finished: bool,
         reply: Reply<Value>,
@@ -112,6 +117,7 @@ struct PortState {
     state: &'static str,
     detail: Option<String>,
     tx: mpsc::Sender<PortCmd>,
+    tap: Tap,
 }
 
 fn unix_ms() -> i64 {
@@ -224,6 +230,9 @@ struct Engine {
     xfers: Transfers,
     xfer_meta: HashMap<u64, XferMeta>,
     files_dir: PathBuf,
+    capture_dir: PathBuf,
+    /// Configuration without secrets, for support bundles.
+    config_summary: Value,
 }
 
 impl Engine {
@@ -522,6 +531,10 @@ impl Engine {
             }
             Cmd::Message(m, reply) => {
                 let res = self.on_message_cmd(m).await;
+                let _ = reply.send(res);
+            }
+            Cmd::Diag(d, reply) => {
+                let res = self.on_diag_cmd(d);
                 let _ = reply.send(res);
             }
             Cmd::Transfers {
@@ -835,6 +848,7 @@ pub fn start(cfg: &Config) -> Result<EngineHandle, String> {
     let now = unix_ms();
     for pc in &cfg.ports {
         let (tx, rx) = mpsc::channel::<PortCmd>(256);
+        let tap = Tap::default();
         let (kind, path_kind, row_kind, profile) = match pc {
             PortConfig::Ratflector { .. } => ("ratflector", "internet", "ratflector", None),
             PortConfig::Serial { mode, profile, .. } => (
@@ -869,6 +883,7 @@ pub fn start(cfg: &Config) -> Result<EngineHandle, String> {
                 password,
             } => {
                 let params = RflParams {
+                    tap: tap.clone(),
                     name,
                     host,
                     tcp_port,
@@ -886,6 +901,7 @@ pub fn start(cfg: &Config) -> Result<EngineHandle, String> {
                 ..
             } => {
                 let params = SerialParams {
+                    tap: tap.clone(),
                     name,
                     path,
                     baud,
@@ -903,6 +919,7 @@ pub fn start(cfg: &Config) -> Result<EngineHandle, String> {
                 state: "starting",
                 detail: None,
                 tx,
+                tap,
             },
         );
     }
@@ -914,7 +931,28 @@ pub fn start(cfg: &Config) -> Result<EngineHandle, String> {
         max_wire_bytes: cfg.max_incoming_kib.saturating_mul(1024),
         ..xfer::Limits::default()
     };
+    let capture_dir = cfg.capture_dir.clone().unwrap_or_else(|| match &cfg.db {
+        Some(db) => db.with_file_name("captures"),
+        None => std::env::temp_dir().join("aether-captures"),
+    });
+    let config_summary = json!({
+        "callsign": cfg.callsign, "apiListen": cfg.api_listen, "db": cfg.db,
+        "filesDir": files_dir, "captureDir": capture_dir, "captureAtStart": cfg.capture,
+        "maxIncomingKib": cfg.max_incoming_kib,
+        "ports": cfg.ports.iter().map(|p| match p {
+            PortConfig::Ratflector { name, host, tcp_port, password } => json!({
+                "kind": "ratflector", "name": name, "host": host, "tcpPort": tcp_port,
+                "password": password.as_ref().map(|_| "(set, not included)"),
+            }),
+            PortConfig::Serial { name, path, baud, profile, mode, flow } => json!({
+                "kind": "serial", "name": name, "path": path, "baud": baud,
+                "profile": profile, "mode": mode, "flow": flow,
+            }),
+        }).collect::<Vec<_>>(),
+    });
     let mut engine = Engine {
+        capture_dir,
+        config_summary,
         xfers: Transfers::new(&cfg.callsign, limits),
         xfer_meta: HashMap::new(),
         files_dir,
@@ -926,6 +964,18 @@ pub fn start(cfg: &Config) -> Result<EngineHandle, String> {
         started: Instant::now(),
         rpc_job: 0,
     };
+    if cfg.capture {
+        let names: Vec<String> = engine.ports.keys().cloned().collect();
+        for n in names {
+            if let Err(e) = engine.start_capture(&n) {
+                engine.log(
+                    "error",
+                    Some(&n),
+                    &format!("capture not started: {}", e.message),
+                );
+            }
+        }
+    }
     tokio::spawn(async move {
         let mut tick = tokio::time::interval(Duration::from_millis(200));
         tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);

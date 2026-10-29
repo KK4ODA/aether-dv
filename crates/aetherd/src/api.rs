@@ -12,7 +12,7 @@ use tokio::net::TcpListener;
 use tokio::sync::{mpsc, oneshot};
 use tokio_tungstenite::tungstenite::Message;
 
-use crate::engine::{ApiError, Cmd, EngineHandle, MsgCmd, E_INVALID};
+use crate::engine::{ApiError, Cmd, DiagCmd, EngineHandle, MsgCmd, E_INVALID};
 
 pub const API_VERSION: &str = "0.1.0";
 const E_METHOD: i64 = -32601;
@@ -264,6 +264,30 @@ async fn session(
                 Ok(id) => ask(&engine, |reply| Cmd::CancelTransfer { id, reply }).await,
                 Err(e) => Err(e),
             },
+            "diag.captureStart" | "diag.captureStop" | "diag.events" | "diag.supportBundle" => {
+                let c = match method.as_str() {
+                    "diag.captureStart" => {
+                        s(&params, "portId").map(|port| DiagCmd::CaptureStart { port })
+                    }
+                    "diag.captureStop" => s(&params, "captureId")
+                        .or_else(|_| s(&params, "portId"))
+                        .map(|id| DiagCmd::CaptureStop { id }),
+                    "diag.events" => Ok(DiagCmd::Events {
+                        before_id: params.get("beforeId").and_then(Value::as_i64),
+                        limit: params.get("limit").and_then(Value::as_u64).unwrap_or(200) as u32,
+                    }),
+                    _ => Ok(DiagCmd::SupportBundle {
+                        include_captures: params
+                            .get("includeCaptures")
+                            .and_then(Value::as_bool)
+                            .unwrap_or(false),
+                    }),
+                };
+                match c {
+                    Ok(c) => ask(&engine, |reply| Cmd::Diag(c, reply)).await,
+                    Err(e) => Err(e),
+                }
+            }
             m if m.starts_with("messages.") || m == "forms.listTemplates" => {
                 match msg_cmd(m, &params) {
                     Ok(c) => ask(&engine, |reply| Cmd::Message(c, reply)).await,

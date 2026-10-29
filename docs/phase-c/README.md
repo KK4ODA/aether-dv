@@ -7,8 +7,9 @@ Branch: `phase-c` (built on `phase-b`). Validation level of everything here: **S
 | Program | What it does |
 |---|---|
 | `aetherd --config FILE` | Engine. Serial radio ports (half-duplex scheduler) and ratflector ports (legacy handshake, back-off, TCP keepalive). Legacy D-RATS behaviour on chat (session 1) and RPC (session 2): chat, ping/echo replies (broadcast replies rate-limited), status, `RPCGetVersion` with the Aether capability token. Durable SQLite log. Legacy file and form transfer (control NEW/ACK/END, offer and `OK`, ARQ-1) in both directions; received files go to `files_dir`. ICS-213 messages: compose, send directly to a station, receive into the inbox (D-RATS form XML, stored in the database), with the delivery states of SM-7. Local JSON-RPC/WebSocket API with a token. |
-| `aether-cli` | Terminal client: `ports`, `stations`, `send PORT DST TEXT`, `history`, `ping`, `version`, `send-file PORT CALL PATH`, `transfers [all]`, `cancel ID`, `ics213 CALL SUBJECT MESSAGE [field=value…]`, `msg-send ID [PORT]`, `messages [FOLDER]`, `msg ID`, `tail`. |
+| `aether-cli` | Terminal client: `ports`, `stations`, `send PORT DST TEXT`, `history`, `ping`, `version`, `send-file PORT CALL PATH`, `transfers [all]`, `cancel ID`, `ics213 CALL SUBJECT MESSAGE [field=value…]`, `msg-send ID [PORT]`, `messages [FOLDER]`, `msg ID`, `capture-start PORT`, `capture-stop PORT`, `log [N]`, `bundle [captures]`, `tail`. |
 | `aether-rfd` | Ratflector server, legacy-compatible, with loop safeguards and per-client limits. |
+| `aecap` | Reads a wire capture: `aecap show FILE [--hex]` decodes every frame and stray byte run in time order; `aecap stats FILE` counts them. |
 | `serial-spike` | Receive-only port lister and hex monitor, for hardware test HW-0/HW-1. |
 
 **Not in this slice yet:**
@@ -29,7 +30,7 @@ Layering note: message delivery lives in `aetherd` (`engine/messages.rs`) for th
 | C2 | Ratflector reconnect with back-off; half-open detection; no loss of queued items | **Partial (Simulated)**: back-off with jitter, keepalive (60 s / 15 s × 4), queued chat sent after reconnect, honest failure states. Not yet tested against real NAT timeouts or public ratflectors. |
 | C3 | HW-0…HW-7 on the IC-9700 and ID-52 PLUS in slow mode | **Needs you**: procedure below |
 | C4 | Over the air with D-RATS | **Needs you** |
-| C5 | Wire capture and replay; support bundle | Not started |
+| C5 | Wire capture and replay; support bundle | **Done (Simulated)**: `.aecap` capture per port (config `capture = true`, or `capture-start`/`capture-stop`), decoded by `aecap show`/`stats` through the same deframer the engine uses; the e2e test replays a capture and gets the exact frames back. Support bundle `.tar` (about, log, transfers, message states, optional captures; no message content, passwords or token). |
 | C6 | Baseline measurements (D-RATS vs Aether) | Not started; needs C3 |
 
 ## Legacy file and form transfer (C1)
@@ -115,7 +116,7 @@ You need: the IC-9700 (or ID-52 PLUS) on USB, and a second D-STAR station within
    - what D-RATS showed
    - `aether-cli history 50`
    - the `listen` capture from step 3
-   - the aetherd log
+   - a support bundle: `aether-cli --token-file aetherd.token bundle captures` (with `capture = true` in your config, so the RF traffic is in it)
    
    These results move C3 and C4 forward, and they are the first numbers for ModeProfile timing (HW-4).
 

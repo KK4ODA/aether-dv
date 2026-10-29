@@ -389,7 +389,7 @@ pub fn message_id(callsign: &str, unix_secs: i64, rand: u32) -> String {
 }
 
 /// `(year, month 1-12, day)` of a Unix time (UTC).
-fn civil(unix_secs: i64) -> (i64, u32, u32) {
+pub fn utc_ymd(unix_secs: i64) -> (i64, u32, u32) {
     // Howard Hinnant's days-to-civil algorithm.
     let z = unix_secs.div_euclid(86_400) + 719_468;
     let era = z.div_euclid(146_097);
@@ -407,7 +407,7 @@ pub fn legacy_date(unix_secs: i64) -> String {
     const MONTHS: [&str; 12] = [
         "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
     ];
-    let (y, m, d) = civil(unix_secs);
+    let (y, m, d) = utc_ymd(unix_secs);
     format!("{d:02}-{}-{y}", MONTHS[(m - 1) as usize])
 }
 

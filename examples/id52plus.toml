@@ -8,6 +8,7 @@ callsign = "KK4ODA"
 db = "aether-id52.db"
 # files_dir = "received"     # received files (forms in received/forms); default: next to the db
 # max_incoming_kib = 4096    # largest incoming transfer accepted (compressed size)
+capture = true                # record all port traffic (.aecap) for test evidence; read with `aecap show`
 api_listen = "127.0.0.1:7374"
 
 [[port]]

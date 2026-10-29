@@ -596,6 +596,30 @@ impl Store {
         Ok(self.conn.last_insert_rowid())
     }
 
+    /// Engine log, newest first: (id, at, level, category, port_id, message).
+    #[allow(clippy::type_complexity)]
+    pub fn events(
+        &self,
+        before_id: Option<i64>,
+        limit: u32,
+    ) -> Result<Vec<(i64, i64, String, String, Option<String>, String)>> {
+        let mut st = self.conn.prepare(
+            "SELECT id,at,level,category,port_id,message FROM engine_events
+             WHERE (?1 IS NULL OR id < ?1) ORDER BY id DESC LIMIT ?2",
+        )?;
+        let rows = st.query_map(params![before_id, limit], |r| {
+            Ok((
+                r.get(0)?,
+                r.get(1)?,
+                r.get(2)?,
+                r.get(3)?,
+                r.get(4)?,
+                r.get(5)?,
+            ))
+        })?;
+        rows.collect()
+    }
+
     pub fn last_event(&self) -> Result<Option<(i64, String)>> {
         self.conn
             .query_row(

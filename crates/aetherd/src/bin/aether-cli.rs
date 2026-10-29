@@ -17,6 +17,10 @@
 //!                                 where CALL was last heard
 //!   messages [FOLDER]             inbox, outbox, sent, drafts (default: all)
 //!   msg ID                        show a message's fields and delivery events
+//!   capture-start PORT            start a wire capture (.aecap) on PORT
+//!   capture-stop PORT             stop it; prints the file (read it with `aecap show`)
+//!   log [N]                       the last N engine log entries (default 50)
+//!   bundle [captures]             write a support bundle (.tar), optionally with captures
 //!   tail                          print chat, port, station and transfer events live
 //! ```
 
@@ -245,6 +249,33 @@ fn main() {
                 );
             }
         }
+        "capture-start" if args.len() == 2 => {
+            let r = c.call("diag.captureStart", json!({ "portId": args[1] }));
+            println!("capturing {} to {}", args[1], r["path"].as_str().unwrap_or(""));
+        }
+        "capture-stop" if args.len() == 2 => {
+            let r = c.call("diag.captureStop", json!({ "portId": args[1] }));
+            println!("{} ({} bytes)", r["path"].as_str().unwrap_or(""), r["bytes"]);
+        }
+        "log" => {
+            let n: u32 = args.get(1).and_then(|a| a.parse().ok()).unwrap_or(50);
+            let mut v = c.call("diag.events", json!({ "limit": n })).as_array().cloned().unwrap_or_default();
+            v.reverse();
+            for e in v {
+                println!(
+                    "{} {:<5} {:<10} {}",
+                    e["at"],
+                    e["level"].as_str().unwrap_or(""),
+                    e["portId"].as_str().unwrap_or("-"),
+                    e["message"].as_str().unwrap_or("")
+                );
+            }
+        }
+        "bundle" => {
+            let caps = args.get(1).is_some_and(|a| a == "captures");
+            let r = c.call("diag.supportBundle", json!({ "includeCaptures": caps }));
+            println!("{}", r["path"].as_str().unwrap_or(""));
+        }
         "tail" => {
             c.call("events.subscribe", json!({ "topics": ["chat.line", "port.state", "station.heard", "transfer.progress", "message.state", "engine.event"] }));
             eprintln!("connected to aetherd {} as {}", hello["engineVersion"], hello["profile"]);
@@ -262,6 +293,6 @@ fn main() {
                 }
             }
         }
-        _ => die("usage: aether-cli [--api ADDR] [--token-file PATH] ports|stations|send PORT DST TEXT|history [PORT] [N]|ping PORT CALL|version PORT CALL|send-file PORT CALL PATH|transfers [all]|cancel ID|ics213 CALL SUBJECT MESSAGE|msg-send ID [PORT]|messages [FOLDER]|msg ID|tail"),
+        _ => die("usage: aether-cli [--api ADDR] [--token-file PATH] ports|stations|send PORT DST TEXT|history [PORT] [N]|ping PORT CALL|version PORT CALL|send-file PORT CALL PATH|transfers [all]|cancel ID|ics213 CALL SUBJECT MESSAGE|msg-send ID [PORT]|messages [FOLDER]|msg ID|capture-start PORT|capture-stop PORT|log [N]|bundle [captures]|tail"),
     }
 }

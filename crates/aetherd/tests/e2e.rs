@@ -610,3 +610,143 @@ async fn transfer_to_an_absent_station_can_be_cancelled_and_bad_requests_fail() 
         .await
         .is_err());
 }
+
+#[tokio::test]
+async fn wire_capture_decodes_and_support_bundle_excludes_secrets() {
+    use aetherd::capture::{self, Record};
+    use aetherd::engine::DiagCmd;
+    let srv = Server::start("127.0.0.1:0", ServerConfig::default())
+        .await
+        .unwrap();
+    let (da, db) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+    let cfg = |call: &str, dir: &std::path::Path| {
+        Config::parse(&format!(
+            "callsign = \"{call}\"\nfiles_dir = {:?}\ncapture_dir = {:?}\n[[port]]\nkind = \"ratflector\"\nname = \"net\"\nhost = \"127.0.0.1\"\ntcp_port = {}\npassword = \"s3cret-pass\"\n",
+            dir.join("rx").to_str().unwrap(),
+            dir.join("caps").to_str().unwrap(),
+            srv.local_addr.port()
+        ))
+        .unwrap()
+    };
+    let a = engine::start(&cfg("KK4ODA", da.path())).unwrap();
+    let b = engine::start(&cfg("W4DRS", db.path())).unwrap();
+    let (mut a_ev, mut b_ev) = (a.events.subscribe(), b.events.subscribe());
+    let up = |e: &ApiEvent| e.topic == "port.state" && e.data["state"] == "up";
+    wait_for(&mut a_ev, "A up", up).await;
+    wait_for(&mut b_ev, "B up", up).await;
+
+    let cap = ask(&a, |reply| {
+        Cmd::Diag(DiagCmd::CaptureStart { port: "net".into() }, reply)
+    })
+    .await
+    .unwrap();
+    assert!(ask(&a, |reply| Cmd::Diag(
+        DiagCmd::CaptureStart { port: "net".into() },
+        reply
+    ))
+    .await
+    .is_err());
+    ask(&a, |reply| Cmd::ChatSend {
+        port: "net".into(),
+        dst: "CQCQCQ".into(),
+        body: "captured line".into(),
+        reply,
+    })
+    .await
+    .unwrap();
+    ask(&b, |reply| Cmd::ChatSend {
+        port: "net".into(),
+        dst: "KK4ODA".into(),
+        body: "reply into the capture".into(),
+        reply,
+    })
+    .await
+    .unwrap();
+    wait_for(&mut a_ev, "A got reply", |e| {
+        e.topic == "chat.line" && e.data["body"] == "reply into the capture"
+    })
+    .await;
+    let stopped = ask(&a, |reply| {
+        Cmd::Diag(
+            DiagCmd::CaptureStop {
+                id: cap["captureId"].as_str().unwrap().into(),
+            },
+            reply,
+        )
+    })
+    .await
+    .unwrap();
+    let path = std::path::PathBuf::from(stopped["path"].as_str().unwrap());
+    let (header, recs) = capture::read(&path).unwrap();
+    assert_eq!(header["port"], "net");
+    assert_eq!(header["callsign"], "KK4ODA");
+    // Replay both directions through the codec: the exact frames come back.
+    let mut texts = Vec::new();
+    let (mut drx, mut dtx) = (
+        aether_ddt2::Deframer::default(),
+        aether_ddt2::Deframer::default(),
+    );
+    for r in &recs {
+        let mut ev = Vec::new();
+        match r {
+            Record::Rx { bytes, .. } => drx.feed(bytes, &mut ev),
+            Record::Tx { bytes, .. } => dtx.feed(bytes, &mut ev),
+            Record::Note { .. } => {}
+        }
+        for e in ev {
+            if let aether_ddt2::Event::Frame { frame, .. } = e {
+                texts.push(String::from_utf8_lossy(&frame.payload).into_owned());
+            }
+        }
+    }
+    assert!(texts.contains(&"captured line".to_string()), "{texts:?}");
+    assert!(
+        texts.contains(&"reply into the capture".to_string()),
+        "{texts:?}"
+    );
+    let raw = std::fs::read_to_string(&path).unwrap();
+    assert!(
+        !raw.contains(&hex_of("s3cret-pass")),
+        "password must not be captured"
+    );
+
+    let bundle = ask(&a, |reply| {
+        Cmd::Diag(
+            DiagCmd::SupportBundle {
+                include_captures: true,
+            },
+            reply,
+        )
+    })
+    .await
+    .unwrap();
+    let names: Vec<&str> = bundle["files"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|v| v.as_str().unwrap())
+        .collect();
+    for n in [
+        "README.txt",
+        "about.json",
+        "events.jsonl",
+        "transfers.json",
+        "messages.json",
+    ] {
+        assert!(names.contains(&n), "{names:?}");
+    }
+    assert!(names
+        .iter()
+        .any(|n| n.starts_with("captures/") && n.ends_with(".aecap")));
+    let tar = std::fs::read(bundle["path"].as_str().unwrap()).unwrap();
+    let tar_text = String::from_utf8_lossy(&tar);
+    assert!(
+        !tar_text.contains("s3cret-pass"),
+        "password must not be in the bundle"
+    );
+    assert!(tar_text.contains("(set, not included)"));
+}
+
+fn hex_of(s: &str) -> String {
+    s.bytes().map(|b| format!("{b:02x}")).collect()
+}
