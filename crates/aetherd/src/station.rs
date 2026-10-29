@@ -1,4 +1,5 @@
 //! Legacy D-RATS station behaviour for chat (session 1) and RPC (session 2),
+//! (control-session and stateful-session frames are handled by [`crate::xfer`]),
 //! as a pure function of incoming frames. No I/O; the engine performs the
 //! returned [`Effect`]s.
 //!
@@ -313,17 +314,6 @@ impl Station {
                     }
                 }
             }
-            (id::CONTROL, k) if for_me && k >= aether_ddt2::session::control::NEW_BASE => {
-                // Stateful sessions (file/form transfer) are not implemented in
-                // this slice. Legacy behaviour for an unsupported type is to
-                // send no ACK; the opener gives up after its retries (SM-3).
-                out.push(Effect::Log {
-                    level: "warn",
-                    message: format!(
-                        "session request type {k} from {src} refused (not implemented yet)"
-                    ),
-                });
-            }
             _ => {}
         }
         out
@@ -527,23 +517,5 @@ mod tests {
             .on_frame(0, "rf", &aether)
             .iter()
             .any(|x| matches!(x, Effect::Software { text, .. } if text.contains("[aether"))));
-    }
-
-    #[test]
-    fn unsupported_session_request_is_not_acked() {
-        let mut s = Station::new("KK4ODA", 1);
-        let new_file = Frame::new(
-            0,
-            0,
-            3 + 5,
-            "W4DRS",
-            "KK4ODA",
-            session::encode_control_new(5, "xfer"),
-        );
-        let e = s.on_frame(0, "rf", &new_file);
-        assert!(sends(&e).is_empty());
-        assert!(e
-            .iter()
-            .any(|x| matches!(x, Effect::Log { level: "warn", .. })));
     }
 }

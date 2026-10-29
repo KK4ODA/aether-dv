@@ -183,6 +183,35 @@ async fn session(
                 }
                 (Err(e), _) | (_, Err(e)) => Err(e),
             },
+            "transfers.sendFile" => {
+                match (s(&params, "portId"), s(&params, "peer"), s(&params, "path")) {
+                    (Ok(port), Ok(peer), Ok(path)) => {
+                        ask(&engine, |reply| Cmd::SendFile {
+                            port,
+                            peer,
+                            path: path.into(),
+                            reply,
+                        })
+                        .await
+                    }
+                    (Err(e), _, _) | (_, Err(e), _) | (_, _, Err(e)) => Err(e),
+                }
+            }
+            "transfers.list" => {
+                let include_finished = params
+                    .get("includeFinished")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false);
+                ask(&engine, |reply| Cmd::Transfers {
+                    include_finished,
+                    reply,
+                })
+                .await
+            }
+            "transfers.cancel" => match s(&params, "id") {
+                Ok(id) => ask(&engine, |reply| Cmd::CancelTransfer { id, reply }).await,
+                Err(e) => Err(e),
+            },
             "events.subscribe" => {
                 let topics: Vec<String> = params
                     .get("topics")

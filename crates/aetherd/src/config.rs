@@ -4,6 +4,8 @@
 //! callsign = "KK4ODA"
 //! db = "aether.db"                 # optional; in-memory if absent
 //! api_listen = "127.0.0.1:7373"
+//! files_dir = "received"           # optional; default "received" next to the DB
+//! max_incoming_kib = 4096          # optional; largest incoming transfer (compressed)
 //!
 //! [[port]]
 //! kind = "ratflector"
@@ -35,8 +37,18 @@ pub struct Config {
     pub api_listen: String,
     /// Where the API token is written (default: next to the DB, or a temp dir).
     pub token_file: Option<PathBuf>,
+    /// Received files and forms (default: `received/` next to the DB, or a
+    /// temp dir without a DB).
+    pub files_dir: Option<PathBuf>,
+    /// Largest incoming legacy transfer, in KiB of zlib stream.
+    #[serde(default = "default_max_incoming")]
+    pub max_incoming_kib: u32,
     #[serde(default, rename = "port")]
     pub ports: Vec<PortConfig>,
+}
+
+fn default_max_incoming() -> u32 {
+    4096
 }
 
 fn default_api() -> String {

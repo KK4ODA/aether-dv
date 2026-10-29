@@ -2,18 +2,22 @@
 //! and API sessions talk to it through channels.
 
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use aether_ddt2::{wrap, EnvelopeError, EscapeSet, Frame, PayloadEncoding};
+use aether_link::legacy_arq::SenderConfig;
 use aether_link::scheduler::Priority;
-use aether_store::{ChatLine, Direction, PortRow, Store};
+use aether_store::{ChatLine, Direction, PortRow, Store, TransferRow};
 use serde::Serialize;
 use serde_json::{json, Value};
+use sha2::{Digest, Sha256};
 use tokio::sync::{broadcast, mpsc, oneshot};
 
 use crate::config::{Config, PortConfig};
 use crate::ports::{run_ratflector, run_serial, PortCmd, PortEvt, RflParams, SerialParams};
 use crate::station::{Effect, Station};
+use crate::xfer::{self, Class, Dir, Snapshot, Transfers, XEffect};
 
 pub type Reply<T> = oneshot::Sender<Result<T, ApiError>>;
 
@@ -63,7 +67,33 @@ pub enum Cmd {
         callsign: String,
         reply: Reply<Value>,
     },
+    SendFile {
+        port: String,
+        peer: String,
+        path: PathBuf,
+        reply: Reply<Value>,
+    },
+    /// Send a form document (D-RATS form XML) as a legacy form transfer.
+    SendForm {
+        port: String,
+        peer: String,
+        name: String,
+        xml: Vec<u8>,
+        reply: Reply<Value>,
+    },
+    Transfers {
+        include_finished: bool,
+        reply: Reply<Value>,
+    },
+    CancelTransfer {
+        id: String,
+        reply: Reply<Value>,
+    },
 }
+
+/// Largest file accepted by `transfers.sendFile` (legacy transfers of this
+/// size already take hours on DV slow data).
+pub const MAX_SEND_BYTES: u64 = 16 << 20;
 
 /// Event pushed to API subscribers.
 #[derive(Debug, Clone, Serialize)]
@@ -92,6 +122,54 @@ fn unix_ms() -> i64 {
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_millis() as i64)
         .unwrap_or(0)
+}
+
+fn transfer_json(t: &TransferRow) -> Value {
+    json!({
+        "id": t.id, "direction": t.direction, "protocol": t.protocol, "peer": t.peer,
+        "portId": t.port_id, "filename": t.filename, "totalBytes": t.total_bytes,
+        "doneBytes": t.done_bytes, "blockSize": t.block_size, "state": t.state,
+        "stateReason": t.state_reason, "priority": 50, "retries": t.retries,
+        "rateBps": null, "wrapWarning": t.wrap_warning,
+    })
+}
+
+/// ARQ-1 sender parameters per path. Blocks start at 256 B on DV slow data
+/// and 512 B on Fast Data (SM-4); every choice stays within the legacy
+/// 4 KiB in-flight cap. The RTO starts near the legacy 12 s floor on RF so a
+/// lost offer is re-polled before a D-RATS receiver's ~20 s start wait ends.
+pub fn arq_config(path_kind: &str) -> SenderConfig {
+    let mut c = SenderConfig::legacy_defaults();
+    match path_kind {
+        "internet" => {
+            // No air time: writes reach the socket at once, so an ACK can
+            // legitimately arrive within milliseconds. A non-zero estimate
+            // here would make the stale-ACK guard (P20) treat every fresh
+            // ACK as stale and stall each window until the RTO.
+            c.block_size = 1024;
+            c.path_rate_bps = u32::MAX;
+            c.per_over_ms = 0;
+            c.rto_initial = 5_000;
+            c.rto_min = 1_000;
+        }
+        "rf_fast" => {
+            c.block_size = 512;
+            c.path_rate_bps = 350;
+            c.rto_initial = 12_000;
+        }
+        _ => {
+            c.block_size = 256;
+            c.rto_initial = 12_000;
+        }
+    }
+    c
+}
+
+/// Per-transfer bookkeeping the pure state machine doesn't need.
+struct XferMeta {
+    id: String,
+    created_at: i64,
+    sha256: Option<String>,
 }
 
 fn chat_json(c: &ChatLine) -> Value {
@@ -130,6 +208,9 @@ struct Engine {
     cursor: u64,
     started: Instant,
     rpc_job: u16,
+    xfers: Transfers,
+    xfer_meta: HashMap<u64, XferMeta>,
+    files_dir: PathBuf,
 }
 
 impl Engine {
@@ -149,7 +230,12 @@ impl Engine {
             _ => tracing::info!(port, "{msg}"),
         }
         if level != "debug" {
-            let _ = self.store.log_event(unix_ms(), level, "engine", port, msg);
+            let at = unix_ms();
+            let id = self.store.log_event(at, level, "engine", port, msg).ok();
+            self.publish(
+                "engine.event",
+                json!({ "id": id, "at": at, "level": level, "category": "engine", "portId": port, "message": msg }),
+            );
         }
     }
 
@@ -198,15 +284,29 @@ impl Engine {
                     ),
                 );
                 self.publish(
-                    "port",
+                    "port.state",
                     json!({ "portId": port, "state": state, "detail": detail }),
                 );
             }
             PortEvt::Frame { port, frame } => {
-                let now = self.started.elapsed().as_millis() as u64;
+                let now = self.now();
                 let effects = self.station.on_frame(now, &port, &frame);
+                let looped = frame
+                    .src
+                    .eq_ignore_ascii_case(self.station.callsign.as_bytes());
                 for eff in effects {
                     self.apply(eff).await;
+                }
+                if !looped {
+                    let path_kind = self
+                        .ports
+                        .get(&port)
+                        .map(|p| p.path_kind)
+                        .unwrap_or("rf_slow");
+                    let effs = self
+                        .xfers
+                        .on_frame(now, &port, &frame, || arq_config(path_kind));
+                    self.apply_xfer(effs).await;
                 }
             }
             PortEvt::Outside { port, bytes } => {
@@ -216,24 +316,12 @@ impl Engine {
                     &format!("{} bytes outside frames", bytes.len()),
                 );
             }
-            PortEvt::Transmitted { port, token } => {
-                let _ = self.store.set_chat_tx_state(token, "transmitted");
-                self.publish(
-                    "chat_state",
-                    json!({ "id": token, "portId": port, "txState": "transmitted" }),
-                );
-            }
+            PortEvt::Transmitted { port: _, token } => self.chat_state(token, "transmitted", None),
             PortEvt::NotTransmitted {
-                port,
+                port: _,
                 token,
                 reason,
-            } => {
-                let _ = self.store.set_chat_tx_state(token, "failed");
-                self.publish(
-                    "chat_state",
-                    json!({ "id": token, "portId": port, "txState": "failed", "reason": reason }),
-                );
-            }
+            } => self.chat_state(token, "failed", Some(reason)),
         }
     }
 
@@ -290,7 +378,7 @@ impl Engine {
                 match self.store.insert_chat(&line) {
                     Ok(id) => {
                         line.id = id;
-                        self.publish("chat", chat_json(&line));
+                        self.publish("chat.line", chat_json(&line));
                     }
                     Err(e) => self.log("error", None, &format!("store: {e}")),
                 }
@@ -305,13 +393,16 @@ impl Engine {
                     .store
                     .station_heard(&callsign, &port, path_kind, unix_ms());
                 self.publish(
-                    "station",
+                    "station.heard",
                     json!({ "callsign": callsign, "portId": port, "pathKind": path_kind }),
                 );
             }
             Effect::Software { callsign, text } => {
                 let _ = self.store.station_software(&callsign, &text);
-                self.publish("station", json!({ "callsign": callsign, "software": text }));
+                self.publish(
+                    "station.heard",
+                    json!({ "callsign": callsign, "software": text }),
+                );
             }
             Effect::Log { level, message } => self.log(level, None, &message),
         }
@@ -386,7 +477,287 @@ impl Engine {
                     .map(|_| json!(true));
                 let _ = reply.send(res);
             }
+            Cmd::SendFile {
+                port,
+                peer,
+                path,
+                reply,
+            } => {
+                let res = match std::fs::metadata(&path) {
+                    Err(e) => Err(ApiError::new(
+                        E_NOT_FOUND,
+                        format!("{}: {e}", path.display()),
+                    )),
+                    Ok(m) if !m.is_file() => Err(ApiError::new(E_INVALID, "not a regular file")),
+                    Ok(m) if m.len() > MAX_SEND_BYTES => Err(ApiError::new(
+                        E_INVALID,
+                        format!("file is larger than the {MAX_SEND_BYTES}-byte limit"),
+                    )),
+                    Ok(_) => match std::fs::read(&path) {
+                        Err(e) => Err(ApiError::new(E_INVALID, format!("{}: {e}", path.display()))),
+                        Ok(data) => {
+                            let name = path
+                                .file_name()
+                                .map(|n| n.to_string_lossy().into_owned())
+                                .unwrap_or_default();
+                            self.start_transfer(&port, &peer, Class::File, &name, &data)
+                                .await
+                        }
+                    },
+                };
+                let _ = reply.send(res);
+            }
+            Cmd::SendForm {
+                port,
+                peer,
+                name,
+                xml,
+                reply,
+            } => {
+                let res = self
+                    .start_transfer(&port, &peer, Class::Form, &name, &xml)
+                    .await;
+                let _ = reply.send(res);
+            }
+            Cmd::Transfers {
+                include_finished,
+                reply,
+            } => {
+                let res = self
+                    .store
+                    .transfers(include_finished, 500)
+                    .map(|v| Value::Array(v.iter().map(transfer_json).collect()))
+                    .map_err(|e| ApiError::new(E_INTERNAL, e.to_string()));
+                let _ = reply.send(res);
+            }
+            Cmd::CancelTransfer { id, reply } => {
+                let key = self
+                    .xfer_meta
+                    .iter()
+                    .find(|(_, m)| m.id == id)
+                    .map(|(k, _)| *k);
+                let res = match key.and_then(|k| self.xfers.cancel(k)) {
+                    Some(effs) => {
+                        self.apply_xfer(effs).await;
+                        Ok(json!({ "id": id, "state": "failed", "stateReason": "cancelled" }))
+                    }
+                    None => Err(ApiError::new(
+                        E_NOT_FOUND,
+                        format!("no active transfer {id}"),
+                    )),
+                };
+                let _ = reply.send(res);
+            }
         }
+    }
+
+    fn now(&self) -> u64 {
+        self.started.elapsed().as_millis() as u64
+    }
+
+    /// An outgoing chat line changed state: republish the whole line
+    /// (`chat.line` consumers upsert by id).
+    fn chat_state(&mut self, id: i64, state: &str, reason: Option<String>) {
+        let _ = self.store.set_chat_tx_state(id, state);
+        if let Some(reason) = reason {
+            self.log(
+                "warn",
+                None,
+                &format!("chat line {id} not transmitted: {reason}"),
+            );
+        }
+        if let Ok(Some(line)) = self.store.chat_line(id) {
+            self.publish("chat.line", chat_json(&line));
+        }
+    }
+
+    async fn tick(&mut self) {
+        let effs = self.xfers.poll(self.now());
+        self.apply_xfer(effs).await;
+        self.xfers.reap();
+    }
+
+    fn transfer_row(&mut self, s: &Snapshot) -> TransferRow {
+        let now = unix_ms();
+        let meta = self.xfer_meta.entry(s.key).or_insert_with(|| XferMeta {
+            id: uuid::Uuid::now_v7().to_string(),
+            created_at: now,
+            sha256: None,
+        });
+        TransferRow {
+            id: meta.id.clone(),
+            direction: if s.dir == Dir::Send {
+                "send"
+            } else {
+                "receive"
+            }
+            .into(),
+            protocol: s.class.protocol().into(),
+            peer: s.peer.clone(),
+            port_id: Some(s.port.clone()),
+            filename: s.name.clone(),
+            sha256: meta.sha256.clone(),
+            total_bytes: s.wire_total as i64,
+            wire_bytes: Some(s.wire_total as i64),
+            block_size: s.block_size as i64,
+            done_bytes: s.wire_done as i64,
+            state: s.state.into(),
+            state_reason: s.reason.clone(),
+            retries: s.retries as i64,
+            wrap_warning: s.wrap_warning,
+            created_at: meta.created_at,
+            updated_at: now,
+        }
+    }
+
+    async fn apply_xfer(&mut self, effs: Vec<XEffect>) {
+        for e in effs {
+            match e {
+                XEffect::Send {
+                    port,
+                    frame,
+                    encoding,
+                    priority,
+                } => {
+                    if let Err(err) = self
+                        .send_frame(&port, &frame, encoding, priority, None)
+                        .await
+                    {
+                        self.log(
+                            "warn",
+                            Some(&port),
+                            &format!("transfer frame not sent: {}", err.message),
+                        );
+                    }
+                }
+                XEffect::Update(s) => {
+                    let row = self.transfer_row(&s);
+                    if let Err(err) = self.store.upsert_transfer(&row) {
+                        self.log("error", None, &format!("store: {err}"));
+                    }
+                    if matches!(s.state, "done" | "failed") {
+                        let verb = match (s.dir, s.state) {
+                            (Dir::Send, "done") => "sent",
+                            (Dir::Receive, "done") => "received",
+                            _ => "failed",
+                        };
+                        let detail = s
+                            .reason
+                            .as_deref()
+                            .map(|r| format!(" ({r})"))
+                            .unwrap_or_default();
+                        let level = if s.state == "failed" { "warn" } else { "info" };
+                        self.log(
+                            level,
+                            Some(&s.port),
+                            &format!(
+                                "transfer {} {verb}: {} with {}{detail}",
+                                row.id, s.name, s.peer
+                            ),
+                        );
+                        self.xfer_meta.remove(&s.key);
+                    }
+                    self.publish("transfer.progress", transfer_json(&row));
+                }
+                XEffect::Received {
+                    key,
+                    class,
+                    port,
+                    peer,
+                    name,
+                    data,
+                } => {
+                    let sha = Sha256::digest(&data)
+                        .iter()
+                        .map(|b| format!("{b:02x}"))
+                        .collect::<String>();
+                    if let Some(m) = self.xfer_meta.get_mut(&key) {
+                        m.sha256 = Some(sha);
+                    }
+                    let (dir, fname) = match class {
+                        Class::File => (self.files_dir.clone(), name.clone()),
+                        Class::Form => (
+                            self.files_dir.join("forms"),
+                            format!("form_{}_{}.xml", unix_ms(), peer),
+                        ),
+                    };
+                    match crate::inbox::save_unique(&dir, &fname, &data) {
+                        Ok(path) => self.log(
+                            "info",
+                            Some(&port),
+                            &format!(
+                                "saved {name} from {peer} ({} bytes) to {}",
+                                data.len(),
+                                path.display()
+                            ),
+                        ),
+                        Err(err) => self.log(
+                            "error",
+                            Some(&port),
+                            &format!("cannot save {name} from {peer} in {}: {err}", dir.display()),
+                        ),
+                    }
+                }
+                XEffect::Log { level, message } => self.log(level, None, &message),
+            }
+        }
+    }
+
+    fn check_peer(&self, port: &str, peer: &str) -> Result<String, ApiError> {
+        let peer = peer.trim().to_ascii_uppercase();
+        if !self.ports.contains_key(port) {
+            return Err(ApiError::new(E_NOT_FOUND, format!("no port {port}")));
+        }
+        if peer == self.station.callsign {
+            return Err(ApiError::new(E_SELF, "self-addressed traffic refused"));
+        }
+        if peer.len() < 3 || peer.len() > 8 || peer == aether_ddt2::session::CQCQCQ {
+            return Err(ApiError::new(
+                E_INVALID,
+                "a transfer needs one station's callsign (3-8 characters)",
+            ));
+        }
+        Ok(peer)
+    }
+
+    async fn start_transfer(
+        &mut self,
+        port: &str,
+        peer: &str,
+        class: Class,
+        name: &str,
+        content: &[u8],
+    ) -> Result<Value, ApiError> {
+        let peer = self.check_peer(port, peer)?;
+        let cfg = arq_config(self.ports[port].path_kind);
+        let now = self.now();
+        let (key, effs) = self
+            .xfers
+            .start_send(
+                now,
+                xfer::SendRequest {
+                    port,
+                    peer: &peer,
+                    class,
+                    name,
+                    content,
+                    cfg,
+                },
+            )
+            .map_err(|e| ApiError::new(E_INVALID, e))?;
+        self.apply_xfer(effs).await;
+        let id = self
+            .xfer_meta
+            .get(&key)
+            .map(|m| m.id.clone())
+            .unwrap_or_default();
+        Ok(self
+            .store
+            .transfers(true, 50)
+            .ok()
+            .and_then(|v| v.into_iter().find(|t| t.id == id))
+            .map(|t| transfer_json(&t))
+            .unwrap_or(json!({ "id": id })))
     }
 
     async fn chat_send(
@@ -435,7 +806,7 @@ impl Engine {
         .await
         .map_err(|_| ApiError::new(E_INTERNAL, "port stopped"))?;
         let v = chat_json(&line);
-        self.publish("chat", v.clone());
+        self.publish("chat.line", v.clone());
         Ok(v)
     }
 }
@@ -525,7 +896,18 @@ pub fn start(cfg: &Config) -> Result<EngineHandle, String> {
             },
         );
     }
+    let files_dir = cfg.files_dir.clone().unwrap_or_else(|| match &cfg.db {
+        Some(db) => db.with_file_name("received"),
+        None => std::env::temp_dir().join("aether-received"),
+    });
+    let limits = xfer::Limits {
+        max_wire_bytes: cfg.max_incoming_kib.saturating_mul(1024),
+        ..xfer::Limits::default()
+    };
     let mut engine = Engine {
+        xfers: Transfers::new(&cfg.callsign, limits),
+        xfer_meta: HashMap::new(),
+        files_dir,
         station: Station::new(&cfg.callsign, seed),
         store,
         ports,
@@ -535,8 +917,11 @@ pub fn start(cfg: &Config) -> Result<EngineHandle, String> {
         rpc_job: 0,
     };
     tokio::spawn(async move {
+        let mut tick = tokio::time::interval(Duration::from_millis(200));
+        tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
         loop {
             tokio::select! {
+                _ = tick.tick() => engine.tick().await,
                 Some(e) = evt_rx.recv() => engine.on_port_evt(e).await,
                 c = cmd_rx.recv() => match c {
                     Some(c) => engine.on_cmd(c).await,

@@ -95,6 +95,7 @@ pub struct LegacySender {
     deadline: Millis,
     burst_sent_at: Millis,
     earliest_answer: Millis,
+    air_end: Millis,
     repolled: bool,
     srtt: Option<f64>,
     rttvar: f64,
@@ -127,6 +128,7 @@ impl LegacySender {
             deadline: 0,
             burst_sent_at: 0,
             earliest_answer: 0,
+            air_end: 0,
             repolled: false,
             srtt: None,
             rttvar: 0.0,
@@ -142,6 +144,36 @@ impl LegacySender {
 
     pub fn state(&self) -> SenderState {
         self.state
+    }
+
+    /// Queue more data on the same session. Block sequence numbers continue
+    /// from the previous write: legacy keeps one `oseq` per session, so a
+    /// file offer is block 0 and the file stream starts at block 1
+    /// (`stateful.py` `write`).
+    pub fn append(&mut self, data: &[u8]) {
+        if self.state == SenderState::Failed || data.is_empty() {
+            return;
+        }
+        for c in data.chunks(self.cfg.block_size.max(1)) {
+            self.blocks.push(c.to_vec());
+            self.ever_sent.push(false);
+        }
+        self.state = SenderState::Sending;
+    }
+
+    /// Blocks the peer has acknowledged so far.
+    pub fn blocks_acked(&self) -> usize {
+        self.next - self.outstanding.len()
+    }
+
+    /// Payload bytes the peer has acknowledged so far.
+    pub fn bytes_acked(&self) -> usize {
+        self.blocks[..self.next]
+            .iter()
+            .enumerate()
+            .filter(|(i, _)| !self.outstanding.contains(i))
+            .map(|(_, b)| b.len())
+            .sum()
     }
 
     pub fn block_count(&self) -> usize {
@@ -225,8 +257,13 @@ impl LegacySender {
         self.burst_sent_at = now;
         self.repolled = false;
         let air = self.air_ms(bytes + 40);
-        // An answer needs our burst on air plus at least one over back.
-        self.earliest_answer = now + air + self.cfg.per_over_ms;
+        // A real answer needs our burst on air plus an over back. Stale or
+        // duplicated ACKs arrive right after the burst starts, so half the
+        // estimated air time is enough to catch them while tolerating a
+        // rate estimate up to 2x too pessimistic (a tighter guard would
+        // stall every window until the RTO on a faster-than-estimated path).
+        self.air_end = now + air;
+        self.earliest_answer = now + air / 2;
         self.deadline = now + air + self.rto;
         frames
     }
@@ -261,8 +298,7 @@ impl LegacySender {
         }
         if !self.repolled {
             // Karn: only sample unambiguous round trips.
-            let air_end = self.earliest_answer.saturating_sub(self.cfg.per_over_ms);
-            self.rtt_sample(now.saturating_sub(air_end) as f64);
+            self.rtt_sample(now.saturating_sub(self.air_end) as f64);
         }
         self.waiting = None;
         self.attempts = 0;

@@ -121,6 +121,8 @@ Implements control session 0 (`control.py`) exactly on the wire, with these loca
 
 RTO estimator: `RTO = srtt + 4·rttvar` (RFC 6298 form). RTT samples are measured from the **end of the estimated air time** of the REQACK to ACK arrival. Clamp to `[T_RTO_MIN = 4 s†, T_RTO_MAX = 60 s]`. Karn's rule applies: no samples from re-polled REQACKs.
 
+*Phase C amendment (stale-ACK guard):* an ACK arriving earlier than **half** the estimated burst air time after the burst started is applied as information only and does not end the wait (P20). The first implementation used the full air time plus one over, which stalled every window until the RTO on paths faster than the estimate (seen on ratflector links). Per-path parameters: ratflector links use zero air time.
+
 Invariants:
 - I4.1 The receiver delivers in order.
 - I4.2 The sender never reports *delivered* for a legacy transfer; the best state is `HandedOff(hop)` (see SM-7).

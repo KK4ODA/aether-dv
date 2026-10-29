@@ -62,12 +62,14 @@ dependencies = [
  "aether-rfd",
  "aether-rfl",
  "aether-store",
+ "flate2",
  "futures-util",
  "getrandom 0.3.4",
  "nix 0.31.3",
  "serde",
  "serde_json",
  "serialport",
+ "sha2",
  "socket2",
  "tempfile",
  "tokio",
@@ -76,6 +78,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "tungstenite",
+ "uuid",
 ]
 
 [[package]]

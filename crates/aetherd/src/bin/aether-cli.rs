@@ -8,7 +8,10 @@
 //!   history [PORT] [N]            recent chat lines (all ports if PORT omitted)
 //!   ping PORT CALL                legacy ping
 //!   version PORT CALL             ask a station for its version/capabilities
-//!   tail                          print chat, port and station events live
+//!   send-file PORT CALL PATH      send a file (legacy D-RATS file transfer)
+//!   transfers [all]               active transfers (or all, newest first)
+//!   cancel ID                     cancel an active transfer
+//!   tail                          print chat, port, station and transfer events live
 //! ```
 
 use std::net::TcpStream;
@@ -72,6 +75,31 @@ fn line(c: &Value) -> String {
         c["dst"].as_str().unwrap_or(""),
         c["body"].as_str().unwrap_or(""),
         state
+    )
+}
+
+fn transfer(t: &Value) -> String {
+    let total = t["totalBytes"].as_u64().unwrap_or(0);
+    let done = t["doneBytes"].as_u64().unwrap_or(0);
+    let pct = (done * 100).checked_div(total).unwrap_or(0);
+    format!(
+        "{}  {:<7} {:<8} {:<10} {:<9} {:>3}%  {}{}{}",
+        t["id"].as_str().unwrap_or(""),
+        t["direction"].as_str().unwrap_or(""),
+        t["peer"].as_str().unwrap_or(""),
+        t["portId"].as_str().unwrap_or("-"),
+        t["state"].as_str().unwrap_or(""),
+        pct,
+        t["filename"].as_str().unwrap_or(""),
+        t["stateReason"]
+            .as_str()
+            .map(|r| format!("  ({r})"))
+            .unwrap_or_default(),
+        if t["wrapWarning"] == true {
+            "  [>256 blocks: delivery unconfirmable with legacy peers]"
+        } else {
+            ""
+        },
     )
 }
 
@@ -143,8 +171,23 @@ fn main() {
             c.call("stations.queryCapabilities", json!({ "portId": args[1], "callsign": args[2] }));
             println!("version request sent; the answer appears in `tail` and `stations`");
         }
+        "send-file" if args.len() == 4 => {
+            let path = std::fs::canonicalize(&args[3]).unwrap_or_else(|e| die(&format!("{}: {e}", args[3])));
+            let r = c.call("transfers.sendFile", json!({ "portId": args[1], "peer": args[2], "path": path }));
+            println!("{}", transfer(&r));
+        }
+        "transfers" => {
+            let all = args.get(1).is_some_and(|a| a == "all");
+            for t in c.call("transfers.list", json!({ "includeFinished": all })).as_array().cloned().unwrap_or_default() {
+                println!("{}", transfer(&t));
+            }
+        }
+        "cancel" if args.len() == 2 => {
+            c.call("transfers.cancel", json!({ "id": args[1] }));
+            println!("cancelled");
+        }
         "tail" => {
-            c.call("events.subscribe", json!({ "topics": ["chat", "chat_state", "port", "station"] }));
+            c.call("events.subscribe", json!({ "topics": ["chat.line", "port.state", "station.heard", "transfer.progress", "engine.event"] }));
             eprintln!("connected to aetherd {} as {}", hello["engineVersion"], hello["profile"]);
             loop {
                 let m = c.ws.read().unwrap_or_else(|e| die(&format!("read: {e}")));
@@ -152,13 +195,13 @@ fn main() {
                 let v: Value = serde_json::from_str(&t).unwrap_or(Value::Null);
                 let p = &v["params"];
                 match p["topic"].as_str() {
-                    Some("chat") => println!("{}", line(&p["data"])),
-                    Some("chat_state") => println!("  #{} on {}: {}", p["data"]["id"], p["data"]["portId"].as_str().unwrap_or(""), p["data"]["txState"].as_str().unwrap_or("")),
+                    Some("chat.line") => println!("{}", line(&p["data"])),
+                    Some("transfer.progress") => println!("  {}", transfer(&p["data"])),
                     Some(topic) => println!("  [{topic}] {}", p["data"]),
                     None => {}
                 }
             }
         }
-        _ => die("usage: aether-cli [--api ADDR] [--token-file PATH] ports|stations|send PORT DST TEXT|history [PORT] [N]|ping PORT CALL|version PORT CALL|tail"),
+        _ => die("usage: aether-cli [--api ADDR] [--token-file PATH] ports|stations|send PORT DST TEXT|history [PORT] [N]|ping PORT CALL|version PORT CALL|send-file PORT CALL PATH|transfers [all]|cancel ID|tail"),
     }
 }

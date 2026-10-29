@@ -303,3 +303,62 @@ fn wrap_warning_threshold() {
     assert!(!LegacySender::new(cfg.clone(), a.clone(), &vec![0; 256 * 512]).wrap_warning());
     assert!(LegacySender::new(cfg, a, &vec![0; 256 * 512 + 1]).wrap_warning());
 }
+
+#[test]
+fn append_continues_the_session_sequence() {
+    // A file session: the offer is block 0, the stream starts at block 1.
+    let addr = SessionAddr {
+        session: 9,
+        src: "KK4ODA".into(),
+        dst: "W4DRS".into(),
+    };
+    let mut cfg = SenderConfig::legacy_defaults();
+    cfg.block_size = 4;
+    let mut tx = LegacySender::new(cfg, addr, b"offr");
+    let burst = tx.poll_transmit(0);
+    assert_eq!(burst.len(), 2);
+    assert_eq!(burst[0].seq, 0);
+    let ack = |seqs: &[u8]| Frame::new(0, 4, 1, "W4DRS", "KK4ODA", seqs.to_vec());
+    tx.on_frame(60_000, &ack(&[0]));
+    assert_eq!(tx.state(), SenderState::Done);
+    assert_eq!(tx.bytes_acked(), 4);
+    tx.append(b"0123456789");
+    assert_eq!(tx.state(), SenderState::Sending);
+    let burst = tx.poll_transmit(60_000);
+    let seqs: Vec<u16> = burst
+        .iter()
+        .filter(|f| f.kind == 4)
+        .map(|f| f.seq)
+        .collect();
+    assert_eq!(seqs, vec![1, 2, 3]);
+    assert_eq!(burst.last().unwrap().payload, vec![1, 2, 3]);
+    tx.on_frame(120_000, &ack(&[1, 3]));
+    assert_eq!(tx.blocks_acked(), 3); // 0, 1, 3; block 2 still outstanding
+    assert_eq!(tx.bytes_acked(), 4 + 4 + 2);
+    tx.on_frame(180_000, &ack(&[2]));
+    assert_eq!(tx.state(), SenderState::Done);
+    assert_eq!(tx.bytes_acked(), 14);
+}
+
+#[test]
+fn faster_than_estimated_path_is_not_stalled() {
+    // The path is twice as fast as the 119 B/s estimate: real answers come
+    // before the estimated end of our burst and must still be accepted.
+    let a = SessionAddr {
+        session: 4,
+        src: "A".into(),
+        dst: "B".into(),
+    };
+    let mut tx = LegacySender::new(SenderConfig::legacy_defaults(), a, &data(4096, 6));
+    let burst = tx.poll_transmit(0);
+    let seqs = burst.last().unwrap().payload.clone();
+    let air_est: u64 = 1_100 + (4 * (512 + 35) + 40) * 1000 / 119;
+    let answer_at = air_est / 2 + 1_100 + 500; // real air ~ half, plus the ACK over
+    let ack = Frame::new(0, 7, aether_ddt2::session::stateful::ACK, "B", "A", seqs);
+    tx.on_frame(answer_at, &ack);
+    assert_eq!(tx.stats.early_acks_ignored, 0);
+    // The next window goes out immediately, not after an RTO.
+    let next = tx.poll_transmit(answer_at);
+    assert_eq!(next.len(), 5);
+    assert_eq!(next[0].seq, 4);
+}

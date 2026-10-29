@@ -6,6 +6,8 @@
 #   GPS TX mode OFF so position beacons don't share the data channel
 callsign = "KK4ODA"
 db = "aether.db"
+# files_dir = "received"     # received files (forms in received/forms); default: next to the db
+# max_incoming_kib = 4096    # largest incoming transfer accepted (compressed size)
 api_listen = "127.0.0.1:7373"
 
 [[port]]
