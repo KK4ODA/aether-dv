@@ -71,6 +71,10 @@ ircDDBGateway's `DRATSServer` (`Common/DRATSServer.cpp`) is a second, independen
 
 ### 5.2 Safety additions that remain legacy-compatible (must)
 - **Cross-link duplicate suppression**: key = hash of the exact DDT2 bytes, remembered together with the link it first arrived on, for a short window (~3 s, tunable). Drop a copy only if it arrives on a *different* link within that window, which is the signature of a loop or multipath bridge. Repeats on the *same* link are always forwarded. Legacy frames carry no unique id: a user typing "ok" twice produces identical bytes, and stateful REQACK re-polls are byte-identical by design (`stateful.py:280-285`). Plain content-hash dedup would therefore delete legitimate traffic. **This rule must be validated in the loop/bridge simulation suite before release.** Aether-framed links use the frame uuid instead (§5.3) and need no heuristic.
+  **Phase B simulation result** (`crates/aether-rfd/tests/loops.rs`, Simulated):
+  - A triangle of legacy ratflectors turns one chat line into 1,000 copies at one client within 60 s. With the rule, the client gets exactly one.
+  - An asymmetric RF bridge loop (bridge B hears A on air, A doesn't hear B) gives 58 copies in 120 s on legacy servers. The rule suppresses it **only if the window is longer than the loop**: a 5 s RF hop with a 3 s window still gives 24 copies, while a 30 s window gives 1.
+  - **Correction to the rule: the window is per link.** Internet-only links use ~3 s. **Links that include an RF hop use ≥30 s**, or the worst-case air time of a loop, whichever is larger. The cost is that a genuinely repeated identical frame arriving over a *different* link within 30 s is dropped; same-link repeats still pass.
 - **Per-link token-bucket rate limits**, with special limits on RF-bridge links derived from the RF rate.
 - **Bounded per-connection queues** with priority (control/ACK > chat > form > file) and drop-oldest-bulk policy.
 - **Application keepalive** for Aether clients only (§5.3). TCP keepalive (SO_KEEPALIVE plus tuned intervals) for all.

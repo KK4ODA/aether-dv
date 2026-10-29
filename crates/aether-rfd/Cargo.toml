@@ -1,0 +1,14 @@
+[package]
+name = "aether-rfd"
+description = "Ratflector server core: legacy-compatible DDT2 forwarding with loop safeguards"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+aether-ddt2 = { path = "../aether-ddt2" }
+
+[lints]
+workspace = true
