@@ -1,0 +1,48 @@
+.msgview { display: grid; grid-template-columns: 300px 1fr 340px; height: 100%; }
+.list { border-right: 1px solid var(--line-hair); overflow: auto; }
+.folders { display: flex; gap: var(--s2); padding: var(--s3) var(--s5); border-bottom: 1px solid var(--line-hair); flex-wrap: wrap; }
+.folders a { color: var(--text-2); text-decoration: none; padding: 2px 8px; border-radius: var(--r-md); font-size: var(--fs-sm); }
+.folders a[aria-current="true"] { background: var(--bg-select); color: var(--text-1); }
+.items { list-style: none; margin: 0; padding: 0; }
+.items li { padding: var(--s3) var(--s5); border-bottom: 1px solid var(--line-hair); display: grid; gap: 2px; cursor: default; }
+.items li[aria-selected="true"] { background: var(--bg-raised); box-shadow: inset 3px 0 0 var(--text-1); }
+.items .r1 { display: flex; justify-content: space-between; gap: var(--s3); }
+.items .r2 { color: var(--text-2); font-size: var(--fs-sm); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.items .r3 { display: flex; justify-content: space-between; font-size: var(--fs-sm); }
+
+.doc { overflow: auto; padding: var(--s5) var(--s6) var(--s6); }
+.doc-head { display: flex; align-items: baseline; gap: var(--s4); margin-bottom: var(--s4); }
+.doc-head h1 { font-size: var(--fs-xl); font-weight: 600; margin: 0; }
+.doc-actions { margin-left: auto; display: flex; gap: var(--s3); }
+.mid { color: var(--text-3); font-size: var(--fs-sm); margin: 0 0 var(--s5); }
+/* ICS-213 rendered in the paper form's own boxed grid */
+.ics { border: 1px solid var(--line-strong); max-width: 760px; background: var(--bg-raised); }
+.ics-title { display: flex; justify-content: space-between; align-items: baseline; padding: var(--s3) var(--s4); border-bottom: 1px solid var(--line-strong); }
+.ics-title b { font-size: var(--fs-lg); }
+.ics-grid { display: grid; grid-template-columns: repeat(6, 1fr); }
+.box { border-right: 1px solid var(--line-hair); border-bottom: 1px solid var(--line-hair); padding: 6px var(--s4) var(--s3); min-height: 52px; }
+.box:last-child { border-right: 0; }
+.box .k { display: block; font-size: var(--fs-xs); color: var(--text-3); margin-bottom: 2px; }
+.box .v { font-size: var(--fs-md); }
+.c2 { grid-column: span 2; } .c3 { grid-column: span 3; } .c4 { grid-column: span 4; } .c6 { grid-column: span 6; }
+.box.body { min-height: 150px; } .box.body .v { white-space: pre-line; max-width: 70ch; }
+.box.edge { border-right: 0; }
+
+.delivery { border-left: 1px solid var(--line-hair); overflow: auto; padding: var(--s5); }
+.delivery h2 { font-size: var(--fs-md); font-weight: 600; margin: 0 0 var(--s4); }
+.verdict { border: 1px solid var(--line-strong); border-radius: var(--r-md); padding: var(--s4); margin-bottom: var(--s5); background: var(--bg-raised); }
+.verdict .st { font-size: var(--fs-lg); font-weight: 600; }
+.verdict p { margin: var(--s3) 0 0; color: var(--text-2); }
+/* hop ladder: a genuine sequence, so it is drawn as one */
+.ladder { list-style: none; margin: 0; padding: 0; position: relative; }
+.ladder::before { content: ""; position: absolute; left: 7px; top: 8px; bottom: 56px; width: 2px; background: var(--line-strong); }
+.ladder li { position: relative; padding: 0 0 var(--s5) 28px; }
+.ladder li::before { content: ""; position: absolute; left: 1px; top: 4px; width: 10px; height: 10px; border-radius: 50%;
+  background: var(--bg-base); border: 2px solid var(--line-strong); }
+.ladder li.done::before { background: var(--text-1); border-color: var(--text-1); }
+.ladder li.fail::before { background: var(--fail); border-color: var(--fail); }
+.ladder li.open::before { border-style: dashed; border-color: var(--unknown); }
+.ladder .when { color: var(--text-3); font-size: var(--fs-sm); }
+.ladder .what { display: block; }
+.ladder .how { display: flex; gap: var(--s3); align-items: center; flex-wrap: wrap; margin-top: 3px; font-size: var(--fs-sm); color: var(--text-2); }
+.delivery .acts { display: flex; gap: var(--s3); margin-top: var(--s3); }

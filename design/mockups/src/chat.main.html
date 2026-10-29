@@ -1,0 +1,71 @@
+  <main class="main chat">
+    <section class="convo" aria-labelledby="chan-title">
+      <div class="pane-head">
+        <h1 id="chan-title">Hall County ARES net</h1>
+        <span class="tag slow">◇ IC-9700 Slow</span>
+        <span class="muted">145.670 MHz simplex</span>
+        <span style="margin-left:auto" class="muted">Ctrl F to search</span>
+      </div>
+      <ul class="channels" aria-label="Chat channels">
+        <li><a href="#" aria-current="true">ARES net <span class="tag slow">◇ Slow</span></a></li>
+        <li><a href="#">sewx <span class="tag net">⌁ Internet</span><span class="n" aria-label="3 unread">3</span></a></li>
+        <li><a href="#">KJ4VTR direct <span class="tag fast">◆ Fast</span><span class="n" aria-label="2 unread">2</span></a></li>
+        <li><a href="#">All traffic</a></li>
+      </ul>
+
+      <ol class="log" role="log" aria-live="polite" aria-label="Messages on the ARES net">
+        <li class="daybreak">Today, Wednesday 29 October</li>
+        <li class="line"><time datetime="14:02">14:02:11</time><span class="who call">W4DRS</span>
+          <span class="body">Net is open. Stations with traffic, call now. Others stand by.</span><span class="meta"></span></li>
+        <li class="line"><time datetime="14:02">14:02:40</time><span class="who call">N4SHL</span>
+          <span class="body">N4SHL at Shelter 3, Gainesville HS. Three messages for EOC logistics.</span><span class="meta"></span></li>
+        <li class="line sys"><time datetime="14:02">14:02:52</time><span class="who">Position</span>
+          <span class="body"><span class="call" style="color:var(--text-1)">N4SHL</span> 34.298 N, 83.824 W, from a DPRS beacon</span><span class="meta"></span></li>
+        <li class="line mine"><time datetime="14:03">14:03:05</time><span class="who call">KK4ODA</span>
+          <span class="body">N4SHL, go ahead with your first message, ICS-213 to EOC-1.</span>
+          <span class="meta"><span class="st unknown" title="Broadcast chat cannot be confirmed. It was transmitted on the IC-9700.">Transmitted</span></span></li>
+        <li class="line"><time datetime="14:04">14:04:31</time><span class="who call">N4SHL</span>
+          <span class="body">Sending now. Second message has a 38 kB photo of the supply room; I'll send it direct on fast data.</span><span class="meta"></span></li>
+        <li class="line sys"><time datetime="14:06">14:06:02</time><span class="who">Message</span>
+          <span class="body">ICS-213 "Shelter 3 supply request" received from <span class="call" style="color:var(--text-1)">N4SHL</span> for EOC-1. <a href="message.html" style="color:var(--text-1)">Open</a></span><span class="meta"></span></li>
+        <li class="line"><time datetime="14:06">14:06:20</time><span class="who call">KJ4VTR</span>
+          <span class="body">KJ4VTR mobile, 8 minutes out from Shelter 3 with the generator.</span><span class="meta"></span></li>
+        <li class="line mine"><time datetime="14:06">14:06:44</time><span class="who call">KK4ODA</span>
+          <span class="body">Copy KJ4VTR. N4SHL, message received and relayed to EOC-1.</span>
+          <span class="meta"><span class="st pending">Sending</span></span></li>
+      </ol>
+
+      <form class="compose" aria-label="Write a chat message" onsubmit="return false">
+        <div class="compose-row">
+          <label>To <select aria-label="Recipient"><option>Everyone on this net (CQCQCQ)</option><option>N4SHL</option><option>KJ4VTR</option></select></label>
+          <label>Send via <select aria-label="Send via"><option>IC-9700, slow data</option><option>sewx ratflector</option></select></label>
+          <span class="estimate">About 1.6 s on air. Broadcasts can't be confirmed.</span>
+        </div>
+        <div class="compose-input">
+          <label class="sr" for="msg">Message</label>
+          <input id="msg" placeholder="Type a message" value="">
+          <button class="btn primary" type="submit">Send <span class="sr">(Ctrl Enter)</span></button>
+        </div>
+      </form>
+    </section>
+
+    <aside class="context" aria-label="Net context">
+      <h2>Heard on this net</h2>
+      <ul class="stations">
+        <li><span class="call">W4DRS</span><span class="tag slow">◇ Slow</span><span class="ago">5 s</span></li>
+        <li><span class="call">KJ4VTR</span><span class="tag fast">◆ Fast</span><span class="ago">24 s</span></li>
+        <li><span class="call">N4SHL</span><span class="tag slow">◇ Slow</span><span class="ago">2 m</span></li>
+        <li><span class="call">K4EOC</span><span class="tag net">⌁ sewx</span><span class="ago">4 m</span></li>
+        <li><span class="call">AG4RX</span><span class="tag slow">◇ Slow</span><span class="ago">11 m</span></li>
+      </ul>
+      <h2>Waiting to send</h2>
+      <ul class="queue">
+        <li><div class="q1"><span>ICS-213 to <span class="call">EOC-1</span> via <span class="call">K4EOC</span></span><span class="st pending">Queued</span></div>
+          <div class="q2"><span>Next try in 40 s</span><span>1.2 kB</span></div></li>
+        <li><div class="q1"><span>roster.csv to <span class="call">W4DRS</span></span><span class="st pending">Sending</span></div>
+          <div class="bar" role="progressbar" aria-valuenow="62" aria-valuemin="0" aria-valuemax="100" aria-label="roster.csv progress"><span style="width:62%"></span></div>
+          <div class="q2"><span>62% of 4.1 kB</span><span>about 20 s left</span></div></li>
+      </ul>
+    </aside>
+  </main>
+

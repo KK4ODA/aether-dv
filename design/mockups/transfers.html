@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Aether DV — Transfers (mockup)</title>
+<link rel="stylesheet" href="app.css">
+<style>
+.xfer { display: grid; grid-template-rows: 44px 1fr 260px; height: 100%; }
+.xfer .pane-head .filters { display: flex; gap: var(--s2); margin-left: var(--s5); }
+.xfer .filters a { color: var(--text-2); text-decoration: none; padding: 2px 8px; border-radius: var(--r-md); font-size: var(--fs-sm); }
+.xfer .filters a[aria-current="true"] { background: var(--bg-select); color: var(--text-1); }
+.xfer .pane-head .actions { margin-left: auto; display: flex; gap: var(--s3); }
+.tablewrap { overflow: auto; }
+table.grid { width: 100%; border-collapse: collapse; }
+.grid th { position: sticky; top: 0; background: var(--bg-base); text-align: left; font-weight: 500; color: var(--text-3);
+  font-size: var(--fs-sm); padding: var(--s3) var(--s4); border-bottom: 1px solid var(--line-strong); white-space: nowrap; }
+.grid td { padding: 0 var(--s4); height: 36px; border-bottom: 1px solid var(--line-hair); white-space: nowrap; }
+.grid tr[aria-selected="true"] td { background: var(--bg-raised); }
+.grid tr[aria-selected="true"] td:first-child { box-shadow: inset 3px 0 0 var(--text-1); }
+.grid .num { text-align: right; }
+.prog { display: grid; grid-template-columns: 140px 40px; gap: var(--s3); align-items: center; }
+.bar { height: 6px; background: var(--bg-select); border-radius: 3px; overflow: hidden; }
+.bar > span { display: block; height: 100%; background: var(--text-2); }
+.bar.fast > span { background: var(--fast); } .bar.slow > span { background: var(--slow); } .bar.net > span { background: var(--net); }
+.note { color: var(--pending); font-size: var(--fs-sm); }
+
+.inspect { border-top: 1px solid var(--line-strong); display: grid; grid-template-columns: 1.1fr 1fr 1fr; gap: var(--s6); padding: var(--s4) var(--s5); overflow: auto; background: var(--bg-sunken); }
+.inspect h2 { font-size: var(--fs-md); font-weight: 600; margin: 0 0 var(--s3); }
+.inspect dl { display: grid; grid-template-columns: max-content 1fr; gap: 3px var(--s5); margin: 0; }
+.inspect dt { color: var(--text-2); } .inspect dd { margin: 0; }
+/* block map: one cell per block, a real per-block state, not decoration */
+.blocks { display: grid; grid-template-columns: repeat(32, 1fr); gap: 2px; margin-top: var(--s2); }
+.blocks i { height: 10px; border-radius: 1px; background: var(--bg-select); }
+.blocks i.a { background: var(--ok); } .blocks i.s { background: var(--text-2); } .blocks i.r { background: var(--pending); }
+.legend { display: flex; gap: var(--s4); font-size: var(--fs-xs); color: var(--text-2); margin-top: var(--s3); }
+.legend span::before { content: ""; display: inline-block; width: 9px; height: 9px; margin-right: 5px; vertical-align: -1px; border-radius: 1px; }
+.legend .la::before { background: var(--ok); } .legend .ls::before { background: var(--text-2); } .legend .lr::before { background: var(--pending); } .legend .lq::before { background: var(--bg-select); }
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="brand"><span class="brand-mark" aria-hidden="true"></span><span class="brand-name">Aether DV</span><span class="brand-call">KK4ODA</span></div>
+
+  <ul class="strip" aria-label="Connections">
+    <li class="plate" data-mode="slow" aria-label="IC-9700, DV slow data, ready, 2 queued">
+      <span class="plate-name">IC-9700</span><span class="plate-mode">◇ Slow</span>
+      <span class="plate-state"><span class="air" aria-hidden="true"><i></i><i class="on-rx"></i></span>Receiving</span>
+      <span class="plate-nums">queue <b>2</b>&ensp;<b>94</b> B/s&ensp;retx <b>3%</b></span>
+    </li>
+    <li class="plate" data-mode="fast" aria-label="ID-52 PLUS, DV fast data, ready, idle">
+      <span class="plate-name">ID-52 PLUS</span><span class="plate-mode">◆ Fast</span>
+      <span class="plate-state"><span class="air" aria-hidden="true"><i></i><i></i></span>Ready</span>
+      <span class="plate-nums">queue <b>0</b>&ensp;last <b>312</b> B/s</span>
+    </li>
+    <li class="plate" data-mode="net" aria-label="Ratflector sewx, internet, connected">
+      <span class="plate-name">sewx ratflector</span><span class="plate-mode">⌁ Internet</span>
+      <span class="plate-state"><span class="air" aria-hidden="true"><i></i><i></i></span>Connected 3 h 12 m</span>
+      <span class="plate-nums">queue <b>0</b>&ensp;14 stations</span>
+    </li>
+    <li class="strip-end"><span>Command palette <kbd>Ctrl K</kbd></span></li>
+  </ul>
+
+  <nav class="rail" aria-label="Sections">
+    <ul>
+      <li><a href="#"><span class="ico" aria-hidden="true">◎</span>Overview</a></li>
+      <li><a href="chat.html"><span class="ico" aria-hidden="true">✉</span>Chat<span class="count" aria-label="5 unread">5</span></a></li>
+      <li><a href="message.html"><span class="ico" aria-hidden="true">▤</span>Messages<span class="count" aria-label="1 unread">1</span></a></li>
+      <li><a href="#"><span class="ico" aria-hidden="true">▦</span>Forms</a></li>
+      <li><a href="transfers.html" aria-current="page"><span class="ico" aria-hidden="true">⇅</span>Transfers<span class="count" aria-label="4 active">4</span></a></li>
+      <li><a href="#"><span class="ico" aria-hidden="true">⌖</span>Stations &amp; map</a></li>
+      <li class="sep" role="separator"></li>
+      <li><a href="connections.html"><span class="ico" aria-hidden="true">⎔</span>Connections</a></li>
+      <li><a href="#"><span class="ico" aria-hidden="true">⚕</span>Diagnostics</a></li>
+      <li><a href="#"><span class="ico" aria-hidden="true">⚙</span>Settings</a></li>
+    </ul>
+  </nav>
+
+    <main class="main xfer">
+    <div class="pane-head">
+      <h1>Transfers</h1>
+      <nav class="filters" aria-label="Filter transfers"><a href="#" aria-current="true">Active 4</a><a href="#">Finished</a><a href="#">All</a></nav>
+      <div class="actions"><button class="btn">Pause all bulk <span class="kbd">Ctrl .</span></button><button class="btn primary">Send a file</button></div>
+    </div>
+    <div class="tablewrap">
+      <table class="grid" aria-label="Transfers">
+        <thead><tr><th scope="col">File</th><th scope="col">Station</th><th scope="col">Path</th><th scope="col" class="num">Size</th>
+          <th scope="col">Progress</th><th scope="col" class="num">Rate</th><th scope="col" class="num">Retries</th><th scope="col">State</th></tr></thead>
+        <tbody>
+          <tr aria-selected="true"><td>supply-room.jpg</td><td>from <span class="call">N4SHL</span></td><td><span class="tag fast">◆ ID-52 PLUS Fast</span></td><td class="num">38.0 kB</td>
+            <td><div class="prog"><div class="bar fast" role="progressbar" aria-label="supply-room.jpg" aria-valuenow="61" aria-valuemin="0" aria-valuemax="100"><span style="width:61%"></span></div><span>61%</span></div></td>
+            <td class="num">298 B/s</td><td class="num">2</td><td><span class="st pending">Receiving</span></td></tr>
+          <tr aria-selected="false"><td>roster.csv</td><td>to <span class="call">W4DRS</span></td><td><span class="tag slow">◇ IC-9700 Slow</span></td><td class="num">4.1 kB</td>
+            <td><div class="prog"><div class="bar slow" role="progressbar" aria-label="roster.csv" aria-valuenow="62" aria-valuemin="0" aria-valuemax="100"><span style="width:62%"></span></div><span>62%</span></div></td>
+            <td class="num">86 B/s</td><td class="num">1</td><td><span class="st pending">Sending, burst 3 of 5</span></td></tr>
+          <tr aria-selected="false"><td>county-shelters.pdf</td><td>to <span class="call">AG4RX</span></td><td><span class="tag slow">◇ IC-9700 Slow</span></td><td class="num">212 kB</td>
+            <td><div class="prog"><div class="bar slow" role="progressbar" aria-label="county-shelters.pdf" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100"><span style="width:0%"></span></div><span>0%</span></div></td>
+            <td class="num">—</td><td class="num">0</td><td><span class="st pending">Queued, about 38 min</span><br><span class="note">Over 256 blocks to a D-RATS station: arrival can't be fully confirmed</span></td></tr>
+          <tr aria-selected="false"><td>sitrep-1400.txt</td><td>to <span class="call">K4EOC</span></td><td><span class="tag slow">◇ IC-9700 Slow</span></td><td class="num">2.3 kB</td>
+            <td><div class="prog"><div class="bar slow" role="progressbar" aria-label="sitrep-1400.txt" aria-valuenow="20" aria-valuemin="0" aria-valuemax="100"><span style="width:20%"></span></div><span>20%</span></div></td>
+            <td class="num">—</td><td class="num">4</td><td><span class="st pending">Paused: K4EOC stopped answering</span></td></tr>
+          <tr aria-selected="false"><td>evac-routes.png</td><td>to <span class="call">KJ4VTR</span></td><td><span class="tag fast">◆ ID-52 PLUS Fast</span></td><td class="num">24.6 kB</td>
+            <td><div class="prog"><div class="bar fast" role="progressbar" aria-label="evac-routes.png" aria-valuenow="100" aria-valuemin="0" aria-valuemax="100"><span style="width:100%"></span></div><span>100%</span></div></td>
+            <td class="num">331 B/s</td><td class="num">0</td><td><span class="st ok">Delivered, checksum verified</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+    <section class="inspect" aria-label="Selected transfer details">
+      <div>
+        <h2>supply-room.jpg from N4SHL</h2>
+        <div class="blocks" role="img" aria-label="76 blocks: 44 received, 2 received after retry, 3 arriving, 27 still to come"><i class="a"></i><i class="a"></i><i class="a"></i><i class="a"></i><i class="a"></i><i class="a"></i><i class="a"></i><i class="a"></i><i class="a"></i><i class="a"></i><i class="a"></i><i class="a"></i><i class="a"></i><i class="r"></i><i class="a"></i><i class="a"></i><i class="a"></i><i class="a"></i><i class="a"></i><i class="a"></i><i class="a"></i><i class="a"></i><i class="a"></i><i class="a"></i><i class="a"></i><i class="a"></i><i class="a"></i><i class="a"></i><i class="a"></i><i class="a"></i><i class="a"></i><i class="r"></i><i class="a"></i><i class="a"></i><i class="a"></i><i class="a"></i><i class="a"></i><i class="a"></i><i class="a"></i><i class="a"></i><i class="a"></i><i class="a"></i><i class="a"></i><i class="a"></i><i class="a"></i><i class="a"></i><i class="s"></i><i class="s"></i><i class="s"></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+        <div class="legend"><span class="la">Received</span><span class="lr">Received after retry</span><span class="ls">Arriving</span><span class="lq">To come</span></div>
+      </div>
+      <div>
+        <h2>Link</h2>
+        <dl>
+          <dt>Protocol</dt><dd>Aether (resumable, checksum on completion)</dd>
+          <dt>Block size</dt><dd>512 B, 8 per burst</dd>
+          <dt>Round trip</dt><dd>3.9 s typical</dd>
+          <dt>Time left</dt><dd>about 50 s</dd>
+        </dl>
+      </div>
+      <div>
+        <h2>If the link drops</h2>
+        <p class="muted" style="margin:0 0 var(--s3);max-width:44ch">Aether keeps the 46 received blocks and resumes where it stopped, even after a restart. Nothing is resent unless it was lost.</p>
+        <button class="btn">Pause</button> <button class="btn quiet">Cancel transfer</button>
+      </div>
+    </section>
+  </main>
+  <div class="drawer" role="status" aria-label="Recent engine activity">
+    <span><time>14:06:44</time>Transmitted 61 bytes on the IC-9700</span>
+    <span><time>14:06:20</time>KJ4VTR heard on the ID-52 PLUS (fast data)</span>
+    <span><time>14:05:58</time>sewx ratflector: 14 stations connected</span>
+  </div>
+</div>
+</body>
+</html>

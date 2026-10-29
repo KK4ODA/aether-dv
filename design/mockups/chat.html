@@ -1,0 +1,165 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Aether DV — Chat (mockup)</title>
+<link rel="stylesheet" href="app.css">
+<style>
+.chat { display: grid; grid-template-columns: 1fr 300px; height: 100%; }
+.convo { display: grid; grid-template-rows: 44px auto 1fr auto; min-height: 0; border-right: 1px solid var(--line-hair); }
+.channels { display: flex; gap: 0; padding: 0 var(--s5); border-bottom: 1px solid var(--line-hair); margin: 0; list-style: none; }
+.channels a { display: inline-flex; align-items: center; gap: var(--s3); height: 34px; padding: 0 var(--s4); color: var(--text-2);
+  text-decoration: none; border-bottom: 2px solid transparent; white-space: nowrap; }
+.channels a[aria-current="true"] { color: var(--text-1); border-bottom-color: var(--text-1); }
+.channels .n { font-size: var(--fs-xs); color: var(--text-1); background: var(--bg-select); border-radius: 8px; padding: 0 6px; }
+.log { overflow: auto; padding: var(--s3) 0; margin: 0; list-style: none; display: flex; flex-direction: column; justify-content: flex-end; }
+.line { display: grid; grid-template-columns: 64px 92px 1fr auto; gap: var(--s4); align-items: baseline;
+  padding: 3px var(--s5); min-height: var(--row); }
+.line:hover { background: var(--bg-raised); }
+.line time { color: var(--text-3); font-size: var(--fs-sm); }
+.line .who { font-size: var(--fs-md); }
+.line .body { max-width: 72ch; }
+.line .meta { display: flex; gap: var(--s3); align-items: center; font-size: var(--fs-sm); }
+.line.mine .who { color: var(--text-2); }
+.line.sys .body { color: var(--text-2); }
+.line.sys .who { color: var(--text-3); font-family: var(--font-ui); font-weight: 400; letter-spacing: 0; }
+.daybreak { padding: var(--s3) var(--s5); color: var(--text-3); font-size: var(--fs-sm); }
+.compose { border-top: 1px solid var(--line-hair); padding: var(--s4) var(--s5); display: grid; gap: var(--s3); background: var(--bg-raised); }
+.compose-row { display: flex; gap: var(--s4); align-items: center; font-size: var(--fs-sm); color: var(--text-2); }
+.compose-row select { background: var(--bg-sunken); color: var(--text-1); border: 1px solid var(--line-control); border-radius: var(--r-md); height: 26px; font: inherit; padding: 0 6px; }
+.compose-input { display: flex; gap: var(--s3); }
+.compose-input input { flex: 1; height: 34px; background: var(--bg-sunken); border: 1px solid var(--line-control); border-radius: var(--r-md);
+  color: var(--text-1); font: inherit; font-size: var(--fs-md); padding: 0 var(--s4); }
+.estimate { margin-left: auto; color: var(--text-3); }
+aside.context { overflow: auto; }
+aside h2 { font-size: var(--fs-md); font-weight: 600; margin: 0; padding: var(--s4) var(--s5) var(--s3); color: var(--text-2); }
+.stations { list-style: none; margin: 0 0 var(--s4); padding: 0; }
+.stations li { display: grid; grid-template-columns: 1fr auto auto; gap: var(--s3); align-items: center; padding: 0 var(--s5); height: var(--row); }
+.stations li:hover { background: var(--bg-raised); }
+.stations .ago { color: var(--text-3); font-size: var(--fs-sm); width: 34px; text-align: right; }
+.queue { list-style: none; margin: 0; padding: 0; }
+.queue li { padding: var(--s3) var(--s5); border-top: 1px solid var(--line-hair); display: grid; gap: 4px; }
+.queue .q1 { display: flex; justify-content: space-between; gap: var(--s3); }
+.bar { height: 4px; background: var(--bg-select); border-radius: 2px; overflow: hidden; }
+.bar > span { display: block; height: 100%; background: var(--text-2); }
+.q2 { display: flex; justify-content: space-between; font-size: var(--fs-sm); color: var(--text-2); }
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="brand"><span class="brand-mark" aria-hidden="true"></span><span class="brand-name">Aether DV</span><span class="brand-call">KK4ODA</span></div>
+
+  <ul class="strip" aria-label="Connections">
+    <li class="plate" data-mode="slow" aria-label="IC-9700, DV slow data, ready, 2 queued">
+      <span class="plate-name">IC-9700</span><span class="plate-mode">◇ Slow</span>
+      <span class="plate-state"><span class="air" aria-hidden="true"><i></i><i class="on-rx"></i></span>Receiving</span>
+      <span class="plate-nums">queue <b>2</b>&ensp;<b>94</b> B/s&ensp;retx <b>3%</b></span>
+    </li>
+    <li class="plate" data-mode="fast" aria-label="ID-52 PLUS, DV fast data, ready, idle">
+      <span class="plate-name">ID-52 PLUS</span><span class="plate-mode">◆ Fast</span>
+      <span class="plate-state"><span class="air" aria-hidden="true"><i></i><i></i></span>Ready</span>
+      <span class="plate-nums">queue <b>0</b>&ensp;last <b>312</b> B/s</span>
+    </li>
+    <li class="plate" data-mode="net" aria-label="Ratflector sewx, internet, connected">
+      <span class="plate-name">sewx ratflector</span><span class="plate-mode">⌁ Internet</span>
+      <span class="plate-state"><span class="air" aria-hidden="true"><i></i><i></i></span>Connected 3 h 12 m</span>
+      <span class="plate-nums">queue <b>0</b>&ensp;14 stations</span>
+    </li>
+    <li class="strip-end"><span>Command palette <kbd>Ctrl K</kbd></span></li>
+  </ul>
+
+  <nav class="rail" aria-label="Sections">
+    <ul>
+      <li><a href="#"><span class="ico" aria-hidden="true">◎</span>Overview</a></li>
+      <li><a href="chat.html" aria-current="page"><span class="ico" aria-hidden="true">✉</span>Chat<span class="count" aria-label="5 unread">5</span></a></li>
+      <li><a href="message.html"><span class="ico" aria-hidden="true">▤</span>Messages<span class="count" aria-label="1 unread">1</span></a></li>
+      <li><a href="#"><span class="ico" aria-hidden="true">▦</span>Forms</a></li>
+      <li><a href="transfers.html"><span class="ico" aria-hidden="true">⇅</span>Transfers<span class="count" aria-label="4 active">4</span></a></li>
+      <li><a href="#"><span class="ico" aria-hidden="true">⌖</span>Stations &amp; map</a></li>
+      <li class="sep" role="separator"></li>
+      <li><a href="connections.html"><span class="ico" aria-hidden="true">⎔</span>Connections</a></li>
+      <li><a href="#"><span class="ico" aria-hidden="true">⚕</span>Diagnostics</a></li>
+      <li><a href="#"><span class="ico" aria-hidden="true">⚙</span>Settings</a></li>
+    </ul>
+  </nav>
+
+    <main class="main chat">
+    <section class="convo" aria-labelledby="chan-title">
+      <div class="pane-head">
+        <h1 id="chan-title">Hall County ARES net</h1>
+        <span class="tag slow">◇ IC-9700 Slow</span>
+        <span class="muted">145.670 MHz simplex</span>
+        <span style="margin-left:auto" class="muted">Ctrl F to search</span>
+      </div>
+      <ul class="channels" aria-label="Chat channels">
+        <li><a href="#" aria-current="true">ARES net <span class="tag slow">◇ Slow</span></a></li>
+        <li><a href="#">sewx <span class="tag net">⌁ Internet</span><span class="n" aria-label="3 unread">3</span></a></li>
+        <li><a href="#">KJ4VTR direct <span class="tag fast">◆ Fast</span><span class="n" aria-label="2 unread">2</span></a></li>
+        <li><a href="#">All traffic</a></li>
+      </ul>
+
+      <ol class="log" role="log" aria-live="polite" aria-label="Messages on the ARES net">
+        <li class="daybreak">Today, Wednesday 29 October</li>
+        <li class="line"><time datetime="14:02">14:02:11</time><span class="who call">W4DRS</span>
+          <span class="body">Net is open. Stations with traffic, call now. Others stand by.</span><span class="meta"></span></li>
+        <li class="line"><time datetime="14:02">14:02:40</time><span class="who call">N4SHL</span>
+          <span class="body">N4SHL at Shelter 3, Gainesville HS. Three messages for EOC logistics.</span><span class="meta"></span></li>
+        <li class="line sys"><time datetime="14:02">14:02:52</time><span class="who">Position</span>
+          <span class="body"><span class="call" style="color:var(--text-1)">N4SHL</span> 34.298 N, 83.824 W, from a DPRS beacon</span><span class="meta"></span></li>
+        <li class="line mine"><time datetime="14:03">14:03:05</time><span class="who call">KK4ODA</span>
+          <span class="body">N4SHL, go ahead with your first message, ICS-213 to EOC-1.</span>
+          <span class="meta"><span class="st unknown" title="Broadcast chat cannot be confirmed. It was transmitted on the IC-9700.">Transmitted</span></span></li>
+        <li class="line"><time datetime="14:04">14:04:31</time><span class="who call">N4SHL</span>
+          <span class="body">Sending now. Second message has a 38 kB photo of the supply room; I'll send it direct on fast data.</span><span class="meta"></span></li>
+        <li class="line sys"><time datetime="14:06">14:06:02</time><span class="who">Message</span>
+          <span class="body">ICS-213 "Shelter 3 supply request" received from <span class="call" style="color:var(--text-1)">N4SHL</span> for EOC-1. <a href="message.html" style="color:var(--text-1)">Open</a></span><span class="meta"></span></li>
+        <li class="line"><time datetime="14:06">14:06:20</time><span class="who call">KJ4VTR</span>
+          <span class="body">KJ4VTR mobile, 8 minutes out from Shelter 3 with the generator.</span><span class="meta"></span></li>
+        <li class="line mine"><time datetime="14:06">14:06:44</time><span class="who call">KK4ODA</span>
+          <span class="body">Copy KJ4VTR. N4SHL, message received and relayed to EOC-1.</span>
+          <span class="meta"><span class="st pending">Sending</span></span></li>
+      </ol>
+
+      <form class="compose" aria-label="Write a chat message" onsubmit="return false">
+        <div class="compose-row">
+          <label>To <select aria-label="Recipient"><option>Everyone on this net (CQCQCQ)</option><option>N4SHL</option><option>KJ4VTR</option></select></label>
+          <label>Send via <select aria-label="Send via"><option>IC-9700, slow data</option><option>sewx ratflector</option></select></label>
+          <span class="estimate">About 1.6 s on air. Broadcasts can't be confirmed.</span>
+        </div>
+        <div class="compose-input">
+          <label class="sr" for="msg">Message</label>
+          <input id="msg" placeholder="Type a message" value="">
+          <button class="btn primary" type="submit">Send <span class="sr">(Ctrl Enter)</span></button>
+        </div>
+      </form>
+    </section>
+
+    <aside class="context" aria-label="Net context">
+      <h2>Heard on this net</h2>
+      <ul class="stations">
+        <li><span class="call">W4DRS</span><span class="tag slow">◇ Slow</span><span class="ago">5 s</span></li>
+        <li><span class="call">KJ4VTR</span><span class="tag fast">◆ Fast</span><span class="ago">24 s</span></li>
+        <li><span class="call">N4SHL</span><span class="tag slow">◇ Slow</span><span class="ago">2 m</span></li>
+        <li><span class="call">K4EOC</span><span class="tag net">⌁ sewx</span><span class="ago">4 m</span></li>
+        <li><span class="call">AG4RX</span><span class="tag slow">◇ Slow</span><span class="ago">11 m</span></li>
+      </ul>
+      <h2>Waiting to send</h2>
+      <ul class="queue">
+        <li><div class="q1"><span>ICS-213 to <span class="call">EOC-1</span> via <span class="call">K4EOC</span></span><span class="st pending">Queued</span></div>
+          <div class="q2"><span>Next try in 40 s</span><span>1.2 kB</span></div></li>
+        <li><div class="q1"><span>roster.csv to <span class="call">W4DRS</span></span><span class="st pending">Sending</span></div>
+          <div class="bar" role="progressbar" aria-valuenow="62" aria-valuemin="0" aria-valuemax="100" aria-label="roster.csv progress"><span style="width:62%"></span></div>
+          <div class="q2"><span>62% of 4.1 kB</span><span>about 20 s left</span></div></li>
+      </ul>
+    </aside>
+  </main>
+
+  <div class="drawer" role="status" aria-label="Recent engine activity">
+    <span><time>14:06:44</time>Transmitted 61 bytes on the IC-9700</span>
+    <span><time>14:06:20</time>KJ4VTR heard on the ID-52 PLUS (fast data)</span>
+    <span><time>14:05:58</time>sewx ratflector: 14 stations connected</span>
+  </div>
+</div>
+</body>
+</html>
