@@ -1,0 +1,12 @@
+# ADR-0002: Legacy DDT2 is the mandatory baseline protocol
+
+Status: Proposed · Date: 2026-10-29
+
+## Context
+The installed base speaks DDT2 (`02-legacy-protocol-analysis.md`). The maintainer will not change it (DR#315). Session ids are positional (chat = 1, RPC = 2).
+
+## Decision
+Implement DDT2 byte-exactly in a pure crate (`aether-ddt2`), driven by golden vectors. Preserve the wire quirks: little-endian file size, `~` padding, CRC-16/XMODEM, and positional ids. When sending, use the post-#302 banned-byte superset. Accept any valid escaping on receive.
+
+## Consequences
+Every Aether station is a full legacy D-RATS peer. Enhancements must layer on top (ADR-0003/0004). The codec crate has no I/O and no clock, and is fuzzed.

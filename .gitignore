@@ -1,0 +1,24 @@
+# Rust
+/target/
+**/*.rs.bk
+
+# Node / UI
+node_modules/
+dist/
+.svelte-kit/
+
+# Python (analysis scripts)
+__pycache__/
+*.pyc
+.venv/
+
+# Captures and local data (may contain callsigns/locations; never commit by accident)
+*.aecap
+/local/
+
+# Editors / OS
+.idea/
+.vscode/
+*.swp
+.DS_Store
+Thumbs.db
