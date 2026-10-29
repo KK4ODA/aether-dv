@@ -1,0 +1,18 @@
+# aetherd example: Icom ID-52 PLUS, DV data over USB-C.
+# ID-52 PLUS setup (verify on your radio; see docs/03 §3):
+#   [MENU] > SET > Function > USB Connect = Serialport
+#   [MENU] > SET > Function > USB Serialport Function = DV Data
+#   [MENU] > SET > DV Set > DV Data TX = Auto
+#   DV Fast Data OFF for this first test (slow data)
+callsign = "KK4ODA"
+db = "aether-id52.db"
+api_listen = "127.0.0.1:7374"
+
+[[port]]
+kind = "serial"
+name = "ID-52PLUS"
+path = "/dev/serial/by-id/REPLACE-ME"
+baud = 9600
+profile = "icom-id52plus"
+mode = "slow"
+flow = "none"

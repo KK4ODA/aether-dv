@@ -1,0 +1,27 @@
+# aetherd example: Icom IC-9700 on USB, DV slow data, plus a public ratflector.
+# IC-9700 setup (verify on your radio; see docs/03 §3):
+#   SET > Connectors > USB (B) Function = DV Data   (USB port A stays CI-V)
+#   SET > DV/DD Set > DV Data TX = Auto
+#   SET > DV/DD Set > DV Fast Data > Fast Data = OFF   (slow; shared nets)
+#   GPS TX mode OFF so position beacons don't share the data channel
+callsign = "KK4ODA"
+db = "aether.db"
+api_listen = "127.0.0.1:7373"
+
+[[port]]
+kind = "serial"
+name = "IC-9700"
+# Linux: use the stable path, e.g. /dev/serial/by-id/usb-Icom_Inc._IC-9700_<serial>-if02
+# (list candidates with: cargo run -p serial-spike -- list)
+# Windows: COMx of "USB Serial Port B"; macOS: /dev/cu.usbmodem…
+path = "/dev/serial/by-id/REPLACE-ME"
+baud = 9600
+profile = "icom-ic9700"
+mode = "slow"
+flow = "none"
+
+[[port]]
+kind = "ratflector"
+name = "sewx"
+host = "sewx.ratflector.com"
+tcp_port = 9000
