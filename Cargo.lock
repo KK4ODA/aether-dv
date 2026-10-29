@@ -19,6 +19,7 @@ dependencies = [
 name = "aether-desktop"
 version = "0.0.1"
 dependencies = [
+ "serde",
  "tauri",
  "tauri-build",
 ]

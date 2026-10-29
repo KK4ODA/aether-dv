@@ -196,10 +196,21 @@ impl XferMeta {
 }
 
 fn chat_json(c: &ChatLine) -> Value {
-    json!({
+    let mut v = json!({
         "id": c.id, "portId": c.port_id, "direction": if c.direction == Direction::In { "in" } else { "out" },
         "src": c.src, "dst": c.dst, "kind": c.kind, "body": c.body, "at": c.at, "txState": c.tx_state,
-    })
+    });
+    // A raw line that is a valid position report carries it decoded, so a
+    // client can show a position instead of the sentence.
+    if c.kind == "raw" {
+        if let Some(Ok(p)) = aether_geo::parse(&c.body) {
+            v["position"] = json!({
+                "callsign": p.station.to_ascii_uppercase(), "lat": p.lat, "lon": p.lon,
+                "comment": p.comment, "sourceFmt": p.format.as_str(),
+            });
+        }
+    }
+    v
 }
 
 /// Encode a frame for the wire; if the escaped bytes would contain an
@@ -485,7 +496,7 @@ impl Engine {
                 let res = self
                     .store
                     .stations()
-                    .map(|v| Value::Array(v.into_iter().map(|(c, t, s)| json!({ "callsign": c, "lastHeard": t, "software": s })).collect()))
+                    .map(|v| Value::Array(v.into_iter().map(|(c, t, s, p)| json!({ "callsign": c, "lastHeard": t, "software": s, "portId": p })).collect()))
                     .map_err(|e| ApiError::new(E_INTERNAL, e.to_string()));
                 let _ = r.send(res);
             }
@@ -678,10 +689,15 @@ impl Engine {
                         self.on_message_transfer(&mid, &s);
                     }
                     if matches!(s.state, "done" | "failed") {
-                        let verb = match (s.dir, s.state) {
-                            (Dir::Send, "done") => "sent",
-                            (Dir::Receive, "done") => "received",
-                            _ => "failed",
+                        let what = match (s.dir, s.state) {
+                            (Dir::Send, "done") => format!("Sent {} to {}", s.name, s.peer),
+                            (Dir::Receive, "done") => {
+                                format!("Received {} from {}", s.name, s.peer)
+                            }
+                            (Dir::Send, _) => format!("Sending {} to {} failed", s.name, s.peer),
+                            (Dir::Receive, _) => {
+                                format!("Receiving {} from {} failed", s.name, s.peer)
+                            }
                         };
                         let detail = s
                             .reason
@@ -692,10 +708,7 @@ impl Engine {
                         self.log(
                             level,
                             Some(&s.port),
-                            &format!(
-                                "transfer {} {verb}: {} with {}{detail}",
-                                row.id, s.name, s.peer
-                            ),
+                            &format!("{what}{detail} [transfer {}]", row.id),
                         );
                         self.xfer_meta.remove(&s.key);
                     }

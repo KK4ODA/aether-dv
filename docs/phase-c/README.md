@@ -8,6 +8,7 @@ Branch: `phase-c` (built on `phase-b`). Validation level of everything here: **S
 |---|---|
 | `aetherd --config FILE` | Engine. Serial radio ports (half-duplex scheduler) and ratflector ports (legacy handshake, back-off, TCP keepalive). Legacy D-RATS behaviour on chat (session 1) and RPC (session 2): chat, ping/echo replies (broadcast replies rate-limited), status, `RPCGetVersion` with the Aether capability token. Durable SQLite log. Legacy file and form transfer (control NEW/ACK/END, offer and `OK`, ARQ-1) in both directions; received files go to `files_dir`. ICS-213 messages: compose, send directly to a station, receive into the inbox (D-RATS form XML, stored in the database), with the delivery states of SM-7. Position reports (NMEA style and DPRS, from chat lines and from the radio's own GPS-TX output) are parsed, checksum-checked and stored; our own position is sent only on request. Local JSON-RPC/WebSocket API with a token. |
 | `aether-cli` | Terminal client: `ports`, `stations`, `send PORT DST TEXT`, `history`, `ping`, `version`, `send-file PORT CALL PATH`, `transfers [all]`, `cancel ID`, `ics213 CALL SUBJECT MESSAGE [field=value…]`, `msg-send ID [PORT]`, `messages [FOLDER]`, `msg ID`, `positions [CALL]`, `send-position PORT [dprs|nmea]`, `capture-start PORT`, `capture-stop PORT`, `log [N]`, `bundle [captures]`, `tail`. |
+| Desktop app (`app/`) | Minimal UI on the engine API: Chat (launch screen), Messages (ICS-213 view, compose, delivery ladder), Transfers, Stations, Diagnostics. See `app/README.md`. |
 | `aether-rfd` | Ratflector server, legacy-compatible, with loop safeguards and per-client limits. |
 | `aether-bench` | Scripted interop/performance runs against one peer through a running `aetherd`: ping, version, 1 KB / 10 KB / 50 KB file, ICS-213, N rounds; Markdown summary plus a JSON report. Every test is one an unattended D-RATS station answers by itself. |
 | `aecap` | Reads a wire capture: `aecap show FILE [--hex]` decodes every frame and stray byte run in time order; `aecap stats FILE` counts them. |
@@ -20,7 +21,7 @@ Branch: `phase-c` (built on `phase-b`). Validation level of everything here: **S
 Layering note: message delivery lives in `aetherd` (`engine/messages.rs`) for this slice. It moves into the `aether-msg` crate of the architecture (05 §3) when store-and-forward routing is built; `aether-forms` is already its own crate.
 - resuming an interrupted transfer (we always answer `OK`, never `RESUME:`; see below)
 - CI-V Fast Data control
-- the desktop UI
+- the full desktop UI (map, command palette, file picker, settings); the minimal UI covers chat, messages, transfers, stations and diagnostics
 
 ## Phase C acceptance criteria: current status
 

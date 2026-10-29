@@ -202,9 +202,21 @@ pub async fn run_ratflector(
                         out.push(PortEvt::State {
                             port: p.name.clone(),
                             state: "up",
-                            detail: Some(format!("{reason:?}")),
+                            detail: Some(
+                                match reason {
+                                    aether_rfl::UpReason::NoAuthRequired => "no login required",
+                                    aether_rfl::UpReason::Authenticated => "logged in",
+                                    aether_rfl::UpReason::OldSchoolNoBanner => {
+                                        "older server (no greeting)"
+                                    }
+                                    aether_rfl::UpReason::OldSchoolUnrecognisedBanner => {
+                                        "older server (unrecognised greeting)"
+                                    }
+                                }
+                                .to_string(),
+                            ),
                         });
-                        p.tap.note(&format!("up: {reason:?}"));
+                        p.tap.note(&format!("connected: {reason:?}"));
                         while let Some((b, tok)) = waiting.pop_front() {
                             p.tap.tx(&b);
                             let ok = match wr.as_mut() {

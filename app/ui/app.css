@@ -1,0 +1,85 @@
+/* Shared app frame for the Aether DV mockups. */
+@import url("fonts/fonts.css");
+@import url("tokens.css");
+
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; }
+body {
+  background: var(--bg-base); color: var(--text-1);
+  font: 400 var(--fs-md)/var(--lh) var(--font-ui);
+  font-variant-numeric: tabular-nums;
+  -webkit-font-smoothing: antialiased;
+}
+:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+button { font: inherit; color: inherit; }
+
+.app { display: grid; height: 100vh; grid-template-columns: 172px 1fr; grid-template-rows: 52px 1fr 30px;
+  grid-template-areas: "brand strip" "rail main" "rail drawer"; }
+
+/* ---- brand + transport strip (the one bold element) ---- */
+.brand { grid-area: brand; display: flex; align-items: center; gap: var(--s3); padding: 0 var(--s4) 0 var(--s5);
+  background: var(--bg-sunken); border-bottom: 1px solid var(--line-hair); border-right: 1px solid var(--line-hair); }
+.brand-mark { flex: none; width: 18px; height: 18px; border: 2px solid var(--text-1); border-radius: 50%; position: relative; }
+.brand-mark::after { content: ""; position: absolute; inset: 4px; background: var(--fast); border-radius: 50%; }
+.brand-name { font-weight: 600; font-size: var(--fs-lg); letter-spacing: .01em; white-space: nowrap; }
+.brand-call { font-family: var(--font-call); font-weight: 600; color: var(--text-2); font-size: var(--fs-sm); margin-left: auto; }
+
+.strip { grid-area: strip; display: flex; align-items: stretch; margin: 0; padding: 0; list-style: none;
+  background: var(--bg-sunken); border-bottom: 1px solid var(--line-hair); }
+.plate { display: grid; grid-template-columns: auto auto; grid-template-rows: auto auto; column-gap: var(--s5);
+  align-content: center; padding: 0 var(--s5) 0 calc(var(--s4) + 6px); border-right: 1px solid var(--line-hair);
+  position: relative; min-width: 300px; }
+.plate::before { content: ""; position: absolute; left: 0; top: 6px; bottom: 6px; width: 6px; background: var(--band); }
+.plate[data-mode="slow"] { --band: var(--slow); } .plate[data-mode="fast"] { --band: var(--fast); } .plate[data-mode="net"] { --band: var(--net); }
+.plate-name { font-weight: 600; white-space: nowrap; }
+.plate-mode { justify-self: end; font-weight: 600; color: var(--band); white-space: nowrap; }
+.plate-state { color: var(--text-2); font-size: var(--fs-sm); white-space: nowrap; }
+.plate-nums { justify-self: end; color: var(--text-2); font-size: var(--fs-sm); white-space: nowrap; }
+.plate-nums b { color: var(--text-1); font-weight: 500; }
+.air { display: inline-flex; gap: 3px; margin-right: 6px; vertical-align: -1px; }
+.air i { width: 7px; height: 7px; border-radius: 50%; border: 1px solid var(--line-strong); display: inline-block; }
+.air i.on-tx { background: var(--tx); border-color: var(--tx); }
+.air i.on-rx { background: var(--rx); border-color: var(--rx); }
+.strip-end { margin-left: auto; display: flex; align-items: center; gap: var(--s4); padding: 0 var(--s5); color: var(--text-2); font-size: var(--fs-sm); }
+.strip-end kbd { font: inherit; border: 1px solid var(--line-strong); border-radius: var(--r-sm); padding: 0 4px; color: var(--text-2); }
+
+/* ---- rail ---- */
+.rail { grid-area: rail; background: var(--bg-sunken); border-right: 1px solid var(--line-hair); padding: var(--s3) 0; }
+.rail ul { list-style: none; margin: 0; padding: 0; }
+.rail a { display: grid; grid-template-columns: 22px 1fr auto; align-items: center; gap: var(--s3); height: 32px;
+  padding: 0 var(--s5); color: var(--text-2); text-decoration: none; border-left: 3px solid transparent; }
+.rail a:hover { background: var(--bg-hover); color: var(--text-1); }
+.rail a[aria-current="page"] { color: var(--text-1); background: var(--bg-raised); border-left-color: var(--text-1); }
+.rail .ico { font-size: 15px; text-align: center; color: var(--text-3); }
+.rail a[aria-current="page"] .ico { color: var(--text-1); }
+.rail .count { font-size: var(--fs-xs); color: var(--text-1); background: var(--bg-select); border-radius: 8px; padding: 0 6px; }
+.rail .sep { height: 1px; background: var(--line-hair); margin: var(--s3) var(--s5); }
+
+/* ---- main + drawer ---- */
+.main { grid-area: main; min-height: 0; overflow: hidden; }
+.drawer { grid-area: drawer; display: flex; align-items: center; gap: var(--s6); padding: 0 var(--s5);
+  background: var(--bg-sunken); border-top: 1px solid var(--line-hair); color: var(--text-2); font-size: var(--fs-sm); white-space: nowrap; overflow: hidden; }
+.drawer time { color: var(--text-3); margin-right: var(--s3); }
+
+/* ---- shared atoms ---- */
+.call { font-family: var(--font-call); font-weight: 600; letter-spacing: .02em; }
+.tag { display: inline-flex; align-items: center; gap: 4px; font-size: var(--fs-xs); font-weight: 500; white-space: nowrap;
+  padding: 0 6px; height: 18px; border-radius: var(--r-sm); border: 1px solid currentColor; }
+.tag.slow { color: var(--slow); } .tag.fast { color: var(--fast); } .tag.net { color: var(--net); }
+.st { display: inline-flex; gap: 5px; align-items: baseline; white-space: nowrap; }
+.st::before { font-size: 12px; }
+.st.ok { color: var(--ok); } .st.ok::before { content: "✓"; }
+.st.pending { color: var(--pending); } .st.pending::before { content: "◷"; }
+.st.unknown { color: var(--unknown); } .st.unknown::before { content: "◌"; }
+.st.fail { color: var(--fail); } .st.fail::before { content: "✕"; }
+.btn { height: 28px; padding: 0 var(--s4); border-radius: var(--r-md); border: 1px solid var(--line-control);
+  background: var(--bg-raised); cursor: pointer; }
+.btn:hover { background: var(--bg-hover); }
+.btn.primary { background: var(--text-1); color: var(--bg-base); border-color: var(--text-1); font-weight: 600; }
+.btn.quiet { border-color: transparent; background: transparent; color: var(--text-2); }
+.pane-head { display: flex; align-items: center; gap: var(--s4); height: 44px; padding: 0 var(--s5);
+  border-bottom: 1px solid var(--line-hair); }
+.pane-head h1, .pane-head h2 { font-size: var(--fs-lg); font-weight: 600; margin: 0; }
+.muted { color: var(--text-2); } .faint { color: var(--text-3); }
+.kbd { border: 1px solid var(--line-strong); border-radius: var(--r-sm); padding: 0 4px; font-size: var(--fs-xs); color: var(--text-2); }

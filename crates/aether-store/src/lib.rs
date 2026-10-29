@@ -376,12 +376,15 @@ impl Store {
         Ok(())
     }
 
-    /// (callsign, last_heard, software)
-    pub fn stations(&self) -> Result<Vec<(String, i64, Option<String>)>> {
+    /// (callsign, last_heard, software, port last heard on)
+    #[allow(clippy::type_complexity)]
+    pub fn stations(&self) -> Result<Vec<(String, i64, Option<String>, Option<String>)>> {
         let mut st = self.conn.prepare(
-            "SELECT callsign,last_heard,software FROM stations ORDER BY last_heard DESC",
+            "SELECT s.callsign, s.last_heard, s.software,
+                (SELECT p.port_id FROM station_paths p WHERE p.callsign = s.callsign ORDER BY p.last_heard DESC LIMIT 1)
+             FROM stations s ORDER BY s.last_heard DESC",
         )?;
-        let rows = st.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?;
+        let rows = st.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))?;
         rows.collect()
     }
 
@@ -791,7 +794,12 @@ mod tests {
         s.station_software("W4DRS", "D-RATS 0.4.2").unwrap();
         assert_eq!(
             s.stations().unwrap(),
-            vec![("W4DRS".into(), 20, Some("D-RATS 0.4.2".into()))]
+            vec![(
+                "W4DRS".into(),
+                20,
+                Some("D-RATS 0.4.2".into()),
+                Some("p1".into())
+            )]
         );
     }
 

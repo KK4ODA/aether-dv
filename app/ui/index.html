@@ -4,29 +4,32 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Aether DV</title>
-<link rel="stylesheet" href="fonts/fonts.css">
-<link rel="stylesheet" href="tokens.css">
-<style>
-  html, body { margin: 0; height: 100%; background: var(--bg-base); color: var(--text-1);
-    font: 400 var(--fs-md)/var(--lh) var(--font-ui); }
-  main { height: 100%; display: grid; place-content: center; gap: var(--s4); padding: var(--s6); max-width: 60ch; margin: 0 auto; }
-  h1 { font-size: var(--fs-xl); margin: 0; }
-  p { margin: 0; color: var(--text-2); }
-  .band { width: 48px; height: 6px; background: var(--fast); }
-  code { color: var(--text-1); }
-</style>
+<link rel="stylesheet" href="app.css">
+<link rel="stylesheet" href="views.css">
 </head>
 <body>
-<main>
-  <div class="band" aria-hidden="true"></div>
-  <h1>Aether DV</h1>
-  <p>This is the Phase B packaging spike: an empty desktop shell. The engine (<code>aetherd</code>) and the real interface arrive in Phase C.</p>
-  <p id="ver"></p>
-</main>
-<script>
-  // Tauri injects window.__TAURI__ when withGlobalTauri is enabled.
-  const t = window.__TAURI__;
-  if (t && t.app) t.app.getVersion().then(v => { document.getElementById('ver').textContent = 'Shell version ' + v; });
-</script>
+<div class="app" id="app">
+  <div class="brand"><span class="brand-mark" aria-hidden="true"></span><span class="brand-name">Aether DV</span><span class="brand-call" id="mycall"></span></div>
+
+  <ul class="strip" id="strip" aria-label="Connections">
+    <li class="plate-empty">Not connected to the engine</li>
+  </ul>
+
+  <nav class="rail" aria-label="Sections">
+    <ul>
+      <li><a href="#chat" data-view="chat"><span class="ico" aria-hidden="true">✉</span>Chat<span class="count" id="unread-chat" hidden></span></a></li>
+      <li><a href="#messages" data-view="messages"><span class="ico" aria-hidden="true">▤</span>Messages<span class="count" id="unread-msg" hidden></span></a></li>
+      <li><a href="#transfers" data-view="transfers"><span class="ico" aria-hidden="true">⇅</span>Transfers<span class="count" id="active-xfer" hidden></span></a></li>
+      <li><a href="#stations" data-view="stations"><span class="ico" aria-hidden="true">⌖</span>Stations</a></li>
+      <li class="sep" role="separator"></li>
+      <li><a href="#diagnostics" data-view="diagnostics"><span class="ico" aria-hidden="true">⚕</span>Diagnostics</a></li>
+    </ul>
+  </nav>
+
+  <main class="main" id="main"></main>
+
+  <div class="drawer" id="drawer" role="status" aria-label="Recent engine activity"></div>
+</div>
+<script src="app.js"></script>
 </body>
 </html>
