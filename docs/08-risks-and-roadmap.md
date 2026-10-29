@@ -52,14 +52,14 @@ Each phase ends with a review. **A phase is not complete until every criterion h
 Scope is deliberately small: engine, codec, serial adapter, ratflector client, CLI/TUI or minimal UI, durable chat/message store, diagnostics.
 - C1 **Interop (I)**: Aether ⇄ D-RATS 0.4.2 chat, ping, status, ICS-213 form, and a 10 KB file in both directions, via PTY and via a legacy ratflector. 100 % of 50 scripted exchanges.
 - C2 **Ratflector (I)**: reconnect with back-off after server restart and after a NAT-style half-open, detected within 2× the keepalive interval. No message loss for queued items.
-- C3 **Hardware (H)**: HW-0…HW-7 on the **IC-9700 and ID-52** in **DV slow** mode, with results published as a hardware profile.
+- C3 **Hardware (H)**: HW-0…HW-7 on the **IC-9700 and ID-52 PLUS** in **DV slow** mode, with results published as a hardware profile.
 - C4 **Over the air (A)**: one chat + form + 10 KB file between Aether and D-RATS over a real simplex path.
 - C5 **Diagnostics**: `.aecap` capture of every test, replayable in the simulator; support-bundle export.
 - C6 **Baseline measurements**: D-RATS defaults vs Aether Layer-0 (identical parameters) on the same rig. This is the reference for all later claims.
 - **Exit:** C1–C6 at the stated levels.
 
 ### Phase D — DV Fast Data
-- D1 Hardware profiles for the **IC-9700 and ID-52** in Fast mode, plus the **TM-D750** (capability determined by test), with HW-2…HW-5 in fast mode.
+- D1 Hardware profiles for the **IC-9700 and ID-52 PLUS** in Fast mode, plus the **TM-D750** (capability determined by test), with HW-2…HW-5 in fast mode.
 - D2 HW-8 compatibility matrix published.
 - D3 End-to-end fast messaging and file transfer Aether ⇄ Aether (A level) and Aether ⇄ D-RATS on fast-configured radios (A level).
 - D4 Performance report: goodput and latency for all workloads in `07` §4, slow vs fast, D-RATS vs Aether Layer-1, with N ≥ 10.

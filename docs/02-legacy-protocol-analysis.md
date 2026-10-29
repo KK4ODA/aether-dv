@@ -252,6 +252,8 @@ The ratflector carries the same `[SOB]…[EOB]` byte stream over TCP port 9000, 
 | P16 | Transport is half-duplex even on TCP (single polled worker) | `transport.py:412-477`; D-Rats#134, #261 | Internet file transfers are unnecessarily slow | Yes: Aether can be full-duplex on TCP. ARQ stays compatible. |
 | P17 | Self-addressed traffic is dropped as "looped", so its message lock is never released | `sessionmgr.py:190`; D-Rats#122 | Stuck outbox | Yes (local) |
 | P18 | Closed socket is indistinguishable from idle in the polled read; no keepalive | D-Rats#75, #109 | Silent ratflector disconnects | Yes (client-side EOF detection + TCP keepalive) |
+| P19 | **False ACK after sequence wrap**: the receiver resets `recv_list` only when new seq 0 arrives, so if it is lost, new-cycle blocks are discarded as duplicates *and acknowledged* | `stateful.py:397-401,409-426`; model-checked (`phase-b/arq-model-findings.md` L1) | Transfers >256 blocks can lose data while the sender reports success | Not fixable from the sender side; mitigate (block sizing, redundancy, honest UI) |
+| P20 | **Stale ACK**: ACKs don't identify the REQACK they answer, so a late ACK clears the wait state and triggers a duplicate burst; at a cycle boundary old block 0 is re-delivered as new | `stateful.py:375-392`; model-checked (L2) | Stream corruption at mid-transfer wraps | Mitigate with RTO discipline; fixed in ALP by echoing a poll id |
 
 ---
 
