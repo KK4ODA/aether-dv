@@ -1,5 +1,6 @@
 # Build installable packages for all three platforms (Phase B spike: the
-# empty shell). Manual or on version tags only, to save Actions minutes.
+# empty shell). Manual, version tags, or package/** branches only, to save
+# Actions minutes.
 # Unsigned for now: Windows Authenticode and Apple notarisation need
 # certificates the project does not have yet (Phase F).
 name: package
@@ -8,6 +9,9 @@ on:
   workflow_dispatch:
   push:
     tags: ["v*"]
+    # Pushing a branch named package/<anything> runs packaging once without a
+    # release tag (workflow_dispatch only works once this file is on main).
+    branches: ["package/**"]
 
 permissions:
   contents: read
