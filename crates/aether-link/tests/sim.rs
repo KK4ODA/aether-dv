@@ -109,7 +109,7 @@ fn run(
                 dfa.feed(&bytes, &mut ev)
             }
             for e in ev {
-                let Event::Frame(f) = e else {
+                let Event::Frame { frame: f, .. } = e else {
                     panic!("codec error in sim: {e:?}")
                 };
                 if to_rx {

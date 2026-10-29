@@ -77,6 +77,11 @@ ircDDBGateway's `DRATSServer` (`Common/DRATSServer.cpp`) is a second, independen
   - **Correction to the rule: the window is per link.** Internet-only links use ~3 s. **Links that include an RF hop use ≥30 s**, or the worst-case air time of a loop, whichever is larger. The cost is that a genuinely repeated identical frame arriving over a *different* link within 30 s is dropped; same-link repeats still pass.
 - **Per-link token-bucket rate limits**, with special limits on RF-bridge links derived from the RF rate.
 - **Bounded per-connection queues** with priority (control/ACK > chat > form > file) and drop-oldest-bulk policy.
+  **Phase C finding** (`crates/aether-rfd/tests/server.rs`): a frame-count queue smaller than the allowed input burst drops frames for *healthy* clients during a burst. Implemented rules:
+  - each client's input is rate-limited by a token bucket (default 64 KiB/s, 256 KiB burst), so TCP flow control pushes back on a flooding sender;
+  - each client's output queue is bounded in **bytes** (default 1 MiB), larger than the burst.
+  
+  Result: with one client never reading, the healthy client received 6.2 MB of 6.2 MB, and only the stalled client lost frames.
 - **Application keepalive** for Aether clients only (§5.3). TCP keepalive (SO_KEEPALIVE plus tuned intervals) for all.
 - **Peer-link loop guard**: Aether-to-Aether peer links carry an envelope with origin-server id and hop count (§5.3). Frames re-entering their origin server are dropped. Hop limit default 4.
 - Malformed input: maximum line length in the handshake, maximum frame size (e.g. 8 KB pre-yEnc), maximum buffer without `[EOB]` (drop and resync), per-IP connection limits, and a handshake timeout.

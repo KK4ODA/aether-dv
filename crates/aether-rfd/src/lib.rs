@@ -16,6 +16,8 @@ use std::collections::{HashMap, VecDeque};
 
 use aether_ddt2::Frame;
 
+pub mod server;
+
 pub type Millis = u64;
 pub type LinkId = u32;
 

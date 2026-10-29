@@ -51,8 +51,10 @@ pub fn wrap(raw_frame: &[u8], escapes: &EscapeSet) -> Result<Vec<u8>, EnvelopeEr
 /// What the deframer found in the byte stream.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Event {
-    /// A complete envelope that decoded to a valid frame.
-    Frame(Frame),
+    /// A complete envelope that decoded to a valid frame, with the exact
+    /// envelope bytes as received (`[SOB]` … `[EOB]`), so relays can forward
+    /// the original bytes instead of a re-encoding.
+    Frame { frame: Frame, wire: Vec<u8> },
     /// A complete envelope that failed to decode; raw envelope body included
     /// for diagnostics.
     BadFrame { error: BadFrameError, body: Vec<u8> },
@@ -160,7 +162,13 @@ fn decode_body(body: Vec<u8>) -> Event {
             body,
         },
         Ok(raw) => match Frame::decode(&raw) {
-            Ok(f) => Event::Frame(f),
+            Ok(frame) => {
+                let mut wire = Vec::with_capacity(body.len() + SOB.len() + EOB.len());
+                wire.extend_from_slice(SOB);
+                wire.extend_from_slice(&body);
+                wire.extend_from_slice(EOB);
+                Event::Frame { frame, wire }
+            }
             Err(e) => Event::BadFrame {
                 error: BadFrameError::Frame(e),
                 body,
@@ -230,7 +238,7 @@ mod tests {
             let frames: Vec<_> = ev
                 .iter()
                 .filter_map(|e| {
-                    if let Event::Frame(f) = e {
+                    if let Event::Frame { frame: f, .. } = e {
                         Some(f.clone())
                     } else {
                         None
@@ -269,7 +277,8 @@ mod tests {
         let mut ev = Vec::new();
         d.feed(&stream, &mut ev);
         assert!(
-            ev.iter().any(|e| matches!(e, Event::Frame(f) if f == &b)),
+            ev.iter()
+                .any(|e| matches!(e, Event::Frame { frame: f, .. } if f == &b)),
             "{ev:?}"
         );
     }
@@ -283,10 +292,31 @@ mod tests {
         let mut d = Deframer::default();
         let mut ev = Vec::new();
         d.feed(&stream, &mut ev);
-        assert!(ev.iter().any(|e| matches!(e, Event::Frame(f) if f == &b)));
+        assert!(ev
+            .iter()
+            .any(|e| matches!(e, Event::Frame { frame: f, .. } if f == &b)));
         assert!(!ev
             .iter()
             .any(|e| matches!(e, Event::Outside(o) if o.windows(5).any(|w| w == EOB))));
+    }
+
+    #[test]
+    fn frame_event_carries_the_exact_original_envelope() {
+        // A sender using a wider escape set (0x76) produces different bytes than
+        // our default re-encoding would; relays must forward the original.
+        let f = Frame::new(0, 1, 0, "N0CALL", "CQCQCQ", b"v-v-v".to_vec());
+        let original = wrap(
+            &f.encode(PayloadEncoding::Never).unwrap(),
+            &EscapeSet::legacy_plus_jarl(),
+        )
+        .unwrap();
+        assert_ne!(original, wire(&f));
+        let mut d = Deframer::default();
+        let mut ev = Vec::new();
+        d.feed(&original, &mut ev);
+        assert!(
+            matches!(&ev[..], [Event::Frame { frame, wire }] if frame == &f && wire == &original)
+        );
     }
 
     #[test]
@@ -311,7 +341,7 @@ mod tests {
         d.feed(&wire(&good), &mut ev);
         assert!(ev
             .iter()
-            .any(|e| matches!(e, Event::Frame(f) if f == &good)));
+            .any(|e| matches!(e, Event::Frame { frame: f, .. } if f == &good)));
     }
 
     #[test]

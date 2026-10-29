@@ -68,11 +68,15 @@ impl Store {
         conn.busy_timeout(std::time::Duration::from_secs(5))?;
         conn.pragma_update(None, "foreign_keys", "ON")?;
         if path.is_some() {
-            let mode: String = conn.pragma_update_and_check(None, "journal_mode", "WAL", |r| r.get(0))?;
+            let mode: String =
+                conn.pragma_update_and_check(None, "journal_mode", "WAL", |r| r.get(0))?;
             debug_assert_eq!(mode.to_lowercase(), "wal");
         }
         conn.pragma_update(None, "synchronous", "FULL")?;
-        let mut s = Store { conn, path: path.map(Path::to_path_buf) };
+        let mut s = Store {
+            conn,
+            path: path.map(Path::to_path_buf),
+        };
         s.migrate()?;
         Ok(s)
     }
@@ -86,7 +90,11 @@ impl Store {
         if !exists {
             return Ok(0);
         }
-        self.conn.query_row("SELECT coalesce(max(version), 0) FROM schema_migrations", [], |r| r.get(0))
+        self.conn.query_row(
+            "SELECT coalesce(max(version), 0) FROM schema_migrations",
+            [],
+            |r| r.get(0),
+        )
     }
 
     fn migrate(&mut self) -> Result<()> {
@@ -98,7 +106,8 @@ impl Store {
         if current > 0 {
             if let Some(p) = &self.path {
                 let backup = p.with_extension(format!("pre-v{}.bak", pending[0].0));
-                self.conn.execute("VACUUM INTO ?1", params![backup.to_string_lossy()])?;
+                self.conn
+                    .execute("VACUUM INTO ?1", params![backup.to_string_lossy()])?;
             }
         }
         for (_, sql) in pending {
@@ -152,18 +161,36 @@ impl Store {
         self.conn.execute(
             "INSERT INTO chat_lines(port_id,direction,src,dst,kind,body,at,tx_state,frame_crc)
              VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9)",
-            params![c.port_id, dir, c.src, c.dst, c.kind, c.body, c.at, c.tx_state, c.frame_crc],
+            params![
+                c.port_id,
+                dir,
+                c.src,
+                c.dst,
+                c.kind,
+                c.body,
+                c.at,
+                c.tx_state,
+                c.frame_crc
+            ],
         )?;
         Ok(self.conn.last_insert_rowid())
     }
 
     pub fn set_chat_tx_state(&self, id: i64, state: &str) -> Result<()> {
-        self.conn.execute("UPDATE chat_lines SET tx_state=?2 WHERE id=?1", params![id, state])?;
+        self.conn.execute(
+            "UPDATE chat_lines SET tx_state=?2 WHERE id=?1",
+            params![id, state],
+        )?;
         Ok(())
     }
 
     /// Newest first. `port_id = None` gives the merged "All traffic" view.
-    pub fn chat_history(&self, port_id: Option<&str>, before_id: Option<i64>, limit: u32) -> Result<Vec<ChatLine>> {
+    pub fn chat_history(
+        &self,
+        port_id: Option<&str>,
+        before_id: Option<i64>,
+        limit: u32,
+    ) -> Result<Vec<ChatLine>> {
         let mut st = self.conn.prepare(
             "SELECT id,port_id,direction,src,dst,kind,body,at,tx_state,frame_crc FROM chat_lines
              WHERE (?1 IS NULL OR port_id = ?1) AND (?2 IS NULL OR id < ?2)
@@ -174,7 +201,11 @@ impl Store {
             Ok(ChatLine {
                 id: r.get(0)?,
                 port_id: r.get(1)?,
-                direction: if dir == "in" { Direction::In } else { Direction::Out },
+                direction: if dir == "in" {
+                    Direction::In
+                } else {
+                    Direction::Out
+                },
                 src: r.get(3)?,
                 dst: r.get(4)?,
                 kind: r.get(5)?,
@@ -189,7 +220,13 @@ impl Store {
 
     // ---- stations -----------------------------------------------------------
 
-    pub fn station_heard(&self, callsign: &str, port_id: &str, path_kind: &str, now: i64) -> Result<()> {
+    pub fn station_heard(
+        &self,
+        callsign: &str,
+        port_id: &str,
+        path_kind: &str,
+        now: i64,
+    ) -> Result<()> {
         let tx = self.conn.unchecked_transaction()?;
         tx.execute(
             "INSERT INTO stations(callsign, first_heard, last_heard) VALUES (?1, ?2, ?2)
@@ -205,20 +242,32 @@ impl Store {
     }
 
     pub fn station_software(&self, callsign: &str, software: &str) -> Result<()> {
-        self.conn.execute("UPDATE stations SET software=?2 WHERE callsign=?1", params![callsign, software])?;
+        self.conn.execute(
+            "UPDATE stations SET software=?2 WHERE callsign=?1",
+            params![callsign, software],
+        )?;
         Ok(())
     }
 
     /// (callsign, last_heard, software)
     pub fn stations(&self) -> Result<Vec<(String, i64, Option<String>)>> {
-        let mut st = self.conn.prepare("SELECT callsign,last_heard,software FROM stations ORDER BY last_heard DESC")?;
+        let mut st = self.conn.prepare(
+            "SELECT callsign,last_heard,software FROM stations ORDER BY last_heard DESC",
+        )?;
         let rows = st.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?;
         rows.collect()
     }
 
     // ---- engine events ------------------------------------------------------
 
-    pub fn log_event(&self, at: i64, level: &str, category: &str, port_id: Option<&str>, message: &str) -> Result<i64> {
+    pub fn log_event(
+        &self,
+        at: i64,
+        level: &str,
+        category: &str,
+        port_id: Option<&str>,
+        message: &str,
+    ) -> Result<i64> {
         self.conn.execute(
             "INSERT INTO engine_events(at,level,category,port_id,message) VALUES (?1,?2,?3,?4,?5)",
             params![at, level, category, port_id, message],
@@ -228,9 +277,11 @@ impl Store {
 
     pub fn last_event(&self) -> Result<Option<(i64, String)>> {
         self.conn
-            .query_row("SELECT id, message FROM engine_events ORDER BY id DESC LIMIT 1", [], |r| {
-                Ok((r.get(0)?, r.get(1)?))
-            })
+            .query_row(
+                "SELECT id, message FROM engine_events ORDER BY id DESC LIMIT 1",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
             .optional()
     }
 }
@@ -283,7 +334,10 @@ mod tests {
         let h = s.chat_history(Some("p1"), None, 10).unwrap();
         assert_eq!(h.len(), 2);
         assert_eq!(h[1].tx_state.as_deref(), Some("transmitted"));
-        assert!(s.set_chat_tx_state(id, "delivered").is_err(), "schema forbids 'delivered' chat");
+        assert!(
+            s.set_chat_tx_state(id, "delivered").is_err(),
+            "schema forbids 'delivered' chat"
+        );
     }
 
     #[test]
@@ -293,12 +347,16 @@ mod tests {
         {
             let s = Store::open(Some(&path)).unwrap();
             s.upsert_port(&port("p1", "radio_serial"), 0).unwrap();
-            s.insert_chat(&line("durable", Direction::Out, "p1")).unwrap();
+            s.insert_chat(&line("durable", Direction::Out, "p1"))
+                .unwrap();
         }
         let s = Store::open(Some(&path)).unwrap();
         assert_eq!(s.schema_version().unwrap(), 1);
         assert_eq!(s.chat_history(None, None, 10).unwrap()[0].body, "durable");
-        assert_eq!(s.ports().unwrap()[0].profile_id.as_deref(), Some("icom-ic9700"));
+        assert_eq!(
+            s.ports().unwrap()[0].profile_id.as_deref(),
+            Some("icom-ic9700")
+        );
     }
 
     #[test]
@@ -308,6 +366,9 @@ mod tests {
         s.station_heard("W4DRS", "p1", "internet", 10).unwrap();
         s.station_heard("W4DRS", "p1", "internet", 20).unwrap();
         s.station_software("W4DRS", "D-RATS 0.4.2").unwrap();
-        assert_eq!(s.stations().unwrap(), vec![("W4DRS".into(), 20, Some("D-RATS 0.4.2".into()))]);
+        assert_eq!(
+            s.stations().unwrap(),
+            vec![("W4DRS".into(), 20, Some("D-RATS 0.4.2".into()))]
+        );
     }
 }
