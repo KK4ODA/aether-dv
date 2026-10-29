@@ -6,13 +6,16 @@ Branch: `phase-c` (built on `phase-b`). Validation level of everything here: **S
 
 | Program | What it does |
 |---|---|
-| `aetherd --config FILE` | Engine. Serial radio ports (half-duplex scheduler) and ratflector ports (legacy handshake, back-off, TCP keepalive). Legacy D-RATS behaviour on chat (session 1) and RPC (session 2): chat, ping/echo replies (broadcast replies rate-limited), status, `RPCGetVersion` with the Aether capability token. Durable SQLite log. Legacy file and form transfer (control NEW/ACK/END, offer and `OK`, ARQ-1) in both directions; received files go to `files_dir` and forms to `files_dir/forms`. Local JSON-RPC/WebSocket API with a token. |
-| `aether-cli` | Terminal client: `ports`, `stations`, `send PORT DST TEXT`, `history`, `ping`, `version`, `send-file PORT CALL PATH`, `transfers [all]`, `cancel ID`, `tail`. |
+| `aetherd --config FILE` | Engine. Serial radio ports (half-duplex scheduler) and ratflector ports (legacy handshake, back-off, TCP keepalive). Legacy D-RATS behaviour on chat (session 1) and RPC (session 2): chat, ping/echo replies (broadcast replies rate-limited), status, `RPCGetVersion` with the Aether capability token. Durable SQLite log. Legacy file and form transfer (control NEW/ACK/END, offer and `OK`, ARQ-1) in both directions; received files go to `files_dir`. ICS-213 messages: compose, send directly to a station, receive into the inbox (D-RATS form XML, stored in the database), with the delivery states of SM-7. Local JSON-RPC/WebSocket API with a token. |
+| `aether-cli` | Terminal client: `ports`, `stations`, `send PORT DST TEXT`, `history`, `ping`, `version`, `send-file PORT CALL PATH`, `transfers [all]`, `cancel ID`, `ics213 CALL SUBJECT MESSAGE [field=value…]`, `msg-send ID [PORT]`, `messages [FOLDER]`, `msg ID`, `tail`. |
 | `aether-rfd` | Ratflector server, legacy-compatible, with loop safeguards and per-client limits. |
 | `serial-spike` | Receive-only port lister and hex monitor, for hardware test HW-0/HW-1. |
 
 **Not in this slice yet:**
-- composing ICS-213 messages (incoming forms are saved as D-RATS form XML; sending a form works at the engine level but there is no `messages.*` API or form editor yet)
+- store-and-forward routing (messages go directly to the destination station; a message addressed to someone else is kept in our inbox, not forwarded) and automatic retry (use `msg-send` again on a failed message)
+- forms other than ICS-213, and attachments
+
+Layering note: message delivery lives in `aetherd` (`engine/messages.rs`) for this slice. It moves into the `aether-msg` crate of the architecture (05 §3) when store-and-forward routing is built; `aether-forms` is already its own crate.
 - resuming an interrupted transfer (we always answer `OK`, never `RESUME:`; see below)
 - position parsing (GPS sentences are logged as `raw` chat)
 - CI-V Fast Data control
@@ -22,7 +25,7 @@ Branch: `phase-c` (built on `phase-b`). Validation level of everything here: **S
 
 | ID | Criterion | Status |
 |---|---|---|
-| C1 | Interop with unmodified D-RATS 0.4.2 (chat, ping, status, ICS-213, 10 KB file; PTY and ratflector) | **Ready to test; not yet run against D-RATS** (this environment can't run it). Chat, ping, version and file/form transfer are implemented to the D-RATS 0.4.x wire behaviour. Simulated evidence: a 10 KB file and a form between two engines through `aether-rfd`, and a scripted D-RATS-shaped sender (compressed frames, 512-byte blocks, END) received byte-exact. ICS-213 *composition* is still missing. |
+| C1 | Interop with unmodified D-RATS 0.4.2 (chat, ping, status, ICS-213, 10 KB file; PTY and ratflector) | **Ready to test; not yet run against D-RATS** (this environment can't run it). Chat, ping, version and file/form transfer are implemented to the D-RATS 0.4.x wire behaviour. Simulated evidence: a 10 KB file and a form between two engines through `aether-rfd`, and a scripted D-RATS-shaped sender (compressed frames, 512-byte blocks, END) received byte-exact. ICS-213 is composed, sent and received between two engines (and through the real binaries); the XML follows `formgui.py` (double escaping, path, message id) but has not yet been opened by D-RATS. |
 | C2 | Ratflector reconnect with back-off; half-open detection; no loss of queued items | **Partial (Simulated)**: back-off with jitter, keepalive (60 s / 15 s × 4), queued chat sent after reconnect, honest failure states. Not yet tested against real NAT timeouts or public ratflectors. |
 | C3 | HW-0…HW-7 on the IC-9700 and ID-52 PLUS in slow mode | **Needs you**: procedure below |
 | C4 | Over the air with D-RATS | **Needs you** |
@@ -53,6 +56,29 @@ To try it on a ratflector or over RF once chat works:
 From D-RATS, send a file or a form to your callsign; it appears in `received/` (or `received/forms/`) next to the database, and in `aether-cli tail`.
 
 A finding from building this: the stale-ACK guard in ARQ-1 (P20) originally ignored any ACK that arrived before the *estimated* end of our transmission. On a path faster than the estimate (a ratflector, or a radio faster than 119 B/s) that stalled every window until the RTO. The guard now uses half the estimated air time: stale and duplicated ACKs, which arrive right after a burst starts, are still caught (test `faster_than_estimated_path_is_not_stalled`). HW-4 timing measurements will tell us how good the estimate is.
+
+## ICS-213 messages
+
+```bash
+aether-cli ics213 W4DRS "Need cots" "Shelter A needs 40 cots" incident="Flood 26" to_pos="Logistics"
+aether-cli messages drafts            # note the id
+aether-cli msg-send <id>              # or: msg-send <id> IC-9700
+aether-cli msg <id>                   # fields and delivery events
+```
+
+What the states mean:
+
+| State | Meaning |
+|---|---|
+| `draft` | Being written; editable |
+| `queued` → `sending` | A form transfer to the station is open |
+| `handed_off` | Every block was acknowledged by the destination station. With D-RATS this is the best available evidence: it sends no delivery receipt, so Aether never shows `delivered` for a D-RATS peer (the database refuses it without end-to-end evidence). |
+| `failed` | The station didn't accept or stopped acknowledging; the reason is shown. Retry with `msg-send`. |
+| `received` | Arrived in our inbox. Our callsign is appended to its path, as D-RATS does; a second copy (same message id) is not stored twice. |
+
+Field names are the D-RATS ICS-213 ids: `incident`, `date`, `time`, `recip`, `to_pos`, `sender`, `from_pos`, `subject`, `message`, `reply`, `sig`, `date_reply`, `time_reply`. Date and time are filled in on creation in UTC, in the D-RATS formats (`29-Oct-2026`, `4:31:23`). D-RATS fills local time by default, so a D-RATS user may see a different hour unless they also use UTC.
+
+To check during C1: open an Aether ICS-213 in D-RATS (form view and the printable HTML), and send one from D-RATS to Aether; then compare `aether-cli msg <id>` with what D-RATS shows. Our test fixture for "what D-RATS writes" is reconstructed from the source, not captured, so this is a real check.
 
 ## First hardware test (HW-0, HW-1, then a first chat)
 

@@ -11,6 +11,12 @@
 //!   send-file PORT CALL PATH      send a file (legacy D-RATS file transfer)
 //!   transfers [all]               active transfers (or all, newest first)
 //!   cancel ID                     cancel an active transfer
+//!   ics213 CALL SUBJECT MESSAGE [field=value...]
+//!                                 create an ICS-213 draft to CALL (prints its id)
+//!   msg-send ID [PORT]            send (or retry) a message; PORT defaults to
+//!                                 where CALL was last heard
+//!   messages [FOLDER]             inbox, outbox, sent, drafts (default: all)
+//!   msg ID                        show a message's fields and delivery events
 //!   tail                          print chat, port, station and transfer events live
 //! ```
 
@@ -103,6 +109,18 @@ fn transfer(t: &Value) -> String {
     )
 }
 
+fn message(m: &Value) -> String {
+    format!(
+        "{}  {:<6} {:<10} {:<8} -> {:<8} {}",
+        m["id"].as_str().unwrap_or(""),
+        m["folder"].as_str().unwrap_or(""),
+        m["state"].as_str().unwrap_or(""),
+        m["src"].as_str().unwrap_or(""),
+        m["dst"].as_str().unwrap_or(""),
+        m["subject"].as_str().unwrap_or(""),
+    )
+}
+
 fn main() {
     let mut args: Vec<String> = std::env::args().skip(1).collect();
     let mut api = "127.0.0.1:7373".to_string();
@@ -186,8 +204,49 @@ fn main() {
             c.call("transfers.cancel", json!({ "id": args[1] }));
             println!("cancelled");
         }
+        "ics213" if args.len() >= 4 => {
+            let mut fields = serde_json::Map::new();
+            fields.insert("subject".into(), json!(args[2]));
+            fields.insert("message".into(), json!(args[3]));
+            for kv in &args[4..] {
+                let (k, v) = kv.split_once('=').unwrap_or_else(|| die(&format!("expected field=value, got {kv}")));
+                fields.insert(k.into(), json!(v));
+            }
+            let r = c.call("messages.createDraft", json!({ "formId": "ICS213_US_OS", "fields": fields, "dst": args[1] }));
+            println!("{}", message(&r));
+        }
+        "msg-send" if args.len() == 2 || args.len() == 3 => {
+            let r = c.call("messages.send", json!({ "id": args[1], "portId": args.get(2) }));
+            println!("{}", message(&r));
+        }
+        "messages" => {
+            let folder = args.get(1).cloned();
+            for m in c.call("messages.list", json!({ "folder": folder })).as_array().cloned().unwrap_or_default() {
+                println!("{}", message(&m));
+            }
+        }
+        "msg" if args.len() == 2 => {
+            let m = c.call("messages.get", json!({ "id": args[1] }));
+            println!("{}\nmid {}  form {}", message(&m), m["mid"].as_str().unwrap_or(""), m["formId"].as_str().unwrap_or(""));
+            if let Some(f) = m["fields"].as_object() {
+                for (k, v) in f {
+                    if v.as_str().is_some_and(|v| !v.is_empty()) {
+                        println!("  {k:<12} {}", v.as_str().unwrap_or("").replace('\n', "\n               "));
+                    }
+                }
+            }
+            for e in c.call("messages.events", json!({ "id": args[1] })).as_array().cloned().unwrap_or_default() {
+                println!(
+                    "  event {:<11} {:<9} hop {:<8} {}",
+                    e["state"].as_str().unwrap_or(""),
+                    e["portId"].as_str().unwrap_or("-"),
+                    e["hop"].as_str().unwrap_or("-"),
+                    e["evidence"].as_str().unwrap_or("")
+                );
+            }
+        }
         "tail" => {
-            c.call("events.subscribe", json!({ "topics": ["chat.line", "port.state", "station.heard", "transfer.progress", "engine.event"] }));
+            c.call("events.subscribe", json!({ "topics": ["chat.line", "port.state", "station.heard", "transfer.progress", "message.state", "engine.event"] }));
             eprintln!("connected to aetherd {} as {}", hello["engineVersion"], hello["profile"]);
             loop {
                 let m = c.ws.read().unwrap_or_else(|e| die(&format!("read: {e}")));
@@ -197,11 +256,12 @@ fn main() {
                 match p["topic"].as_str() {
                     Some("chat.line") => println!("{}", line(&p["data"])),
                     Some("transfer.progress") => println!("  {}", transfer(&p["data"])),
+                    Some("message.state") => println!("  message {}", message(&p["data"]["message"])),
                     Some(topic) => println!("  [{topic}] {}", p["data"]),
                     None => {}
                 }
             }
         }
-        _ => die("usage: aether-cli [--api ADDR] [--token-file PATH] ports|stations|send PORT DST TEXT|history [PORT] [N]|ping PORT CALL|version PORT CALL|send-file PORT CALL PATH|transfers [all]|cancel ID|tail"),
+        _ => die("usage: aether-cli [--api ADDR] [--token-file PATH] ports|stations|send PORT DST TEXT|history [PORT] [N]|ping PORT CALL|version PORT CALL|send-file PORT CALL PATH|transfers [all]|cancel ID|ics213 CALL SUBJECT MESSAGE|msg-send ID [PORT]|messages [FOLDER]|msg ID|tail"),
     }
 }

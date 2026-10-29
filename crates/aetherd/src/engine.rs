@@ -19,6 +19,9 @@ use crate::ports::{run_ratflector, run_serial, PortCmd, PortEvt, RflParams, Seri
 use crate::station::{Effect, Station};
 use crate::xfer::{self, Class, Dir, Snapshot, Transfers, XEffect};
 
+mod messages;
+pub use messages::MsgCmd;
+
 pub type Reply<T> = oneshot::Sender<Result<T, ApiError>>;
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
@@ -73,14 +76,8 @@ pub enum Cmd {
         path: PathBuf,
         reply: Reply<Value>,
     },
-    /// Send a form document (D-RATS form XML) as a legacy form transfer.
-    SendForm {
-        port: String,
-        peer: String,
-        name: String,
-        xml: Vec<u8>,
-        reply: Reply<Value>,
-    },
+    /// `messages.*` and `forms.*`.
+    Message(MsgCmd, Reply<Value>),
     Transfers {
         include_finished: bool,
         reply: Reply<Value>,
@@ -170,6 +167,22 @@ struct XferMeta {
     id: String,
     created_at: i64,
     sha256: Option<String>,
+    /// The message this form transfer carries.
+    message_id: Option<String>,
+    /// Whether the message has been moved to `sending` for this transfer.
+    message_sending: bool,
+}
+
+impl XferMeta {
+    fn new(message_id: Option<String>) -> Self {
+        XferMeta {
+            id: uuid::Uuid::now_v7().to_string(),
+            created_at: unix_ms(),
+            sha256: None,
+            message_id,
+            message_sending: false,
+        }
+    }
 }
 
 fn chat_json(c: &ChatLine) -> Value {
@@ -500,23 +513,15 @@ impl Engine {
                                 .file_name()
                                 .map(|n| n.to_string_lossy().into_owned())
                                 .unwrap_or_default();
-                            self.start_transfer(&port, &peer, Class::File, &name, &data)
+                            self.start_transfer(&port, &peer, Class::File, &name, &data, None)
                                 .await
                         }
                     },
                 };
                 let _ = reply.send(res);
             }
-            Cmd::SendForm {
-                port,
-                peer,
-                name,
-                xml,
-                reply,
-            } => {
-                let res = self
-                    .start_transfer(&port, &peer, Class::Form, &name, &xml)
-                    .await;
+            Cmd::Message(m, reply) => {
+                let res = self.on_message_cmd(m).await;
                 let _ = reply.send(res);
             }
             Cmd::Transfers {
@@ -579,13 +584,13 @@ impl Engine {
 
     fn transfer_row(&mut self, s: &Snapshot) -> TransferRow {
         let now = unix_ms();
-        let meta = self.xfer_meta.entry(s.key).or_insert_with(|| XferMeta {
-            id: uuid::Uuid::now_v7().to_string(),
-            created_at: now,
-            sha256: None,
-        });
+        let meta = self
+            .xfer_meta
+            .entry(s.key)
+            .or_insert_with(|| XferMeta::new(None));
         TransferRow {
             id: meta.id.clone(),
+            message_id: meta.message_id.clone(),
             direction: if s.dir == Dir::Send {
                 "send"
             } else {
@@ -635,6 +640,9 @@ impl Engine {
                     if let Err(err) = self.store.upsert_transfer(&row) {
                         self.log("error", None, &format!("store: {err}"));
                     }
+                    if let Some(mid) = row.message_id.clone() {
+                        self.on_message_transfer(&mid, &s);
+                    }
                     if matches!(s.state, "done" | "failed") {
                         let verb = match (s.dir, s.state) {
                             (Dir::Send, "done") => "sent",
@@ -674,14 +682,11 @@ impl Engine {
                     if let Some(m) = self.xfer_meta.get_mut(&key) {
                         m.sha256 = Some(sha);
                     }
-                    let (dir, fname) = match class {
-                        Class::File => (self.files_dir.clone(), name.clone()),
-                        Class::Form => (
-                            self.files_dir.join("forms"),
-                            format!("form_{}_{}.xml", unix_ms(), peer),
-                        ),
-                    };
-                    match crate::inbox::save_unique(&dir, &fname, &data) {
+                    if class == Class::Form {
+                        self.on_form_received(&port, &peer, &data);
+                        continue;
+                    }
+                    match crate::inbox::save_unique(&self.files_dir, &name, &data) {
                         Ok(path) => self.log(
                             "info",
                             Some(&port),
@@ -694,7 +699,10 @@ impl Engine {
                         Err(err) => self.log(
                             "error",
                             Some(&port),
-                            &format!("cannot save {name} from {peer} in {}: {err}", dir.display()),
+                            &format!(
+                                "cannot save {name} from {peer} in {}: {err}",
+                                self.files_dir.display()
+                            ),
                         ),
                     }
                 }
@@ -727,6 +735,7 @@ impl Engine {
         class: Class,
         name: &str,
         content: &[u8],
+        message_id: Option<String>,
     ) -> Result<Value, ApiError> {
         let peer = self.check_peer(port, peer)?;
         let cfg = arq_config(self.ports[port].path_kind);
@@ -745,6 +754,7 @@ impl Engine {
                 },
             )
             .map_err(|e| ApiError::new(E_INVALID, e))?;
+        self.xfer_meta.insert(key, XferMeta::new(message_id));
         self.apply_xfer(effs).await;
         let id = self
             .xfer_meta

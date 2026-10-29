@@ -12,7 +12,7 @@ use tokio::net::TcpListener;
 use tokio::sync::{mpsc, oneshot};
 use tokio_tungstenite::tungstenite::Message;
 
-use crate::engine::{ApiError, Cmd, EngineHandle, E_INVALID};
+use crate::engine::{ApiError, Cmd, EngineHandle, MsgCmd, E_INVALID};
 
 pub const API_VERSION: &str = "0.1.0";
 const E_METHOD: i64 = -32601;
@@ -58,6 +58,58 @@ fn s(params: &Value, k: &str) -> Result<String, ApiError> {
         .and_then(Value::as_str)
         .map(str::to_string)
         .ok_or_else(|| ApiError::new(E_INVALID, format!("missing string parameter '{k}'")))
+}
+
+fn opt_s(params: &Value, k: &str) -> Option<String> {
+    params.get(k).and_then(Value::as_str).map(str::to_string)
+}
+
+fn obj(params: &Value, k: &str) -> Result<Option<serde_json::Map<String, Value>>, ApiError> {
+    match params.get(k) {
+        None | Some(Value::Null) => Ok(None),
+        Some(Value::Object(m)) => Ok(Some(m.clone())),
+        Some(_) => Err(ApiError::new(E_INVALID, format!("'{k}' must be an object"))),
+    }
+}
+
+fn msg_cmd(method: &str, params: &Value) -> Result<MsgCmd, ApiError> {
+    Ok(match method {
+        "forms.listTemplates" => MsgCmd::Templates,
+        "messages.list" => MsgCmd::List {
+            folder: opt_s(params, "folder").filter(|f| f != "all"),
+            limit: params.get("limit").and_then(Value::as_u64).unwrap_or(100) as u32,
+            offset: params.get("offset").and_then(Value::as_u64).unwrap_or(0) as u32,
+        },
+        "messages.get" => MsgCmd::Get {
+            id: s(params, "id")?,
+        },
+        "messages.events" => MsgCmd::Events {
+            id: s(params, "id")?,
+        },
+        "messages.createDraft" => MsgCmd::CreateDraft {
+            form_id: s(params, "formId")?,
+            fields: obj(params, "fields")?.unwrap_or_default(),
+            dst: opt_s(params, "dst"),
+        },
+        "messages.updateDraft" => MsgCmd::UpdateDraft {
+            id: s(params, "id")?,
+            fields: obj(params, "fields")?,
+            dst: opt_s(params, "dst"),
+        },
+        "messages.send" | "messages.retry" => MsgCmd::Send {
+            id: s(params, "id")?,
+            port: opt_s(params, "portId"),
+        },
+        "messages.cancel" => MsgCmd::Cancel {
+            id: s(params, "id")?,
+        },
+        _ => {
+            return Err(ApiError::new(
+                E_METHOD,
+                format!("method not found: {method}"),
+            ))
+        }
+    })
 }
 
 async fn ask(
@@ -212,6 +264,12 @@ async fn session(
                 Ok(id) => ask(&engine, |reply| Cmd::CancelTransfer { id, reply }).await,
                 Err(e) => Err(e),
             },
+            m if m.starts_with("messages.") || m == "forms.listTemplates" => {
+                match msg_cmd(m, &params) {
+                    Ok(c) => ask(&engine, |reply| Cmd::Message(c, reply)).await,
+                    Err(e) => Err(e),
+                }
+            }
             "events.subscribe" => {
                 let topics: Vec<String> = params
                     .get("topics")

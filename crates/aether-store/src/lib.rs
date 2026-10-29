@@ -59,6 +59,7 @@ pub struct PortRow {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TransferRow {
     pub id: String,
+    pub message_id: Option<String>,
     /// `send` or `receive`
     pub direction: String,
     /// `legacy_file`, `legacy_form` or `alp`
@@ -96,6 +97,67 @@ fn chat_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<ChatLine> {
         at: r.get(7)?,
         tx_state: r.get(8)?,
         frame_crc: r.get(9)?,
+    })
+}
+
+/// A message (a D-RATS form document) and its delivery state (SM-7).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MessageRow {
+    pub id: String,
+    /// Legacy message id (`<path><mid>`).
+    pub mid: String,
+    /// `inbox`, `outbox`, `sent`, `drafts`, `archive`, `trash`
+    pub folder: String,
+    pub form_id: Option<String>,
+    pub subject: Option<String>,
+    pub src: String,
+    pub dst: String,
+    pub priority: String,
+    pub xml: String,
+    /// `draft`, `queued`, `sending`, `handed_off`, `delivered`,
+    /// `unconfirmed`, `failed`, `expired`, `received`
+    pub state: String,
+    pub state_reason: Option<String>,
+    pub attempts: i64,
+    pub created_at: i64,
+    pub updated_at: i64,
+}
+
+/// One append-only delivery event of a message.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct MessageEvent {
+    pub id: i64,
+    pub message_id: String,
+    pub at: i64,
+    pub state: String,
+    pub hop: Option<String>,
+    pub port_id: Option<String>,
+    /// `rf_slow`, `rf_fast`, `internet`
+    pub path_kind: Option<String>,
+    /// `tcp_accepted`, `arq_ack`, `alp_complete`, `receipt`, `operator`, `none`
+    pub evidence: Option<String>,
+    /// JSON text
+    pub detail: Option<String>,
+}
+
+const MESSAGE_COLS: &str = "id,mid,folder,form_id,subject,src,dst,priority,xml,state,state_reason,attempts,created_at,updated_at";
+
+fn message_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<MessageRow> {
+    Ok(MessageRow {
+        id: r.get(0)?,
+        mid: r.get(1)?,
+        folder: r.get(2)?,
+        form_id: r.get(3)?,
+        subject: r.get(4)?,
+        src: r.get(5)?,
+        dst: r.get(6)?,
+        priority: r.get(7)?,
+        xml: r.get(8)?,
+        state: r.get(9)?,
+        state_reason: r.get(10)?,
+        attempts: r.get(11)?,
+        created_at: r.get(12)?,
+        updated_at: r.get(13)?,
     })
 }
 
@@ -276,6 +338,17 @@ impl Store {
         tx.commit()
     }
 
+    /// The port `callsign` was most recently heard on, if any.
+    pub fn station_last_port(&self, callsign: &str) -> Result<Option<String>> {
+        self.conn
+            .query_row(
+                "SELECT port_id FROM station_paths WHERE callsign=?1 ORDER BY last_heard DESC LIMIT 1",
+                params![callsign],
+                |r| r.get(0),
+            )
+            .optional()
+    }
+
     pub fn station_software(&self, callsign: &str, software: &str) -> Result<()> {
         self.conn.execute(
             "UPDATE stations SET software=?2 WHERE callsign=?1",
@@ -293,6 +366,147 @@ impl Store {
         rows.collect()
     }
 
+    // ---- messages -----------------------------------------------------------
+
+    /// Insert a message together with its first event (same state).
+    pub fn insert_message(&self, m: &MessageRow, ev: &MessageEvent) -> Result<()> {
+        let tx = self.conn.unchecked_transaction()?;
+        tx.execute(
+            &format!("INSERT INTO messages({MESSAGE_COLS}) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14)"),
+            params![
+                m.id,
+                m.mid,
+                m.folder,
+                m.form_id,
+                m.subject,
+                m.src,
+                m.dst,
+                m.priority,
+                m.xml,
+                m.state,
+                m.state_reason,
+                m.attempts,
+                m.created_at,
+                m.updated_at
+            ],
+        )?;
+        Self::insert_event(&tx, &m.id, ev)?;
+        tx.commit()
+    }
+
+    fn insert_event(conn: &Connection, message_id: &str, e: &MessageEvent) -> Result<()> {
+        conn.execute(
+            "INSERT INTO message_events(message_id,at,state,hop,port_id,path_kind,evidence,detail)
+             VALUES (?1,?2,?3,?4,?5,?6,?7,?8)",
+            params![
+                message_id,
+                e.at,
+                e.state,
+                e.hop,
+                e.port_id,
+                e.path_kind,
+                e.evidence,
+                e.detail
+            ],
+        )?;
+        Ok(())
+    }
+
+    /// Record a state change: appends `ev` and updates the message (and its
+    /// folder, if given) in one transaction. `ev.state` is the new state.
+    pub fn set_message_state(
+        &self,
+        id: &str,
+        folder: Option<&str>,
+        reason: Option<&str>,
+        bump_attempts: bool,
+        ev: &MessageEvent,
+    ) -> Result<()> {
+        let tx = self.conn.unchecked_transaction()?;
+        Self::insert_event(&tx, id, ev)?;
+        let n = tx.execute(
+            "UPDATE messages SET state=?2, state_reason=?3, folder=COALESCE(?4, folder),
+                attempts = attempts + ?5, updated_at=?6 WHERE id=?1",
+            params![id, ev.state, reason, folder, bump_attempts as i64, ev.at],
+        )?;
+        if n != 1 {
+            return Err(Error::QueryReturnedNoRows);
+        }
+        tx.commit()
+    }
+
+    /// Replace a draft's content.
+    pub fn update_draft(
+        &self,
+        id: &str,
+        xml: &str,
+        subject: Option<&str>,
+        dst: &str,
+        now: i64,
+    ) -> Result<bool> {
+        let n = self.conn.execute(
+            "UPDATE messages SET xml=?2, subject=?3, dst=?4, updated_at=?5 WHERE id=?1 AND state='draft'",
+            params![id, xml, subject, dst, now],
+        )?;
+        Ok(n == 1)
+    }
+
+    pub fn message(&self, id: &str) -> Result<Option<MessageRow>> {
+        self.conn
+            .query_row(
+                &format!("SELECT {MESSAGE_COLS} FROM messages WHERE id=?1"),
+                params![id],
+                message_row,
+            )
+            .optional()
+    }
+
+    pub fn message_by_mid(&self, mid: &str) -> Result<Option<MessageRow>> {
+        self.conn
+            .query_row(
+                &format!("SELECT {MESSAGE_COLS} FROM messages WHERE mid=?1"),
+                params![mid],
+                message_row,
+            )
+            .optional()
+    }
+
+    /// Newest first; all folders if `folder` is `None`.
+    pub fn messages(
+        &self,
+        folder: Option<&str>,
+        limit: u32,
+        offset: u32,
+    ) -> Result<Vec<MessageRow>> {
+        let mut st = self.conn.prepare(&format!(
+            "SELECT {MESSAGE_COLS} FROM messages WHERE (?1 IS NULL OR folder=?1)
+             ORDER BY created_at DESC, id DESC LIMIT ?2 OFFSET ?3"
+        ))?;
+        let rows = st.query_map(params![folder, limit, offset], message_row)?;
+        rows.collect()
+    }
+
+    pub fn message_events(&self, id: &str) -> Result<Vec<MessageEvent>> {
+        let mut st = self.conn.prepare(
+            "SELECT id,message_id,at,state,hop,port_id,path_kind,evidence,detail FROM message_events
+             WHERE message_id=?1 ORDER BY id",
+        )?;
+        let rows = st.query_map(params![id], |r| {
+            Ok(MessageEvent {
+                id: r.get(0)?,
+                message_id: r.get(1)?,
+                at: r.get(2)?,
+                state: r.get(3)?,
+                hop: r.get(4)?,
+                port_id: r.get(5)?,
+                path_kind: r.get(6)?,
+                evidence: r.get(7)?,
+                detail: r.get(8)?,
+            })
+        })?;
+        rows.collect()
+    }
+
     // ---- transfers ----------------------------------------------------------
 
     /// Insert or update by id. `created_at` is kept from the first insert and
@@ -300,13 +514,14 @@ impl Store {
     pub fn upsert_transfer(&self, t: &TransferRow) -> Result<()> {
         self.conn.execute(
             "INSERT INTO transfers(id,direction,protocol,peer,port_id,filename,sha256,total_bytes,wire_bytes,
-                block_size,done_bytes,state,state_reason,retries,wrap_warning,created_at,updated_at)
-             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17)
+                block_size,done_bytes,state,state_reason,retries,wrap_warning,created_at,updated_at,message_id)
+             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18)
              ON CONFLICT(id) DO UPDATE SET filename=excluded.filename,
                 sha256=COALESCE(excluded.sha256, transfers.sha256), total_bytes=excluded.total_bytes,
                 wire_bytes=excluded.wire_bytes, done_bytes=excluded.done_bytes, state=excluded.state,
                 state_reason=excluded.state_reason, retries=excluded.retries,
-                wrap_warning=excluded.wrap_warning, updated_at=excluded.updated_at",
+                wrap_warning=excluded.wrap_warning, updated_at=excluded.updated_at,
+                message_id=COALESCE(excluded.message_id, transfers.message_id)",
             params![
                 t.id,
                 t.direction,
@@ -324,7 +539,8 @@ impl Store {
                 t.retries,
                 t.wrap_warning as i64,
                 t.created_at,
-                t.updated_at
+                t.updated_at,
+                t.message_id
             ],
         )?;
         Ok(())
@@ -334,7 +550,7 @@ impl Store {
     pub fn transfers(&self, include_finished: bool, limit: u32) -> Result<Vec<TransferRow>> {
         let mut st = self.conn.prepare(
             "SELECT id,direction,protocol,peer,port_id,filename,sha256,total_bytes,wire_bytes,block_size,
-                done_bytes,state,state_reason,retries,wrap_warning,created_at,updated_at FROM transfers
+                done_bytes,state,state_reason,retries,wrap_warning,created_at,updated_at,message_id FROM transfers
              WHERE ?1 OR state NOT IN ('done','failed','cancelled')
              ORDER BY created_at DESC, id DESC LIMIT ?2",
         )?;
@@ -357,6 +573,7 @@ impl Store {
                 wrap_warning: r.get::<_, i64>(14)? != 0,
                 created_at: r.get(15)?,
                 updated_at: r.get(16)?,
+                message_id: r.get(17)?,
             })
         })?;
         rows.collect()
@@ -482,6 +699,7 @@ mod tests {
         s.upsert_port(&port("p1", "ratflector"), 0).unwrap();
         let mut t = TransferRow {
             id: "0190f0a0-0000-7000-8000-000000000001".into(),
+            message_id: None,
             direction: "receive".into(),
             protocol: "legacy_file".into(),
             peer: "W4DRS".into(),
@@ -514,5 +732,79 @@ mod tests {
         assert_eq!((all[0].created_at, all[0].updated_at), (5, 9));
         t.state = "receiving".into();
         assert!(s.upsert_transfer(&t).is_err(), "schema state enum");
+    }
+
+    #[test]
+    fn message_lifecycle_and_delivery_guard() {
+        let s = Store::open(None).unwrap();
+        let m = MessageRow {
+            id: "m1".into(),
+            mid: "KK4ODA.1.2".into(),
+            folder: "outbox".into(),
+            form_id: Some("ICS213_US_OS".into()),
+            subject: Some("cots".into()),
+            src: "KK4ODA".into(),
+            dst: "W4DRS".into(),
+            priority: "routine".into(),
+            xml: "<xml/>".into(),
+            state: "queued".into(),
+            state_reason: None,
+            attempts: 0,
+            created_at: 1,
+            updated_at: 1,
+        };
+        let ev = |state: &str, at: i64, evidence: Option<&str>| MessageEvent {
+            at,
+            state: state.into(),
+            evidence: evidence.map(str::to_string),
+            ..MessageEvent::default()
+        };
+        s.insert_message(&m, &ev("queued", 1, None)).unwrap();
+        assert!(
+            s.insert_message(&m, &ev("queued", 1, None)).is_err(),
+            "unique id/mid"
+        );
+        s.set_message_state("m1", None, None, true, &ev("sending", 2, None))
+            .unwrap();
+        s.set_message_state(
+            "m1",
+            Some("sent"),
+            None,
+            false,
+            &ev("handed_off", 3, Some("arq_ack")),
+        )
+        .unwrap();
+        // A legacy hand-off is not end-to-end evidence: 'delivered' is refused.
+        assert!(s
+            .set_message_state(
+                "m1",
+                None,
+                None,
+                false,
+                &ev("delivered", 4, Some("arq_ack"))
+            )
+            .is_err());
+        let got = s.message("m1").unwrap().unwrap();
+        assert_eq!(
+            (got.state.as_str(), got.folder.as_str(), got.attempts),
+            ("handed_off", "sent", 1)
+        );
+        assert_eq!(s.message_by_mid("KK4ODA.1.2").unwrap().unwrap().id, "m1");
+        let evs = s.message_events("m1").unwrap();
+        assert_eq!(
+            evs.iter().map(|e| e.state.as_str()).collect::<Vec<_>>(),
+            vec!["queued", "sending", "handed_off"]
+        );
+        assert_eq!(s.messages(Some("sent"), 10, 0).unwrap().len(), 1);
+        assert!(s.messages(Some("inbox"), 10, 0).unwrap().is_empty());
+        assert!(s
+            .set_message_state("nope", None, None, false, &ev("failed", 5, None))
+            .is_err());
+        // Self-addressed sends are refused by the schema (P17).
+        let mut own = m.clone();
+        own.id = "m2".into();
+        own.mid = "KK4ODA.1.3".into();
+        own.dst = "KK4ODA".into();
+        assert!(s.insert_message(&own, &ev("queued", 1, None)).is_err());
     }
 }

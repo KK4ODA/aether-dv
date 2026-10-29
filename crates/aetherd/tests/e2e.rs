@@ -5,7 +5,7 @@ use std::time::Duration;
 
 use aether_rfd::server::{Server, ServerConfig};
 use aetherd::config::Config;
-use aetherd::engine::{self, ApiEvent, Cmd, EngineHandle};
+use aetherd::engine::{self, ApiEvent, Cmd, EngineHandle, MsgCmd};
 use serde_json::{json, Value};
 use tokio::sync::{broadcast, oneshot};
 use tokio::time::timeout;
@@ -452,32 +452,102 @@ async fn file_and_form_transfer_through_aether_rfd() {
     .unwrap();
     assert!(active.as_array().unwrap().is_empty());
 
-    // A form (D-RATS form XML) B -> A lands in A's forms folder.
-    let xml = br#"<?xml version="1.0"?><form id="ics213"><title>ICS-213</title></form>"#.to_vec();
-    ask(&b, |reply| Cmd::SendForm {
-        port: "net".into(),
-        peer: "KK4ODA".into(),
-        name: "ICS-213 General Message".into(),
-        xml: xml.clone(),
-        reply,
+    // An ICS-213 message B -> A: draft, send, hand-off, inbox at A.
+    let draft = ask(&b, |reply| {
+        Cmd::Message(
+            MsgCmd::CreateDraft {
+                form_id: "ICS213_US_OS".into(),
+                fields: json!({
+                    "incident": "Flood & Wind",
+                    "subject": "Need 40 cots",
+                    "message": "Shelter A needs 40 cots <today>.\nCall \"Ops\".",
+                })
+                .as_object()
+                .unwrap()
+                .clone(),
+                dst: Some("kk4oda".into()),
+            },
+            reply,
+        )
     })
     .await
     .unwrap();
-    let f = wait_for(&mut a_ev, "A got form", |e| {
-        e.topic == "transfer.progress"
-            && e.data["protocol"] == "legacy_form"
-            && e.data["state"] == "done"
+    assert_eq!(
+        (draft["state"].as_str(), draft["folder"].as_str()),
+        (Some("draft"), Some("drafts"))
+    );
+    assert!(draft["mid"].as_str().unwrap().starts_with("W4DRS."));
+    assert!(draft["xml"]
+        .as_str()
+        .unwrap()
+        .contains("Flood &amp;amp; Wind"));
+    let mid = draft["id"].as_str().unwrap().to_string();
+    // B heard A on "net" during the file transfer, so no port is needed.
+    let sent = ask(&b, |reply| {
+        Cmd::Message(
+            MsgCmd::Send {
+                id: mid.clone(),
+                port: None,
+            },
+            reply,
+        )
+    })
+    .await
+    .unwrap();
+    assert_eq!(sent["folder"], "outbox");
+    let handed = wait_for(&mut b_ev, "B handed off", |e| {
+        e.topic == "message.state" && e.data["message"]["state"] == "handed_off"
     })
     .await;
-    assert_eq!(f.data["direction"], "receive");
-    let forms: Vec<_> = std::fs::read_dir(da.path().join("forms"))
-        .unwrap()
-        .collect();
-    assert_eq!(forms.len(), 1);
+    assert_eq!(handed.data["message"]["folder"], "sent");
+    assert_eq!(handed.data["event"]["evidence"], "arq_ack");
+    let got = wait_for(&mut a_ev, "A received message", |e| {
+        e.topic == "message.state" && e.data["message"]["state"] == "received"
+    })
+    .await;
+    assert_eq!(got.data["message"]["subject"], "Need 40 cots");
+    assert_eq!(got.data["message"]["src"], "W4DRS");
+    let full = ask(&a, |reply| {
+        Cmd::Message(
+            MsgCmd::Get {
+                id: got.data["message"]["id"].as_str().unwrap().into(),
+            },
+            reply,
+        )
+    })
+    .await
+    .unwrap();
     assert_eq!(
-        std::fs::read(forms[0].as_ref().unwrap().path()).unwrap(),
-        xml
+        full["fields"]["message"],
+        "Shelter A needs 40 cots <today>.\nCall \"Ops\"."
     );
+    assert_eq!(full["fields"]["incident"], "Flood & Wind");
+    assert!(full["xml"]
+        .as_str()
+        .unwrap()
+        .contains("<e>W4DRS</e><e>KK4ODA</e>"));
+    let events = ask(&b, |reply| {
+        Cmd::Message(MsgCmd::Events { id: mid.clone() }, reply)
+    })
+    .await
+    .unwrap();
+    let states: Vec<&str> = events
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|e| e["state"].as_str().unwrap())
+        .collect();
+    assert_eq!(states, vec!["draft", "queued", "sending", "handed_off"]);
+    // Sending it again is refused; it is no longer a draft.
+    assert!(ask(&b, |reply| Cmd::Message(
+        MsgCmd::Send {
+            id: mid.clone(),
+            port: None
+        },
+        reply
+    ))
+    .await
+    .is_err());
 }
 
 #[tokio::test]

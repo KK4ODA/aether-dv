@@ -1118,6 +1118,14 @@
             "type": "string",
             "description": "UUIDv7"
           }
+        },
+        {
+          "name": "portId",
+          "required": false,
+          "schema": {
+            "type": "string"
+          },
+          "description": "Port to send on. Default: the port the destination was last heard on (direct delivery only in this version)."
         }
       ],
       "result": {
@@ -1157,6 +1165,14 @@
             "type": "string",
             "description": "UUIDv7"
           }
+        },
+        {
+          "name": "portId",
+          "required": false,
+          "schema": {
+            "type": "string"
+          },
+          "description": "Port to send on. Default: the port the destination was last heard on (direct delivery only in this version)."
         }
       ],
       "result": {
