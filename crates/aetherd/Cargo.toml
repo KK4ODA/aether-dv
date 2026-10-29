@@ -9,6 +9,7 @@ repository.workspace = true
 [dependencies]
 aether-ddt2 = { version = "0.0.1", path = "../aether-ddt2" }
 aether-forms = { version = "0.0.1", path = "../aether-forms" }
+aether-geo = { version = "0.0.1", path = "../aether-geo" }
 aether-link = { version = "0.0.1", path = "../aether-link" }
 aether-rfl = { version = "0.0.1", path = "../aether-rfl" }
 aether-store = { version = "0.0.1", path = "../aether-store" }

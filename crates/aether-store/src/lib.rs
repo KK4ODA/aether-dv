@@ -161,6 +161,25 @@ fn message_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<MessageRow> {
     })
 }
 
+/// One received or sent position report.
+#[derive(Debug, Clone, PartialEq)]
+pub struct PositionRow {
+    pub callsign: String,
+    pub port_id: Option<String>,
+    pub received_at: i64,
+    pub fix_time: Option<i64>,
+    pub lat: f64,
+    pub lon: f64,
+    pub alt_m: Option<f64>,
+    pub course: Option<f64>,
+    pub speed_kmh: Option<f64>,
+    pub symbol: Option<String>,
+    pub comment: Option<String>,
+    /// `nmea`, `dprs`, `manual`, `alp`
+    pub source_fmt: String,
+    pub raw: Option<String>,
+}
+
 pub struct Store {
     conn: Connection,
     path: Option<PathBuf>,
@@ -507,6 +526,65 @@ impl Store {
         rows.collect()
     }
 
+    // ---- positions ----------------------------------------------------------
+
+    pub fn insert_position(&self, p: &PositionRow) -> Result<i64> {
+        self.conn.execute(
+            "INSERT INTO positions(callsign,port_id,received_at,fix_time,lat,lon,alt_m,course,speed_kmh,symbol,comment,source_fmt,raw)
+             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13)",
+            params![
+                p.callsign,
+                p.port_id,
+                p.received_at,
+                p.fix_time,
+                p.lat,
+                p.lon,
+                p.alt_m,
+                p.course,
+                p.speed_kmh,
+                p.symbol,
+                p.comment,
+                p.source_fmt,
+                p.raw
+            ],
+        )?;
+        Ok(self.conn.last_insert_rowid())
+    }
+
+    /// Oldest first. `callsign = None`: the latest report of every station.
+    pub fn positions(
+        &self,
+        callsign: Option<&str>,
+        since: Option<i64>,
+    ) -> Result<Vec<PositionRow>> {
+        let sql = match callsign {
+            Some(_) => "SELECT callsign,port_id,received_at,fix_time,lat,lon,alt_m,course,speed_kmh,symbol,comment,source_fmt,raw
+                 FROM positions WHERE callsign=?1 AND received_at >= ?2 ORDER BY received_at, id",
+            None => "SELECT callsign,port_id,received_at,fix_time,lat,lon,alt_m,course,speed_kmh,symbol,comment,source_fmt,raw
+                 FROM positions p WHERE received_at >= ?2 AND id = (SELECT MAX(id) FROM positions q WHERE q.callsign = p.callsign)
+                 AND (?1 IS NULL) ORDER BY callsign",
+        };
+        let mut st = self.conn.prepare(sql)?;
+        let rows = st.query_map(params![callsign, since.unwrap_or(0)], |r| {
+            Ok(PositionRow {
+                callsign: r.get(0)?,
+                port_id: r.get(1)?,
+                received_at: r.get(2)?,
+                fix_time: r.get(3)?,
+                lat: r.get(4)?,
+                lon: r.get(5)?,
+                alt_m: r.get(6)?,
+                course: r.get(7)?,
+                speed_kmh: r.get(8)?,
+                symbol: r.get(9)?,
+                comment: r.get(10)?,
+                source_fmt: r.get(11)?,
+                raw: r.get(12)?,
+            })
+        })?;
+        rows.collect()
+    }
+
     // ---- transfers ----------------------------------------------------------
 
     /// Insert or update by id. `created_at` is kept from the first insert and
@@ -830,5 +908,44 @@ mod tests {
         own.mid = "KK4ODA.1.3".into();
         own.dst = "KK4ODA".into();
         assert!(s.insert_message(&own, &ev("queued", 1, None)).is_err());
+    }
+
+    #[test]
+    fn positions_history_and_latest() {
+        let s = Store::open(None).unwrap();
+        let pos = |call: &str, at: i64, lat: f64| PositionRow {
+            callsign: call.into(),
+            port_id: None,
+            received_at: at,
+            fix_time: None,
+            lat,
+            lon: -84.0,
+            alt_m: None,
+            course: None,
+            speed_kmh: None,
+            symbol: Some("/>".into()),
+            comment: None,
+            source_fmt: "dprs".into(),
+            raw: None,
+        };
+        s.insert_position(&pos("W4DRS", 1, 34.0)).unwrap();
+        s.insert_position(&pos("W4DRS", 5, 34.5)).unwrap();
+        s.insert_position(&pos("K7TAY", 3, 45.0)).unwrap();
+        assert!(
+            s.insert_position(&pos("BAD", 3, 95.0)).is_err(),
+            "schema range check"
+        );
+        let h = s.positions(Some("W4DRS"), None).unwrap();
+        assert_eq!(
+            h.iter().map(|p| p.lat).collect::<Vec<_>>(),
+            vec![34.0, 34.5]
+        );
+        assert_eq!(s.positions(Some("W4DRS"), Some(2)).unwrap().len(), 1);
+        let latest = s.positions(None, None).unwrap();
+        assert_eq!(latest.len(), 2);
+        assert_eq!(
+            (latest[1].callsign.as_str(), latest[1].lat),
+            ("W4DRS", 34.5)
+        );
     }
 }

@@ -1622,10 +1622,11 @@
       "params": [
         {
           "name": "callsign",
-          "required": true,
+          "required": false,
           "schema": {
             "$ref": "#/components/schemas/Callsign"
-          }
+          },
+          "description": "Omit for the latest position of every station."
         },
         {
           "name": "since",
@@ -1643,6 +1644,58 @@
           "items": {
             "$ref": "#/components/schemas/Position"
           }
+        }
+      },
+      "tags": [
+        {
+          "name": "stations"
+        }
+      ]
+    },
+    {
+      "name": "stations.sendPosition",
+      "summary": "Send this station's configured position once, as a chat-session position report (D-RATS compatible). Never sent automatically.",
+      "params": [
+        {
+          "name": "portId",
+          "required": true,
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "format",
+          "required": false,
+          "schema": {
+            "type": "string",
+            "enum": [
+              "dprs",
+              "nmea"
+            ]
+          }
+        }
+      ],
+      "result": {
+        "name": "sent",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "portId": {
+              "type": "string"
+            },
+            "format": {
+              "type": "string"
+            },
+            "text": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "portId",
+            "format",
+            "text"
+          ]
         }
       },
       "tags": [

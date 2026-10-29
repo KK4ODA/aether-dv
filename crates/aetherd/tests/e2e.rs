@@ -269,6 +269,38 @@ mod serial {
     use std::os::fd::AsFd;
 
     #[tokio::test]
+    async fn radio_gps_tx_output_outside_frames_becomes_a_position() {
+        let pty = openpty(None, None).unwrap();
+        let slave = ttyname(pty.slave.as_fd()).unwrap();
+        let mut radio = File::from(pty.master);
+        let cfg = Config::parse(&format!(
+            "callsign = \"KK4ODA\"\n[[port]]\nkind = \"serial\"\nname = \"rf\"\npath = \"{}\"\nprofile = \"test-pty\"\n",
+            slave.display()
+        ))
+        .unwrap();
+        let h = engine::start(&cfg).unwrap();
+        let mut ev = h.events.subscribe();
+        wait_for(&mut ev, "serial ready", |e| {
+            e.topic == "port.state" && e.data["state"] == "ready"
+        })
+        .await;
+        // What an Icom radio emits for a received DPRS beacon (sample from
+        // D-Rats transport.py), in two pieces with noise around it.
+        radio
+            .write_all(
+                b"\x00\x11$$CRC6CD1,Hills-Water-Treat-Plt>APRATS,DSTAR*:@233208h4529.05N/123",
+            )
+            .unwrap();
+        radio
+            .write_all(b"05.91W>Washington County ARES;Hills Water Treat Pl\r\nxx")
+            .unwrap();
+        let got = wait_for(&mut ev, "position", |e| e.topic == "station.position").await;
+        assert_eq!(got.data["callsign"], "HILLS-WATER-TREAT-PLT");
+        assert_eq!(got.data["sourceFmt"], "dprs");
+        assert!((got.data["lat"].as_f64().unwrap() - 45.484166).abs() < 1e-4);
+    }
+
+    #[tokio::test]
     async fn engine_talks_to_a_pty_radio_and_detects_unplug() {
         let pty = openpty(None, None).unwrap();
         let slave = ttyname(pty.slave.as_fd()).unwrap();
@@ -749,4 +781,87 @@ async fn wire_capture_decodes_and_support_bundle_excludes_secrets() {
 
 fn hex_of(s: &str) -> String {
     s.bytes().map(|b| format!("{b:02x}")).collect()
+}
+
+#[tokio::test]
+async fn position_report_sent_by_one_engine_is_mapped_by_the_other() {
+    use aetherd::engine::PosCmd;
+    let srv = Server::start("127.0.0.1:0", ServerConfig::default())
+        .await
+        .unwrap();
+    let a = engine::start(&rfl_config("KK4ODA", srv.local_addr)).unwrap();
+    let mut bc = rfl_config("W4DRS", srv.local_addr);
+    bc.position = Some(aetherd::config::PositionConfig {
+        lat: 33.749,
+        lon: -84.388,
+        alt_m: Some(320.0),
+        comment: "Fulton EOC".into(),
+        symbol: "/-".into(),
+    });
+    let b = engine::start(&bc).unwrap();
+    let (mut a_ev, mut b_ev) = (a.events.subscribe(), b.events.subscribe());
+    let up = |e: &ApiEvent| e.topic == "port.state" && e.data["state"] == "up";
+    wait_for(&mut a_ev, "A up", up).await;
+    wait_for(&mut b_ev, "B up", up).await;
+    // A has no [position]: asking to send one is an error, not a guess.
+    assert!(ask(&a, |reply| Cmd::Position(
+        PosCmd::Send {
+            port: "net".into(),
+            format: None
+        },
+        reply
+    ))
+    .await
+    .is_err());
+    for fmt in ["dprs", "nmea"] {
+        let sent = ask(&b, |reply| {
+            Cmd::Position(
+                PosCmd::Send {
+                    port: "net".into(),
+                    format: Some(fmt.into()),
+                },
+                reply,
+            )
+        })
+        .await
+        .unwrap();
+        assert_eq!(sent["format"], fmt);
+        let got = wait_for(&mut a_ev, "position at A", |e| {
+            e.topic == "station.position"
+                && e.data["callsign"] == "W4DRS"
+                && e.data["sourceFmt"] == fmt
+        })
+        .await;
+        assert!(
+            (got.data["lat"].as_f64().unwrap() - 33.749).abs() < 0.001,
+            "{}",
+            got.data
+        );
+        assert!((got.data["lon"].as_f64().unwrap() + 84.388).abs() < 0.001);
+    }
+    let latest = ask(&a, |reply| {
+        Cmd::Position(
+            PosCmd::List {
+                callsign: None,
+                since: None,
+            },
+            reply,
+        )
+    })
+    .await
+    .unwrap();
+    assert_eq!(latest.as_array().unwrap().len(), 1);
+    assert_eq!(latest[0]["comment"], "Fulton EOC");
+    let hist = ask(&a, |reply| {
+        Cmd::Position(
+            PosCmd::List {
+                callsign: Some("w4drs".into()),
+                since: None,
+            },
+            reply,
+        )
+    })
+    .await
+    .unwrap();
+    assert_eq!(hist.as_array().unwrap().len(), 2);
 }

@@ -6,8 +6,8 @@ Branch: `phase-c` (built on `phase-b`). Validation level of everything here: **S
 
 | Program | What it does |
 |---|---|
-| `aetherd --config FILE` | Engine. Serial radio ports (half-duplex scheduler) and ratflector ports (legacy handshake, back-off, TCP keepalive). Legacy D-RATS behaviour on chat (session 1) and RPC (session 2): chat, ping/echo replies (broadcast replies rate-limited), status, `RPCGetVersion` with the Aether capability token. Durable SQLite log. Legacy file and form transfer (control NEW/ACK/END, offer and `OK`, ARQ-1) in both directions; received files go to `files_dir`. ICS-213 messages: compose, send directly to a station, receive into the inbox (D-RATS form XML, stored in the database), with the delivery states of SM-7. Local JSON-RPC/WebSocket API with a token. |
-| `aether-cli` | Terminal client: `ports`, `stations`, `send PORT DST TEXT`, `history`, `ping`, `version`, `send-file PORT CALL PATH`, `transfers [all]`, `cancel ID`, `ics213 CALL SUBJECT MESSAGE [field=value…]`, `msg-send ID [PORT]`, `messages [FOLDER]`, `msg ID`, `capture-start PORT`, `capture-stop PORT`, `log [N]`, `bundle [captures]`, `tail`. |
+| `aetherd --config FILE` | Engine. Serial radio ports (half-duplex scheduler) and ratflector ports (legacy handshake, back-off, TCP keepalive). Legacy D-RATS behaviour on chat (session 1) and RPC (session 2): chat, ping/echo replies (broadcast replies rate-limited), status, `RPCGetVersion` with the Aether capability token. Durable SQLite log. Legacy file and form transfer (control NEW/ACK/END, offer and `OK`, ARQ-1) in both directions; received files go to `files_dir`. ICS-213 messages: compose, send directly to a station, receive into the inbox (D-RATS form XML, stored in the database), with the delivery states of SM-7. Position reports (NMEA style and DPRS, from chat lines and from the radio's own GPS-TX output) are parsed, checksum-checked and stored; our own position is sent only on request. Local JSON-RPC/WebSocket API with a token. |
+| `aether-cli` | Terminal client: `ports`, `stations`, `send PORT DST TEXT`, `history`, `ping`, `version`, `send-file PORT CALL PATH`, `transfers [all]`, `cancel ID`, `ics213 CALL SUBJECT MESSAGE [field=value…]`, `msg-send ID [PORT]`, `messages [FOLDER]`, `msg ID`, `positions [CALL]`, `send-position PORT [dprs|nmea]`, `capture-start PORT`, `capture-stop PORT`, `log [N]`, `bundle [captures]`, `tail`. |
 | `aether-rfd` | Ratflector server, legacy-compatible, with loop safeguards and per-client limits. |
 | `aecap` | Reads a wire capture: `aecap show FILE [--hex]` decodes every frame and stray byte run in time order; `aecap stats FILE` counts them. |
 | `serial-spike` | Receive-only port lister and hex monitor, for hardware test HW-0/HW-1. |
@@ -18,7 +18,6 @@ Branch: `phase-c` (built on `phase-b`). Validation level of everything here: **S
 
 Layering note: message delivery lives in `aetherd` (`engine/messages.rs`) for this slice. It moves into the `aether-msg` crate of the architecture (05 §3) when store-and-forward routing is built; `aether-forms` is already its own crate.
 - resuming an interrupted transfer (we always answer `OK`, never `RESUME:`; see below)
-- position parsing (GPS sentences are logged as `raw` chat)
 - CI-V Fast Data control
 - the desktop UI
 
@@ -57,6 +56,17 @@ To try it on a ratflector or over RF once chat works:
 From D-RATS, send a file or a form to your callsign; it appears in `received/` (or `received/forms/`) next to the database, and in `aether-cli tail`.
 
 A finding from building this: the stale-ACK guard in ARQ-1 (P20) originally ignored any ACK that arrived before the *estimated* end of our transmission. On a path faster than the estimate (a ratflector, or a radio faster than 119 B/s) that stalled every window until the RTO. The guard now uses half the estimated air time: stale and duplicated ACKs, which arrive right after a burst starts, are still caught (test `faster_than_estimated_path_is_not_stalled`). HW-4 timing measurements will tell us how good the estimate is.
+
+## Positions
+
+Received position reports appear in `aether-cli positions` (latest per station) and `positions CALL` (history), and as `station.position` events. Both D-RATS formats are understood:
+
+- NMEA style (`$GPGGA…` plus a `CALL,comment` line, optionally with a DPRS symbol and checksum in the comment)
+- DPRS (`$$CRC…,CALL>APRATS,DSTAR*:…`), including what an Icom radio emits on its data port for a received GPS-TX beacon
+
+Every checksum is verified. A rejected report is logged with the reason (`aether-cli log`), never silently dropped.
+
+To send your own position, add a `[position]` section (see `examples/ic9700.toml`) and run `aether-cli send-position IC-9700` (DPRS) or `send-position IC-9700 nmea`. Nothing is sent automatically. D-RATS's radio note still applies: keep the radio's own GPS-TX off while using data, because it competes for the same slow-data capacity.
 
 ## ICS-213 messages
 

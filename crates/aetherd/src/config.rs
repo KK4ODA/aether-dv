@@ -9,6 +9,12 @@
 //! capture = false                  # optional; capture every port's traffic from start
 //! capture_dir = "captures"         # optional; default "captures" next to the DB
 //!
+//! [position]                       # optional; sent only when you ask
+//! lat = 33.749
+//! lon = -84.388
+//! comment = "EOC"
+//! symbol = "/-"
+//!
 //! [[port]]
 //! kind = "ratflector"
 //! name = "sewx"
@@ -50,8 +56,32 @@ pub struct Config {
     pub capture: bool,
     /// Where captures and support bundles go.
     pub capture_dir: Option<PathBuf>,
+    /// This station's fixed position, sent only on request
+    /// (`stations.sendPosition`); there is no automatic beacon.
+    pub position: Option<PositionConfig>,
     #[serde(default, rename = "port")]
     pub ports: Vec<PortConfig>,
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct PositionConfig {
+    pub lat: f64,
+    pub lon: f64,
+    pub alt_m: Option<f64>,
+    #[serde(default = "default_pos_comment")]
+    pub comment: String,
+    /// APRS symbol, table + code (`/-` house, `/>` car, `/a` ambulance).
+    #[serde(default = "default_symbol")]
+    pub symbol: String,
+}
+
+fn default_pos_comment() -> String {
+    "Aether DV".into()
+}
+
+fn default_symbol() -> String {
+    "/-".into()
 }
 
 fn default_max_incoming() -> u32 {
@@ -139,6 +169,18 @@ impl Config {
         if names.len() != c.ports.len() {
             return Err(ConfigError::Invalid("port names must be unique".into()));
         }
+        if let Some(p) = &c.position {
+            if !(-90.0..=90.0).contains(&p.lat) || !(-180.0..=180.0).contains(&p.lon) {
+                return Err(ConfigError::Invalid(
+                    "position: lat/lon out of range".into(),
+                ));
+            }
+            if p.symbol.chars().count() != 2 {
+                return Err(ConfigError::Invalid(
+                    "position: symbol must be 2 characters (table + code)".into(),
+                ));
+            }
+        }
         for p in &c.ports {
             if let PortConfig::Serial { mode, flow, .. } = p {
                 if mode != "slow" && mode != "fast" {
@@ -162,6 +204,28 @@ impl Config {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn shipped_examples_parse_with_and_without_position() {
+        for (name, text) in [
+            ("ic9700", include_str!("../../../examples/ic9700.toml")),
+            ("id52plus", include_str!("../../../examples/id52plus.toml")),
+        ] {
+            let c = Config::parse(text).unwrap_or_else(|e| panic!("{name}: {e}"));
+            assert!(c.capture, "{name}");
+            let with_pos = text
+                .replace("# [position]", "[position]")
+                .replace("# lat = ", "lat = ")
+                .replace("# lon = ", "lon = ")
+                .replace("# comment = ", "comment = ")
+                .replace("# symbol = ", "symbol = ");
+            let c =
+                Config::parse(&with_pos).unwrap_or_else(|e| panic!("{name} with position: {e}"));
+            assert_eq!(c.position.unwrap().symbol, "/-");
+        }
+        let bad = "callsign = \"KK4ODA\"\n[position]\nlat = 95.0\nlon = 0.0\n";
+        assert!(Config::parse(bad).is_err());
+    }
 
     #[test]
     fn parses_example() {

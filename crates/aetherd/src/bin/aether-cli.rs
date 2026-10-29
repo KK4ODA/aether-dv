@@ -17,6 +17,8 @@
 //!                                 where CALL was last heard
 //!   messages [FOLDER]             inbox, outbox, sent, drafts (default: all)
 //!   msg ID                        show a message's fields and delivery events
+//!   positions [CALL]              latest position of every station, or CALL's history
+//!   send-position PORT [dprs|nmea]  send our configured [position] once
 //!   capture-start PORT            start a wire capture (.aecap) on PORT
 //!   capture-stop PORT             stop it; prints the file (read it with `aecap show`)
 //!   log [N]                       the last N engine log entries (default 50)
@@ -249,6 +251,24 @@ fn main() {
                 );
             }
         }
+        "positions" => {
+            let call = args.get(1).cloned();
+            for p in c.call("stations.positions", json!({ "callsign": call })).as_array().cloned().unwrap_or_default() {
+                println!(
+                    "{:<10} {:>10.5} {:>11.5} {:<4} {:<5} {}",
+                    p["callsign"].as_str().unwrap_or(""),
+                    p["lat"].as_f64().unwrap_or(0.0),
+                    p["lon"].as_f64().unwrap_or(0.0),
+                    p["sourceFmt"].as_str().unwrap_or(""),
+                    p["symbol"].as_str().unwrap_or(""),
+                    p["comment"].as_str().unwrap_or("")
+                );
+            }
+        }
+        "send-position" if args.len() == 2 || args.len() == 3 => {
+            let r = c.call("stations.sendPosition", json!({ "portId": args[1], "format": args.get(2) }));
+            println!("sent: {}", r["text"].as_str().unwrap_or("").trim_end());
+        }
         "capture-start" if args.len() == 2 => {
             let r = c.call("diag.captureStart", json!({ "portId": args[1] }));
             println!("capturing {} to {}", args[1], r["path"].as_str().unwrap_or(""));
@@ -277,7 +297,7 @@ fn main() {
             println!("{}", r["path"].as_str().unwrap_or(""));
         }
         "tail" => {
-            c.call("events.subscribe", json!({ "topics": ["chat.line", "port.state", "station.heard", "transfer.progress", "message.state", "engine.event"] }));
+            c.call("events.subscribe", json!({ "topics": ["chat.line", "port.state", "station.heard", "transfer.progress", "message.state", "station.position", "engine.event"] }));
             eprintln!("connected to aetherd {} as {}", hello["engineVersion"], hello["profile"]);
             loop {
                 let m = c.ws.read().unwrap_or_else(|e| die(&format!("read: {e}")));
@@ -293,6 +313,6 @@ fn main() {
                 }
             }
         }
-        _ => die("usage: aether-cli [--api ADDR] [--token-file PATH] ports|stations|send PORT DST TEXT|history [PORT] [N]|ping PORT CALL|version PORT CALL|send-file PORT CALL PATH|transfers [all]|cancel ID|ics213 CALL SUBJECT MESSAGE|msg-send ID [PORT]|messages [FOLDER]|msg ID|capture-start PORT|capture-stop PORT|log [N]|bundle [captures]|tail"),
+        _ => die("usage: aether-cli [--api ADDR] [--token-file PATH] ports|stations|send PORT DST TEXT|history [PORT] [N]|ping PORT CALL|version PORT CALL|send-file PORT CALL PATH|transfers [all]|cancel ID|ics213 CALL SUBJECT MESSAGE|msg-send ID [PORT]|messages [FOLDER]|msg ID|positions [CALL]|send-position PORT [dprs|nmea]|capture-start PORT|capture-stop PORT|log [N]|bundle [captures]|tail"),
     }
 }

@@ -12,7 +12,7 @@ use tokio::net::TcpListener;
 use tokio::sync::{mpsc, oneshot};
 use tokio_tungstenite::tungstenite::Message;
 
-use crate::engine::{ApiError, Cmd, DiagCmd, EngineHandle, MsgCmd, E_INVALID};
+use crate::engine::{ApiError, Cmd, DiagCmd, EngineHandle, MsgCmd, PosCmd, E_INVALID};
 
 pub const API_VERSION: &str = "0.1.0";
 const E_METHOD: i64 = -32601;
@@ -262,6 +262,23 @@ async fn session(
             }
             "transfers.cancel" => match s(&params, "id") {
                 Ok(id) => ask(&engine, |reply| Cmd::CancelTransfer { id, reply }).await,
+                Err(e) => Err(e),
+            },
+            "stations.positions" => {
+                let c = PosCmd::List {
+                    callsign: opt_s(&params, "callsign"),
+                    since: params.get("since").and_then(Value::as_i64),
+                };
+                ask(&engine, |reply| Cmd::Position(c, reply)).await
+            }
+            "stations.sendPosition" => match s(&params, "portId") {
+                Ok(port) => {
+                    let c = PosCmd::Send {
+                        port,
+                        format: opt_s(&params, "format"),
+                    };
+                    ask(&engine, |reply| Cmd::Position(c, reply)).await
+                }
                 Err(e) => Err(e),
             },
             "diag.captureStart" | "diag.captureStop" | "diag.events" | "diag.supportBundle" => {

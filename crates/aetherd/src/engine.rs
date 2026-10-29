@@ -21,9 +21,11 @@ use crate::xfer::{self, Class, Dir, Snapshot, Transfers, XEffect};
 
 mod diag;
 mod messages;
+mod positions;
 use crate::capture::Tap;
 pub use diag::DiagCmd;
 pub use messages::MsgCmd;
+pub use positions::PosCmd;
 
 pub type Reply<T> = oneshot::Sender<Result<T, ApiError>>;
 
@@ -83,6 +85,8 @@ pub enum Cmd {
     Message(MsgCmd, Reply<Value>),
     /// `diag.*`.
     Diag(DiagCmd, Reply<Value>),
+    /// Positions (`stations.positions`, `stations.sendPosition`).
+    Position(PosCmd, Reply<Value>),
     Transfers {
         include_finished: bool,
         reply: Reply<Value>,
@@ -233,6 +237,9 @@ struct Engine {
     capture_dir: PathBuf,
     /// Configuration without secrets, for support bundles.
     config_summary: Value,
+    /// Radio GPS-TX output extraction, per serial port.
+    scanners: HashMap<String, aether_geo::Scanner>,
+    own_position: Option<crate::config::PositionConfig>,
 }
 
 impl Engine {
@@ -337,6 +344,13 @@ impl Engine {
                     Some(&port),
                     &format!("{} bytes outside frames", bytes.len()),
                 );
+                // Only a radio emits position text outside frames (GPS-TX).
+                if self.ports.get(&port).is_some_and(|p| p.kind == "serial") {
+                    let found = self.scanners.entry(port.clone()).or_default().feed(&bytes);
+                    for s in found {
+                        self.on_position_text(&port, None, &s);
+                    }
+                }
             }
             PortEvt::Transmitted { port: _, token } => self.chat_state(token, "transmitted", None),
             PortEvt::NotTransmitted {
@@ -385,6 +399,9 @@ impl Engine {
                 kind,
                 body,
             } => {
+                if kind == "raw" {
+                    self.on_position_text(&port, Some(&src), &body);
+                }
                 let mut line = ChatLine {
                     id: 0,
                     port_id: Some(port),
@@ -531,6 +548,10 @@ impl Engine {
             }
             Cmd::Message(m, reply) => {
                 let res = self.on_message_cmd(m).await;
+                let _ = reply.send(res);
+            }
+            Cmd::Position(c, reply) => {
+                let res = self.on_position_cmd(c).await;
                 let _ = reply.send(res);
             }
             Cmd::Diag(d, reply) => {
@@ -951,6 +972,8 @@ pub fn start(cfg: &Config) -> Result<EngineHandle, String> {
         }).collect::<Vec<_>>(),
     });
     let mut engine = Engine {
+        scanners: HashMap::new(),
+        own_position: cfg.position.clone(),
         capture_dir,
         config_summary,
         xfers: Transfers::new(&cfg.callsign, limits),

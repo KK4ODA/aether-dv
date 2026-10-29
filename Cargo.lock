@@ -31,6 +31,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "aether-geo"
+version = "0.0.1"
+
+[[package]]
 name = "aether-link"
 version = "0.0.1"
 dependencies = [
@@ -66,6 +70,7 @@ version = "0.0.1"
 dependencies = [
  "aether-ddt2",
  "aether-forms",
+ "aether-geo",
  "aether-link",
  "aether-rfd",
  "aether-rfl",
