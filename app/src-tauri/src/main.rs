@@ -14,6 +14,7 @@ use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 use tauri::{Emitter, Manager};
+use tauri_plugin_opener::OpenerExt;
 use tauri_plugin_updater::{Update, UpdaterExt};
 
 #[derive(serde::Serialize)]
@@ -200,6 +201,22 @@ fn stop_engine(state: &Shell) {
     }
 }
 
+/// Open an https link (radio setup guides) in the system browser, so the
+/// app window itself never navigates away.
+#[tauri::command]
+fn open_link(app: tauri::AppHandle, url: String) -> Result<(), String> {
+    let u = url.trim();
+    let rest = u
+        .strip_prefix("https://")
+        .ok_or("Only https links can be opened.")?;
+    if rest.is_empty() || u.chars().any(|c| c.is_whitespace() || c.is_control()) {
+        return Err("Not a valid link.".into());
+    }
+    app.opener()
+        .open_url(u, None::<&str>)
+        .map_err(|e| format!("Could not open the link: {e}"))
+}
+
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 struct AppInfo {
@@ -349,6 +366,7 @@ fn selftest(app: tauri::AppHandle) {
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_opener::init())
         .manage(Shell::default())
         .setup(|_app| {
             #[cfg(feature = "selftest")]
@@ -358,6 +376,7 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             engine_endpoint,
             engine_start,
+            open_link,
             app_info,
             update_check,
             update_install

@@ -1,0 +1,262 @@
+{
+  "updated": "2026-10-30",
+  "statusLevels": {
+    "documented": "From manufacturer manuals and source research only. Not yet tried with Aether DV.",
+    "reported": "Operators report it working (see field reports). Not yet verified by the project.",
+    "tested": "Tested with Aether DV on this radio (hardware level), with captures."
+  },
+  "general": [
+    "Connect the radio's DV Data port (not its programming or CI-V port) and note the serial device; `serial-spike list` shows candidates without opening any.",
+    "Set the radio to DV mode and \"DV Data TX\" to Auto, so it keys up when data arrives.",
+    "Turn GPS TX (position beacons) off while using data: it shares the same slow-data channel.",
+    "Leave Fast Data off on shared frequencies. Fast Data stations cannot decode slow ones and vice versa.",
+    "On a repeater: set the radio to the repeater as for voice (RPT1/RPT2, UR = CQCQCQ). If the repeater is linked to a reflector, everything you send goes to every linked repeater, so use an unlinked module, keep transfers small and ask the repeater's trustee first."
+  ],
+  "brands": [
+    {
+      "id": "icom",
+      "name": "Icom",
+      "radios": [
+        {
+          "id": "icom-ic9700",
+          "name": "IC-9700",
+          "profile": "icom-ic9700",
+          "status": "documented",
+          "summary": "Base station, 2 m / 70 cm / 23 cm. USB port B carries DV data while port A stays CI-V, so Aether can also check the Fast Data setting.",
+          "slowData": "yes",
+          "fastData": "yes (firmware 1.50 or later improves the end-of-Fast-Data beep)",
+          "connection": "USB (B) for DV data, USB (A) for CI-V. 9600 baud. Use the port the programming software is not using.",
+          "steps": [
+            { "title": "Radio menus", "items": [
+              "SET > Connectors > USB (B) Function = DV Data (USB A stays CI-V)",
+              "SET > DV/DD Set > DV Data TX = Auto",
+              "SET > DV/DD Set > DV Fast Data > Fast Data = OFF (slow data, for shared nets)",
+              "GPS TX Mode = OFF"
+            ]},
+            { "title": "Aether DV", "items": [
+              "Start from examples/ic9700.toml: profile = \"icom-ic9700\", baud = 9600, mode = \"slow\".",
+              "Optional: add [port.civ] with the USB (A) device; the IC-9700's default CI-V address is A2h. Aether then warns at start-up if the radio's Fast Data setting doesn't match the port's mode."
+            ]}
+          ],
+          "links": [
+            { "title": "Icom manuals and guides (official): IC-9700 D-STAR D-PRS guide and more", "url": "https://www.icomjapan.com/support/manual/", "kind": "manual" },
+            { "title": "IC-9700 CI-V reference guide (mirror at RigPix)", "url": "https://www.rigpix.com/icom/ic9700_civ_v2.pdf", "kind": "manual" },
+            { "title": "D-RATS wiki: \"030 Connecting D-Rats with a D-Star radio\"", "url": "https://github.com/ham-radio-software/D-Rats/wiki", "kind": "post" }
+          ],
+          "reports": []
+        },
+        {
+          "id": "icom-id52plus",
+          "name": "ID-52 PLUS",
+          "profile": "icom-id52plus",
+          "status": "documented",
+          "summary": "Handheld, 2 m / 70 cm. USB-C carries either DV data or CI-V, not both; Bluetooth can carry the other.",
+          "slowData": "yes",
+          "fastData": "yes",
+          "connection": "USB-C with Serialport Function = DV Data. For CI-V at the same time, use the Bluetooth serial port (Serialport Function = CI-V there).",
+          "steps": [
+            { "title": "Radio menus", "items": [
+              "[MENU] > SET > Function > USB Connect = Serialport",
+              "[MENU] > SET > Function > USB Serialport Function = DV Data",
+              "[MENU] > SET > DV Set > DV Data TX = Auto",
+              "DV Fast Data OFF (slow data)",
+              "GPS TX OFF"
+            ]},
+            { "title": "Aether DV", "items": [
+              "Start from examples/id52plus.toml: profile = \"icom-id52plus\", mode = \"slow\".",
+              "CI-V (optional, over Bluetooth): the default address reported for the ID-52 is B4h, not confirmed for the PLUS; check MENU > SET > Function > CI-V and set civ.addr."
+            ]}
+          ],
+          "links": [
+            { "title": "Icom manuals and guides (official): ID-52 PLUS manuals, D-STAR D-PRS guide", "url": "https://www.icomjapan.com/support/manual/", "kind": "manual" },
+            { "title": "D-RATS wiki: \"030 Connecting D-Rats with a D-Star radio\"", "url": "https://github.com/ham-radio-software/D-Rats/wiki", "kind": "post" }
+          ],
+          "reports": []
+        },
+        {
+          "id": "icom-id52",
+          "name": "ID-52 (A/E)",
+          "profile": "icom-id52",
+          "status": "documented",
+          "summary": "Handheld. Set up like the ID-52 PLUS: USB is either DV data or CI-V.",
+          "slowData": "yes",
+          "fastData": "yes",
+          "connection": "USB, Serialport Function = DV Data. Bluetooth (built-in) for the other function.",
+          "steps": [
+            { "title": "Radio menus", "items": [
+              "[MENU] > SET > Function > USB Serialport Function = DV Data",
+              "[MENU] > SET > DV Set > DV Data TX = Auto",
+              "Fast Data OFF; GPS TX OFF"
+            ]}
+          ],
+          "links": [
+            { "title": "Icom manuals and guides (official)", "url": "https://www.icomjapan.com/support/manual/", "kind": "manual" }
+          ],
+          "reports": []
+        },
+        {
+          "id": "icom-ic705",
+          "name": "IC-705",
+          "profile": "icom-ic705",
+          "status": "documented",
+          "summary": "Portable HF/VHF/UHF. USB port B = DV data, port A = CI-V, both at once; built-in Bluetooth can also carry DV data.",
+          "slowData": "yes",
+          "fastData": "yes (firmware 1.40 adds an end-of-Fast-Data beep)",
+          "connection": "USB (B) for DV data, USB (A) for CI-V.",
+          "steps": [
+            { "title": "Radio menus", "items": [
+              "Set the USB (B) function to DV Data and DV Data TX = Auto (see the IC-705 manual for the exact menu path)",
+              "Fast Data OFF; GPS TX OFF"
+            ]}
+          ],
+          "links": [
+            { "title": "Icom manuals and guides (official)", "url": "https://www.icomjapan.com/support/manual/", "kind": "manual" }
+          ],
+          "reports": []
+        },
+        {
+          "id": "icom-ic905",
+          "name": "IC-905",
+          "profile": "icom-ic905",
+          "status": "documented",
+          "summary": "VHF/UHF/SHF. USB (B) carries DV data.",
+          "slowData": "yes",
+          "fastData": "yes",
+          "connection": "USB (B) = DV Data.",
+          "steps": [
+            { "title": "Radio menus", "items": [ "USB (B) function = DV Data; DV Data TX = Auto; Fast Data OFF; GPS TX OFF" ]}
+          ],
+          "links": [
+            { "title": "Icom manuals and guides (official)", "url": "https://www.icomjapan.com/support/manual/", "kind": "manual" }
+          ],
+          "reports": []
+        },
+        {
+          "id": "icom-id51plus",
+          "name": "ID-51 PLUS / PLUS2",
+          "status": "documented",
+          "summary": "Handheld with a DATA jack. Install the 2019-11 firmware, which fixes data loss.",
+          "slowData": "yes",
+          "fastData": "yes",
+          "connection": "DATA jack cable, 4800 or 9600 baud.",
+          "steps": [
+            { "title": "Radio menus (as published for the ID-51 by W5AW)", "items": [
+              "MENU > GPS > GPS SET > GPS SELECT = OFF",
+              "MENU > GPS > GPS SET > GPS OUT (DATA jack) = OFF",
+              "MENU > FUNCTION > CI-V > CI-V (DATA jack) = OFF",
+              "MENU > FUNCTION > DATA SPEED = 9600"
+            ]}
+          ],
+          "links": [
+            { "title": "W5AW: D-RATS settings for the ID-51 and IC-7100", "url": "https://www.qsl.net/w5aw/d-rats.htm", "kind": "post" }
+          ],
+          "reports": []
+        },
+        {
+          "id": "icom-ic7100",
+          "name": "IC-7100",
+          "status": "documented",
+          "summary": "HF/VHF/UHF mobile. Slow data only; no Fast Data.",
+          "slowData": "yes",
+          "fastData": "no",
+          "connection": "USB, 9600 baud.",
+          "steps": [
+            { "title": "Radio menus (as published by W5AW)", "items": [
+              "Mode: DV",
+              "Connectors > USB2/Data1 Function > GPS Out = OFF",
+              "GPS > GPS TX Mode = OFF",
+              "Connectors > USB2/Data1 Function > DV Data/GPS Out Baud = 9600",
+              "DV Set > DV Data TX = Auto",
+              "Connectors > USB2/Data1 Function > USB2 Function = DV Data"
+            ]}
+          ],
+          "links": [
+            { "title": "W5AW: D-RATS settings for the ID-51 and IC-7100", "url": "https://www.qsl.net/w5aw/d-rats.htm", "kind": "post" }
+          ],
+          "reports": []
+        },
+        {
+          "id": "icom-id4100",
+          "name": "ID-4100",
+          "status": "documented",
+          "summary": "Mobile with a DATA jack. Firmware V1.02 (2019-11-06) fixes Fast Data loss.",
+          "slowData": "yes",
+          "fastData": "yes (firmware V1.02 or later)",
+          "connection": "DATA jack (OPC-2350LU / OPC-2218LU); XON/XOFF flow control reported.",
+          "steps": [
+            { "title": "Radio menus", "items": [ "Keep CI-V (DATA jack) OFF while using data; DV Data TX = Auto; Fast Data OFF; GPS TX OFF" ]}
+          ],
+          "links": [
+            { "title": "Icom manuals and guides (official)", "url": "https://www.icomjapan.com/support/manual/", "kind": "manual" }
+          ],
+          "reports": []
+        },
+        {
+          "id": "icom-id5100",
+          "name": "ID-5100",
+          "status": "documented",
+          "summary": "Mobile with a DATA jack. Fast Data needs firmware E2 or later.",
+          "slowData": "yes",
+          "fastData": "yes (firmware E2+)",
+          "connection": "DATA jack.",
+          "steps": [
+            { "title": "Radio menus", "items": [ "DV Data TX = Auto; Fast Data OFF; GPS TX OFF; check firmware before trying Fast Data" ]}
+          ],
+          "links": [
+            { "title": "Icom manuals and guides (official)", "url": "https://www.icomjapan.com/support/manual/", "kind": "manual" }
+          ],
+          "reports": []
+        }
+      ]
+    },
+    {
+      "id": "kenwood",
+      "name": "Kenwood",
+      "radios": [
+        {
+          "id": "kenwood-tmd750",
+          "name": "TM-D750",
+          "profile": "kenwood-tmd750",
+          "status": "documented",
+          "summary": "2026 mobile. Whether its USB/Bluetooth data port carries D-STAR DV data the way D-RATS needs is not known yet; no software control of Fast Data is documented.",
+          "slowData": "unknown",
+          "fastData": "unknown",
+          "connection": "USB and Bluetooth. Its D-STAR \"Reflector Terminal Mode\" uses a different (MMDVM) protocol and does not transmit on RF.",
+          "steps": [
+            { "title": "Status", "items": [
+              "Not yet set up with Aether DV. If you try it, send a report: menu path for DV data, baud rate, and whether chat and a small file worked."
+            ]}
+          ],
+          "links": [],
+          "reports": []
+        },
+        {
+          "id": "kenwood-thd75",
+          "name": "TH-D75",
+          "status": "documented",
+          "summary": "Handheld. Reported to behave like the TH-D74 for D-RATS (receive reported; transmit unconfirmed).",
+          "slowData": "reported (receive)",
+          "fastData": "yes (\"fast data\" in the manual)",
+          "connection": "USB-C (the serial control line DTR must be on); Bluetooth serial (Menu 984). Menu 614 must not be Off.",
+          "steps": [
+            { "title": "Radio menus", "items": [ "Menu 614 not Off; check the manual for the DV data setting" ]}
+          ],
+          "links": [],
+          "reports": []
+        },
+        {
+          "id": "kenwood-thd74",
+          "name": "TH-D74",
+          "status": "documented",
+          "summary": "Handheld. D-RATS reported to receive only.",
+          "slowData": "reported (receive only)",
+          "fastData": "yes (\"Data Mode\")",
+          "connection": "USB (appears as ttyACM on Linux).",
+          "steps": [],
+          "links": [],
+          "reports": []
+        }
+      ]
+    }
+  ]
+}

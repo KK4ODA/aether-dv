@@ -135,9 +135,34 @@ textarea.field { height: auto; min-height: 120px; padding: var(--s3); resize: ve
 .compose-form .c6 textarea { width: 100%; }
 
 /* update prompt */
+.update[hidden] { display: none; }
 .update { position: fixed; right: var(--s5); bottom: 44px; width: 360px; padding: var(--s4) var(--s5);
   background: var(--bg-raised); border: 1px solid var(--line-strong); border-radius: var(--r-md); display: grid; gap: var(--s3); z-index: 10; }
 .update h2 { font-size: var(--fs-lg); margin: 0; }
 .update p { margin: 0; }
 .update .notes { white-space: pre-line; max-height: 140px; overflow: auto; }
 .update .acts { display: flex; gap: var(--s3); }
+
+/* radio setup */
+.guides { display: grid; grid-template-columns: 280px 1fr; height: 100%; }
+.gnav { border-right: 1px solid var(--line-hair); overflow: auto; }
+.gtree, .gtree ul { list-style: none; margin: 0; padding: 0; }
+.gtree { padding: var(--s3) 0; }
+.gtree [role="treeitem"] { cursor: default; }
+.gbrand { padding: 4px var(--s5); font-weight: 600; }
+.gbrand > ul { font-weight: 400; margin: 2px calc(-1 * var(--s5)) 0; }
+.gtw { display: inline-block; width: 1.2em; color: var(--text-3); }
+.gmodel { display: flex; justify-content: space-between; padding: 4px var(--s5) 4px calc(var(--s5) + 1.2em + var(--s5)); }
+.gtree [aria-selected="true"]:not(:has([aria-selected="true"])) { background: var(--bg-raised); box-shadow: inset 3px 0 0 var(--text-1); }
+.gbrand[aria-selected="true"] > ul { background: var(--bg-base); }
+.doc h2 { font-size: var(--fs-md); font-weight: 600; margin: var(--s5) 0 var(--s3); }
+.gsteps { margin: 0; padding-left: 1.4em; display: grid; gap: 4px; max-width: 80ch; }
+.gfacts { display: grid; grid-template-columns: max-content 1fr; gap: 4px var(--s5); margin: var(--s4) 0; max-width: 90ch; }
+.gfacts dt { color: var(--text-2); } .gfacts dd { margin: 0; }
+.glinks { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.glinks a, .greports a { color: var(--text-1); }
+.greports { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--s4); max-width: 90ch; }
+.greports li { border-left: 2px solid var(--line-strong); padding-left: var(--s4); display: grid; gap: 2px; }
+/* sounds */
+.sounds .srow { display: flex; gap: var(--s6); align-items: center; margin: var(--s4) 0; }
+.sounds table.grid { max-width: 640px; }

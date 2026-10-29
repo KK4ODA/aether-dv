@@ -209,16 +209,30 @@ function onEvent(topic, d) {
   switch (topic) {
     case 'port.state': {
       const p = S.ports.find((x) => x.id === d.portId);
+      if (p && d.state) {
+        const down = (st) => ['absent', 'lost', 'auth_failed', 'backoff'].includes(st);
+        const ok = (st) => ['up', 'ready'].includes(st);
+        if (ok(p.state) && down(d.state)) Sounds.play('linkLost');
+        if (down(p.state) && ok(d.state)) Sounds.play('linkRestored');
+      }
       if (p) {
         p.state = d.state;
         p.detail = d.detail;
       }
       break;
     }
-    case 'chat.line':
+    case 'chat.line': {
+      const prev = S.lines.get(d.id);
+      if (!prev && d.direction === 'in') {
+        if (d.position) Sounds.play('position');
+        else if (d.dst === S.me) Sounds.play('direct');
+        else if (d.kind === 'text') Sounds.play('chat');
+      }
+      if (prev && prev.txState !== 'failed' && d.txState === 'failed') Sounds.play('failed');
       if (!S.lines.has(d.id) && d.direction === 'in' && S.view !== 'chat') S.unreadChat++;
       S.lines.set(d.id, d);
       break;
+    }
     case 'station.heard': {
       const s = S.stations.get(d.callsign) || { callsign: d.callsign };
       if (d.software) s.software = d.software;
@@ -233,12 +247,22 @@ function onEvent(topic, d) {
       // Shown in chat through the chat line that carried it.
       S.positions.set(d.callsign, d);
       break;
-    case 'transfer.progress':
+    case 'transfer.progress': {
+      const prev = S.transfers.get(d.id);
+      if (!prev || prev.state !== d.state) {
+        if (d.state === 'done' && d.direction === 'receive' && d.protocol === 'legacy_file') Sounds.play('file');
+        if (d.state === 'done' && d.direction === 'send' && d.protocol === 'legacy_file') Sounds.play('sent');
+        if (d.state === 'failed' && d.stateReason !== 'cancelled') Sounds.play('failed');
+      }
       S.transfers.set(d.id, d);
       break;
+    }
     case 'message.state': {
       const m = d.message;
+      if (m.state === 'handed_off') Sounds.play('sent');
+      if (m.state === 'failed' && m.stateReason !== 'cancelled') Sounds.play('failed');
       if (m.state === 'received') {
+        Sounds.play('message');
         S.unreadMsg++;
         S.sys.push({
           at: Date.now(), portId: d.event && d.event.portId, who: 'Message',
@@ -265,8 +289,14 @@ function fmtPos(lat, lon) {
 
 // ---------------------------------------------------------------- frame
 function renderAll() {
-  if (!S.connected) {
+  renderRail();
+  if (!S.connected && !['radios', 'sounds'].includes(S.view)) {
     renderConnect();
+    return;
+  }
+  if (!S.connected) {
+    // Setup help and sound settings don't need the engine.
+    (S.view === 'radios' ? renderRadios : renderSounds)($('#main'));
     return;
   }
   $('#mycall').textContent = S.me;
@@ -274,7 +304,7 @@ function renderAll() {
   renderRail();
   renderDrawer();
   const main = $('#main');
-  const views = { chat: renderChat, messages: renderMessages, transfers: renderTransfers, stations: renderStations, diagnostics: renderDiagnostics };
+  const views = { chat: renderChat, messages: renderMessages, transfers: renderTransfers, stations: renderStations, radios: renderRadios, sounds: renderSounds, diagnostics: renderDiagnostics };
   (views[S.view] || renderChat)(main);
 }
 
@@ -417,6 +447,7 @@ const Shell = {
     try {
       this.update = await t.invoke('update_check');
       this.state = this.update ? 'available' : 'none';
+      if (this.update) Sounds.play('update');
       if (!this.update && quiet) this.state = 'idle';
     } catch (e) {
       this.state = quiet ? 'idle' : 'error';
@@ -828,10 +859,223 @@ function renderDiagnostics(main) {
         h('td', {}, e.portId || ''), h('td', { style: 'white-space:normal' }, e.message))))))));
 }
 
+// ---------------------------------------------------------------- radio setup
+// Guides are data (radio-guides.json), maintained from operators' reports
+// (docs/radio-guides.md). Every string is shown as text; links open in the
+// system browser.
+const Guides = { data: null, error: '', sel: null, open: new Set(['icom']) };
+
+async function loadGuides() {
+  if (Guides.data || Guides.error) return;
+  try {
+    const r = await fetch('radio-guides.json', { cache: 'no-store' });
+    Guides.data = await r.json();
+  } catch (e) {
+    Guides.error = `Radio guides could not be loaded: ${e.message}`;
+  }
+  render();
+}
+
+function openLink(url) {
+  const t = window.__TAURI__ && window.__TAURI__.core;
+  if (t) t.invoke('open_link', { url }).catch((e) => alert(String(e)));
+  else window.open(url, '_blank', 'noopener');
+}
+
+const GUIDE_STATUS = {
+  documented: ['unknown', 'From manuals only'],
+  reported: ['pending', 'Reported working'],
+  tested: ['ok', 'Tested with Aether DV'],
+};
+
+function findRadio(id) {
+  for (const b of (Guides.data && Guides.data.brands) || []) {
+    const r = b.radios.find((x) => x.id === id);
+    if (r) return [b, r];
+  }
+  return [null, null];
+}
+
+function renderRadios(main) {
+  loadGuides();
+  const d = Guides.data;
+  const tree = h('ul', { class: 'gtree', role: 'tree', 'aria-label': 'Radios by brand' });
+  const items = [];
+  const select = (id) => { Guides.sel = id; render(); };
+  for (const b of (d && d.brands) || []) {
+    const open = Guides.open.has(b.id);
+    const bi = h('li', { role: 'treeitem', 'aria-expanded': open ? 'true' : 'false', 'aria-selected': Guides.sel === b.id ? 'true' : 'false', tabindex: -1, 'data-id': b.id, class: 'gbrand' },
+      h('span', { class: 'gtw', 'aria-hidden': 'true' }, open ? '▾' : '▸'), b.name, h('span', { class: 'faint' }, ` ${b.radios.length}`));
+    bi.addEventListener('click', (e) => { e.stopPropagation(); if (open) Guides.open.delete(b.id); else Guides.open.add(b.id); Guides.sel = b.id; render(); });
+    items.push(bi);
+    if (open) {
+      const grp = h('ul', { role: 'group' }, ...b.radios.map((r) => {
+        const [c] = GUIDE_STATUS[r.status] || ['unknown'];
+        const li = h('li', { role: 'treeitem', 'aria-selected': Guides.sel === r.id ? 'true' : 'false', tabindex: -1, 'data-id': r.id, class: 'gmodel' },
+          r.name, h('span', { class: `st ${c}`, 'aria-hidden': 'true' }));
+        li.addEventListener('click', (e) => { e.stopPropagation(); select(r.id); });
+        items.push(li);
+        return li;
+      }));
+      bi.append(grp);
+    }
+    tree.append(bi);
+  }
+  // Roving tabindex + arrow keys (WAI-ARIA tree pattern).
+  const cur = items.find((i) => i.getAttribute('aria-selected') === 'true') || items[0];
+  if (cur) cur.tabIndex = 0;
+  tree.addEventListener('keydown', (e) => {
+    const i = items.indexOf(document.activeElement);
+    if (i < 0) return;
+    const it = items[i];
+    const id = it.dataset.id;
+    const isBrand = it.classList.contains('gbrand');
+    const move = (j) => { if (items[j]) { Guides.sel = items[j].dataset.id; render(); requestAnimationFrame(() => { const n = $(`.gtree [data-id="${CSS.escape(items[j].dataset.id)}"]`); if (n) n.focus(); }); } };
+    if (e.key === 'ArrowDown') move(i + 1);
+    else if (e.key === 'ArrowUp') move(i - 1);
+    else if (e.key === 'ArrowRight' && isBrand && !Guides.open.has(id)) { Guides.open.add(id); render(); requestAnimationFrame(() => { const n = $(`.gtree [data-id="${id}"]`); if (n) n.focus(); }); }
+    else if (e.key === 'ArrowLeft' && isBrand && Guides.open.has(id)) { Guides.open.delete(id); render(); requestAnimationFrame(() => { const n = $(`.gtree [data-id="${id}"]`); if (n) n.focus(); }); }
+    else if (e.key === 'ArrowLeft' && !isBrand) { const b = d.brands.find((x) => x.radios.some((r) => r.id === id)); if (b) { Guides.sel = b.id; render(); requestAnimationFrame(() => { const n = $(`.gtree [data-id="${b.id}"]`); if (n) n.focus(); }); } }
+    else return;
+    e.preventDefault();
+  });
+
+  const [brand, radio] = findRadio(Guides.sel);
+  const linkList = (links) => h('ul', { class: 'glinks' }, ...links.map((l) =>
+    h('li', {}, h('span', { class: 'tag' }, l.kind), ' ',
+      h('a', { href: l.url, rel: 'noopener', onclick: (e) => { e.preventDefault(); openLink(l.url); } }, l.title),
+      h('span', { class: 'faint' }, ` ${new URL(l.url).hostname}`))));
+  let detail;
+  if (Guides.error) detail = h('p', { class: 'error-text' }, Guides.error);
+  else if (!d) detail = h('p', { class: 'muted' }, 'Loading…');
+  else if (!radio) {
+    const b = d.brands.find((x) => x.id === Guides.sel);
+    detail = h('div', {},
+      h('h1', {}, b ? `${b.name} radios` : 'Radio setup'),
+      h('p', { class: 'muted' }, 'Choose your radio on the left. These steps apply to every radio:'),
+      h('ol', { class: 'gsteps' }, ...d.general.map((g) => h('li', {}, g))),
+      h('h2', {}, 'How sure is this?'),
+      h('dl', { class: 'gfacts' }, ...Object.entries(d.statusLevels).flatMap(([k, v]) => {
+        const [c, w] = GUIDE_STATUS[k] || ['unknown', k];
+        return [h('dt', {}, h('span', { class: `st ${c}` }, w)), h('dd', {}, v)];
+      })),
+      h('p', { class: 'faint' }, `Guides updated ${d.updated}. Tried a radio? Share what worked (menu settings, firmware, what you sent) with the project, and it will be added here.`));
+  } else {
+    const [c, w] = GUIDE_STATUS[radio.status] || ['unknown', radio.status];
+    detail = h('div', {},
+      h('div', { class: 'doc-head' }, h('h1', {}, `${brand.name} ${radio.name}`), h('span', { class: `st ${c}` }, w)),
+      h('p', {}, radio.summary),
+      h('dl', { class: 'gfacts' },
+        h('dt', {}, 'DV slow data'), h('dd', {}, radio.slowData),
+        h('dt', {}, 'DV Fast Data'), h('dd', {}, radio.fastData),
+        h('dt', {}, 'Connection'), h('dd', {}, radio.connection),
+        radio.profile ? [h('dt', {}, 'Aether profile'), h('dd', {}, h('code', {}, radio.profile))] : null),
+      ...radio.steps.map((g) => [h('h2', {}, g.title), h('ol', { class: 'gsteps' }, ...g.items.map((x) => h('li', {}, x)))]),
+      h('h2', {}, 'Links'),
+      radio.links.length ? linkList(radio.links) : h('p', { class: 'faint' }, 'No links yet.'),
+      h('h2', {}, `Field reports (${radio.reports.length})`),
+      radio.reports.length ? h('ul', { class: 'greports' }, ...radio.reports.slice().sort((a, b) => (a.date < b.date ? 1 : -1)).map((r) =>
+        h('li', {},
+          h('div', { class: 'r1' }, h('b', {}, r.summary)),
+          h('div', { class: 'faint' }, [r.date, r.reporter, r.source, r.software, r.firmware ? `firmware ${r.firmware}` : null].filter(Boolean).join(' · ')),
+          r.setup ? h('div', {}, `Setup: ${r.setup}`) : null,
+          r.worked && r.worked.length ? h('div', {}, h('span', { class: 'st ok' }, 'Worked'), ' ', r.worked.join('; ')) : null,
+          r.problems && r.problems.length ? h('div', {}, h('span', { class: 'st fail' }, 'Problems'), ' ', r.problems.join('; ')) : null,
+          r.url ? h('a', { href: r.url, rel: 'noopener', onclick: (e) => { e.preventDefault(); openLink(r.url); } }, 'Original post') : null)))
+        : h('p', { class: 'faint' }, 'No reports yet. If you use this radio with Aether DV or D-RATS, share what worked.'));
+  }
+  main.replaceChildren(h('div', { class: 'guides' },
+    h('nav', { class: 'gnav', 'aria-label': 'Radio setup' }, h('div', { class: 'pane-head' }, h('h1', {}, 'Radio setup')), tree),
+    h('section', { class: 'doc', 'aria-live': 'polite' }, detail)));
+}
+
+// ---------------------------------------------------------------- sounds
+// Short tones made with Web Audio (no audio files). Each event has its own
+// pattern and its own switch; settings stay on this computer. Sounds only
+// accompany what the screen shows, never replace it.
+const SOUND_EVENTS = [
+  { id: 'direct', label: 'Chat addressed to me', notes: [[660, 90], [990, 140]], on: true },
+  { id: 'chat', label: 'Chat to everyone (CQCQCQ)', notes: [[880, 70]], on: false },
+  { id: 'message', label: 'Message (ICS-213) received', notes: [[523, 110], [659, 110], [784, 180]], on: true },
+  { id: 'file', label: 'File received', notes: [[784, 100], [1047, 160]], on: true },
+  { id: 'sent', label: 'Message or file handed off', notes: [[1047, 60], [1047, 60]], on: false },
+  { id: 'failed', label: 'Send or transfer failed', notes: [[440, 180], [330, 260]], on: true, wave: 'square' },
+  { id: 'linkLost', label: 'Port lost (radio or ratflector)', notes: [[300, 160], [300, 160]], on: true, wave: 'square' },
+  { id: 'linkRestored', label: 'Port back up', notes: [[440, 90], [660, 140]], on: true },
+  { id: 'position', label: 'Position report received', notes: [[1320, 40]], on: false },
+  { id: 'update', label: 'App update available', notes: [[587, 120], [880, 200]], on: true },
+];
+
+const Sounds = {
+  ctx: null,
+  last: {},
+  settings: (() => {
+    const def = { enabled: true, volume: 0.5, events: Object.fromEntries(SOUND_EVENTS.map((e) => [e.id, e.on])) };
+    try {
+      const s = JSON.parse(localStorage.getItem('aether.sounds') || 'null');
+      return s ? { ...def, ...s, events: { ...def.events, ...(s.events || {}) } } : def;
+    } catch {
+      return def;
+    }
+  })(),
+  save() {
+    try { localStorage.setItem('aether.sounds', JSON.stringify(this.settings)); } catch { /* not persisted */ }
+  },
+  play(id, force) {
+    const ev = SOUND_EVENTS.find((e) => e.id === id);
+    if (!ev) return;
+    if (!force && (!this.settings.enabled || !this.settings.events[id])) return;
+    const now = Date.now();
+    if (!force && this.last[id] && now - this.last[id] < 1500) return; // no machine-gunning
+    this.last[id] = now;
+    try {
+      this.ctx = this.ctx || new (window.AudioContext || window.webkitAudioContext)();
+      if (this.ctx.state === 'suspended') this.ctx.resume();
+      let t = this.ctx.currentTime + 0.02;
+      const vol = Math.max(0, Math.min(1, this.settings.volume)) * 0.25;
+      for (const [f, ms] of ev.notes) {
+        const o = this.ctx.createOscillator();
+        const g = this.ctx.createGain();
+        o.type = ev.wave || 'sine';
+        o.frequency.value = f;
+        const d = ms / 1000;
+        g.gain.setValueAtTime(0, t);
+        g.gain.linearRampToValueAtTime(vol, t + 0.01);
+        g.gain.exponentialRampToValueAtTime(0.0001, t + d);
+        o.connect(g).connect(this.ctx.destination);
+        o.start(t);
+        o.stop(t + d + 0.02);
+        t += d + 0.04;
+      }
+    } catch { /* no audio device: stay silent */ }
+  },
+};
+
+function renderSounds(main) {
+  const st = Sounds.settings;
+  const vol = h('input', { type: 'range', min: 0, max: 1, step: 0.05, value: st.volume, id: 'snd-vol', 'aria-label': 'Volume' });
+  vol.addEventListener('change', () => { st.volume = Number(vol.value); Sounds.save(); Sounds.play('direct', true); });
+  main.replaceChildren(h('div', { class: 'doc sounds' },
+    h('div', { class: 'doc-head' }, h('h1', {}, 'Sounds')),
+    h('p', { class: 'muted' }, 'Short sounds for events, so you notice traffic while looking elsewhere. Each one can be turned on or off; they are saved on this computer.'),
+    h('div', { class: 'srow master' },
+      h('label', {}, h('input', { type: 'checkbox', checked: st.enabled ? true : null, onchange: (e) => { st.enabled = e.target.checked; Sounds.save(); render(); } }), ' Play sounds'),
+      h('label', {}, 'Volume ', vol)),
+    h('table', { class: 'grid', 'aria-label': 'Sound for each event' },
+      h('thead', {}, h('tr', {}, h('th', { scope: 'col' }, 'On'), h('th', { scope: 'col' }, 'Event'), h('th', { scope: 'col' }, ''))),
+      h('tbody', {}, ...SOUND_EVENTS.map((ev) => {
+        const id = `snd-${ev.id}`;
+        return h('tr', {},
+          h('td', {}, h('input', { type: 'checkbox', id, checked: st.events[ev.id] ? true : null, disabled: st.enabled ? null : true, onchange: (e) => { st.events[ev.id] = e.target.checked; Sounds.save(); } })),
+          h('td', {}, h('label', { for: id }, ev.label)),
+          h('td', {}, h('button', { class: 'btn quiet', type: 'button', onclick: () => Sounds.play(ev.id, true), 'aria-label': `Play the sound for ${ev.label}` }, 'Play')));
+      })))));
+}
+
 // ---------------------------------------------------------------- routing
 function route() {
   const v = (location.hash || '#chat').slice(1);
-  S.view = ['chat', 'messages', 'transfers', 'stations', 'diagnostics'].includes(v) ? v : 'chat';
+  S.view = ['chat', 'messages', 'transfers', 'stations', 'radios', 'sounds', 'diagnostics'].includes(v) ? v : 'chat';
   if (S.view !== 'chat') $('#main').replaceChildren();
   if (S.view === 'messages' && S.connected) loadMessages().then(render);
   render();

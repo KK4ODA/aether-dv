@@ -30,6 +30,8 @@ Release process and key setup: `docs/releasing.md`. End-to-end test: `app/tools/
 | Messages | Inbox, outbox, sent and drafts; ICS-213 rendered as the paper form; delivery ladder; compose and send a new ICS-213; retry a failed message |
 | Transfers | All transfers with progress and outcome; cancel |
 | Stations | Last heard, software, last position |
+| Radio Setup | Brand → model tree with setup steps, links and operators' field reports, from `ui/radio-guides.json`; works without the engine. How reports are added: `docs/radio-guides.md` |
+| Sounds | Optional sound per event (chat to me, chat to everyone, message, file, failures, port lost/back, positions, update), each switchable, plus volume; saved on this computer |
 | Diagnostics | Version and update check, engine log, wire capture start/stop per port, support bundle |
 
 Not yet: the command palette, map, file picker for sending files (use `aether-cli send-file`), settings and port setup (edit the TOML).
