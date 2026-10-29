@@ -14,5 +14,5 @@ serialport = { version = "4.10.1", default-features = false }
 [lints]
 workspace = true
 
-[target.'cfg(unix)'.dev-dependencies]
+[target.'cfg(target_os = "linux")'.dev-dependencies]
 nix = { version = "0.31.3", features = ["term", "fs", "poll"] }

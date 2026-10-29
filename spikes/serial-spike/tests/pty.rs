@@ -1,8 +1,13 @@
-//! SM-1 behaviours exercised on Linux/macOS pseudo-terminals.
+//! SM-1 behaviours exercised on Linux pseudo-terminals.
 //! The PTY slave stands in for the radio's serial device; the master side is
 //! "the radio". Closing the master emulates an unplugged USB radio. A symlink
 //! in a temp dir emulates the stable `/dev/serial/by-id/...` path.
-#![cfg(unix)]
+//!
+//! Linux only: on macOS `serialport` sets the baud rate with the
+//! `IOSSIOSPEED` ioctl, which pseudo-terminals reject (ENOTTY, "Not a
+//! typewriter"; seen in CI on macos-14). Real USB CDC radios accept it, so the
+//! macOS serial path needs a real-device test instead.
+#![cfg(target_os = "linux")]
 
 use std::fs::File;
 use std::io::{ErrorKind, Read, Write};
