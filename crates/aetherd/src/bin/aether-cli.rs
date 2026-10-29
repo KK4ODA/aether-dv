@@ -19,6 +19,9 @@
 //!   msg ID                        show a message's fields and delivery events
 //!   positions [CALL]              latest position of every station, or CALL's history
 //!   send-position PORT [dprs|nmea]  send our configured [position] once
+//!   radio-mode PORT               read the radio's DV Fast Data setting over CI-V
+//!   radio-mode PORT fast|slow --confirm
+//!                                 change it (needs civ.allow_set = true)
 //!   capture-start PORT            start a wire capture (.aecap) on PORT
 //!   capture-stop PORT             stop it; prints the file (read it with `aecap show`)
 //!   log [N]                       the last N engine log entries (default 50)
@@ -240,6 +243,23 @@ fn main() {
             let r = c.call("stations.sendPosition", json!({ "portId": args[1], "format": args.get(2) }));
             println!("sent: {}", r["text"].as_str().unwrap_or("").trim_end());
         }
+        "radio-mode" if (2..=4).contains(&args.len()) => {
+            let r = match args.get(2).map(String::as_str) {
+                None => c.call("ports.readRadioMode", json!({ "id": args[1] })),
+                Some(m @ ("fast" | "slow")) => c.call(
+                    "ports.setRadioMode",
+                    json!({ "id": args[1], "fastData": m == "fast", "confirm": args.get(3).is_some_and(|a| a == "--confirm") }),
+                ),
+                Some(_) => die("radio-mode PORT [fast|slow --confirm]"),
+            };
+            println!(
+                "{}: radio Fast Data {}; port configured for {} data{}",
+                args[1],
+                if r["fastData"] == true { "ON" } else { "OFF" },
+                if r["configuredFast"] == true { "fast" } else { "slow" },
+                if r["matches"] == true { "" } else { "  <-- MISMATCH: stations in different modes cannot decode each other" }
+            );
+        }
         "capture-start" if args.len() == 2 => {
             let r = c.call("diag.captureStart", json!({ "portId": args[1] }));
             println!("capturing {} to {}", args[1], r["path"].as_str().unwrap_or(""));
@@ -284,6 +304,6 @@ fn main() {
                 }
             }
         }
-        _ => die("usage: aether-cli [--api ADDR] [--token-file PATH] ports|stations|send PORT DST TEXT|history [PORT] [N]|ping PORT CALL|version PORT CALL|send-file PORT CALL PATH|transfers [all]|cancel ID|ics213 CALL SUBJECT MESSAGE|msg-send ID [PORT]|messages [FOLDER]|msg ID|positions [CALL]|send-position PORT [dprs|nmea]|capture-start PORT|capture-stop PORT|log [N]|bundle [captures]|tail"),
+        _ => die("usage: aether-cli [--api ADDR] [--token-file PATH] ports|stations|send PORT DST TEXT|history [PORT] [N]|ping PORT CALL|version PORT CALL|send-file PORT CALL PATH|transfers [all]|cancel ID|ics213 CALL SUBJECT MESSAGE|msg-send ID [PORT]|messages [FOLDER]|msg ID|positions [CALL]|send-position PORT [dprs|nmea]|radio-mode PORT [fast|slow --confirm]|capture-start PORT|capture-stop PORT|log [N]|bundle [captures]|tail"),
     }
 }

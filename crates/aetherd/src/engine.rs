@@ -22,6 +22,7 @@ use crate::xfer::{self, Class, Dir, Snapshot, Transfers, XEffect};
 mod diag;
 mod messages;
 mod positions;
+mod radio;
 use crate::capture::Tap;
 pub use diag::DiagCmd;
 pub use messages::MsgCmd;
@@ -87,6 +88,13 @@ pub enum Cmd {
     Diag(DiagCmd, Reply<Value>),
     /// Positions (`stations.positions`, `stations.sendPosition`).
     Position(PosCmd, Reply<Value>),
+    /// `ports.readRadioMode` (`set: None`) / `ports.setRadioMode`.
+    RadioMode {
+        port: String,
+        set: Option<bool>,
+        confirm: bool,
+        reply: Reply<Value>,
+    },
     Transfers {
         include_finished: bool,
         reply: Reply<Value>,
@@ -122,6 +130,10 @@ struct PortState {
     detail: Option<String>,
     tx: mpsc::Sender<PortCmd>,
     tap: Tap,
+    /// CI-V control channel and radio profile, for serial ports that have one.
+    civ: Option<(crate::config::CivConfig, &'static aether_civ::Model)>,
+    /// Last Fast Data setting the radio reported over CI-V.
+    radio_fast: Option<bool>,
 }
 
 fn unix_ms() -> i64 {
@@ -235,6 +247,8 @@ fn to_wire(f: &Frame, enc: PayloadEncoding) -> Result<Vec<u8>, ApiError> {
 }
 
 struct Engine {
+    /// For results of blocking work (CI-V) to come back as port events.
+    evt_tx: mpsc::Sender<PortEvt>,
     station: Station,
     store: Store,
     ports: HashMap<String, PortState>,
@@ -369,6 +383,11 @@ impl Engine {
                 token,
                 reason,
             } => self.chat_state(token, "failed", Some(reason)),
+            PortEvt::RadioMode {
+                port,
+                action,
+                result,
+            } => self.on_radio_mode(&port, action, result),
         }
     }
 
@@ -470,7 +489,7 @@ impl Engine {
                 let mut v: Vec<Value> = self
                     .ports
                     .iter()
-                    .map(|(name, p)| json!({ "id": name, "name": name, "kind": p.kind, "pathKind": p.path_kind, "state": p.state, "detail": p.detail }))
+                    .map(|(name, p)| json!({ "id": name, "name": name, "kind": p.kind, "pathKind": p.path_kind, "state": p.state, "detail": p.detail, "civ": p.civ.is_some(), "radioFastData": p.radio_fast }))
                     .collect();
                 v.sort_by(|a, b| a["name"].as_str().cmp(&b["name"].as_str()));
                 let _ = r.send(Ok(Value::Array(v)));
@@ -561,6 +580,12 @@ impl Engine {
                 let res = self.on_message_cmd(m).await;
                 let _ = reply.send(res);
             }
+            Cmd::RadioMode {
+                port,
+                set,
+                confirm,
+                reply,
+            } => self.radio_mode_cmd(port, set, confirm, reply),
             Cmd::Position(c, reply) => {
                 let res = self.on_position_cmd(c).await;
                 let _ = reply.send(res);
@@ -954,6 +979,15 @@ pub fn start(cfg: &Config) -> Result<EngineHandle, String> {
                 detail: None,
                 tx,
                 tap,
+                civ: match pc {
+                    PortConfig::Serial {
+                        civ: Some(c),
+                        profile,
+                        ..
+                    } => aether_civ::model(profile).map(|m| (c.clone(), m)),
+                    _ => None,
+                },
+                radio_fast: None,
             },
         );
     }
@@ -978,13 +1012,15 @@ pub fn start(cfg: &Config) -> Result<EngineHandle, String> {
                 "kind": "ratflector", "name": name, "host": host, "tcpPort": tcp_port,
                 "password": password.as_ref().map(|_| "(set, not included)"),
             }),
-            PortConfig::Serial { name, path, baud, profile, mode, flow } => json!({
+            PortConfig::Serial { name, path, baud, profile, mode, flow, civ } => json!({
                 "kind": "serial", "name": name, "path": path, "baud": baud,
                 "profile": profile, "mode": mode, "flow": flow,
+                "civ": civ.as_ref().map(|c| json!({ "path": c.path, "baud": c.baud, "addr": c.addr, "allowSet": c.allow_set })),
             }),
         }).collect::<Vec<_>>(),
     });
     let mut engine = Engine {
+        evt_tx: evt_tx.clone(),
         scanners: HashMap::new(),
         own_position: cfg.position.clone(),
         capture_dir,
@@ -1000,6 +1036,7 @@ pub fn start(cfg: &Config) -> Result<EngineHandle, String> {
         started: Instant::now(),
         rpc_job: 0,
     };
+    engine.check_radio_modes_at_start();
     if cfg.capture {
         let names: Vec<String> = engine.ports.keys().cloned().collect();
         for n in names {

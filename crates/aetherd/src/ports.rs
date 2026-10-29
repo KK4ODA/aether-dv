@@ -53,6 +53,12 @@ pub enum PortEvt {
         token: i64,
         reason: String,
     },
+    /// Result of a CI-V Fast Data read or set (`action`: startup, read, set).
+    RadioMode {
+        port: String,
+        action: &'static str,
+        result: Result<bool, String>,
+    },
 }
 
 fn deliver(port: &str, d: &mut Deframer, bytes: &[u8], out: &mut Vec<PortEvt>) {

@@ -9,11 +9,13 @@
 //! * [`capture`]: `.aecap` wire capture
 //! * [`bundle`]: support bundle (tar)
 //! * [`client`]: blocking API client (CLI tools)
+//! * [`civ`]: CI-V Fast Data read/set on a configured control port
 //! * [`api`]: local JSON-RPC 2.0 over WebSocket (subset of API v0)
 
 pub mod api;
 pub mod bundle;
 pub mod capture;
+pub mod civ;
 pub mod client;
 pub mod config;
 pub mod engine;

@@ -489,7 +489,7 @@
           "required": true,
           "schema": {
             "type": "string",
-            "description": "UUIDv7"
+            "description": "Port id"
           }
         }
       ],
@@ -506,7 +506,21 @@
               "description": "Unix epoch milliseconds (UTC)"
             },
             "via": {
+              "type": "string",
+              "enum": [
+                "civ"
+              ]
+            },
+            "portId": {
               "type": "string"
+            },
+            "configuredFast": {
+              "type": "boolean",
+              "description": "Whether the port is configured for fast data (its ModeProfile)"
+            },
+            "matches": {
+              "type": "boolean",
+              "description": "Radio setting equals the port configuration; false means stations cannot decode each other"
             }
           },
           "additionalProperties": false,
@@ -534,14 +548,14 @@
     },
     {
       "name": "ports.setRadioMode",
-      "summary": "Set the radio's DV Fast Data via CI-V. Refused unless profile fdControl=verified, no transfer active, and the operator confirmed.",
+      "summary": "Set the radio's DV Fast Data via CI-V. Refused unless profile fdControl=verified, no transfer active, and the operator confirmed. Requires civ.allow_set in the port configuration, confirm=true and no transfer running on the port; verified by reading back.",
       "params": [
         {
           "name": "id",
           "required": true,
           "schema": {
             "type": "string",
-            "description": "UUIDv7"
+            "description": "Port id"
           }
         },
         {
@@ -570,6 +584,23 @@
             "readBackAt": {
               "type": "integer",
               "description": "Unix epoch milliseconds (UTC)"
+            },
+            "portId": {
+              "type": "string"
+            },
+            "via": {
+              "type": "string",
+              "enum": [
+                "civ"
+              ]
+            },
+            "configuredFast": {
+              "type": "boolean",
+              "description": "Whether the port is configured for fast data (its ModeProfile)"
+            },
+            "matches": {
+              "type": "boolean",
+              "description": "Radio setting equals the port configuration; false means stations cannot decode each other"
             }
           },
           "additionalProperties": false,

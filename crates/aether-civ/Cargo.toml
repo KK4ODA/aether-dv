@@ -1,0 +1,13 @@
+[package]
+name = "aether-civ"
+description = "Icom CI-V codec and the documented DV Fast Data commands (sans-I/O)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+
+[lints]
+workspace = true

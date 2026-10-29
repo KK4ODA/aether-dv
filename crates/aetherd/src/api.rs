@@ -264,6 +264,41 @@ async fn session(
                 Ok(id) => ask(&engine, |reply| Cmd::CancelTransfer { id, reply }).await,
                 Err(e) => Err(e),
             },
+            "ports.readRadioMode" | "ports.setRadioMode" => match s(&params, "id") {
+                Ok(port) => {
+                    let set = if method == "ports.setRadioMode" {
+                        match params.get("fastData").and_then(Value::as_bool) {
+                            Some(b) => Some(b),
+                            None => {
+                                let _ = out_tx
+                                    .send(err(
+                                        &id,
+                                        ApiError::new(
+                                            E_INVALID,
+                                            "missing boolean parameter 'fastData'",
+                                        ),
+                                    ))
+                                    .await;
+                                continue;
+                            }
+                        }
+                    } else {
+                        None
+                    };
+                    let confirm = params
+                        .get("confirm")
+                        .and_then(Value::as_bool)
+                        .unwrap_or(false);
+                    ask(&engine, |reply| Cmd::RadioMode {
+                        port,
+                        set,
+                        confirm,
+                        reply,
+                    })
+                    .await
+                }
+                Err(e) => Err(e),
+            },
             "stations.positions" => {
                 let c = PosCmd::List {
                     callsign: opt_s(&params, "callsign"),

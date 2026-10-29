@@ -63,6 +63,33 @@ pub struct Config {
     pub ports: Vec<PortConfig>,
 }
 
+/// A CI-V port for reading (and, if allowed, setting) the radio's DV Fast
+/// Data setting. Only this configured path is ever opened (no probing).
+#[derive(Debug, Clone, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct CivConfig {
+    pub path: String,
+    #[serde(default = "default_civ_baud")]
+    pub baud: u32,
+    /// Radio CI-V address in hex (e.g. "A2"); default from the profile.
+    pub addr: Option<String>,
+    /// Allow `ports.setRadioMode` to change the radio (default: read only).
+    #[serde(default)]
+    pub allow_set: bool,
+}
+
+impl CivConfig {
+    pub fn addr_byte(&self) -> Option<u8> {
+        self.addr
+            .as_deref()
+            .and_then(|a| u8::from_str_radix(a.trim().trim_start_matches("0x"), 16).ok())
+    }
+}
+
+fn default_civ_baud() -> u32 {
+    19200
+}
+
 #[derive(Debug, Clone, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct PositionConfig {
@@ -114,6 +141,8 @@ pub enum PortConfig {
         /// by hardware test HW-3; legacy handling of this lost bytes (DR#253).
         #[serde(default = "default_flow")]
         flow: String,
+        /// Optional CI-V control channel to the same radio (`[port.civ]`).
+        civ: Option<CivConfig>,
     },
 }
 
@@ -182,6 +211,26 @@ impl Config {
             }
         }
         for p in &c.ports {
+            if let PortConfig::Serial {
+                civ: Some(civ),
+                profile,
+                ..
+            } = p
+            {
+                if aether_civ::model(profile).is_none() {
+                    return Err(ConfigError::Invalid(format!(
+                        "port {}: CI-V is configured but profile '{profile}' has no documented Fast Data command (known: {})",
+                        p.name(),
+                        aether_civ::MODELS.iter().map(|m| m.id).collect::<Vec<_>>().join(", ")
+                    )));
+                }
+                if civ.addr.is_some() && civ.addr_byte().is_none() {
+                    return Err(ConfigError::Invalid(format!(
+                        "port {}: civ.addr must be a hex byte such as \"A2\"",
+                        p.name()
+                    )));
+                }
+            }
             if let PortConfig::Serial { mode, flow, .. } = p {
                 if mode != "slow" && mode != "fast" {
                     return Err(ConfigError::Invalid(format!(

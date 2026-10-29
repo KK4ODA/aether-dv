@@ -268,6 +268,151 @@ mod serial {
     use std::io::{Read, Write};
     use std::os::fd::AsFd;
 
+    /// A simulated IC-9700 CI-V port: echoes requests (USB echo on, the
+    /// radio default) and answers the Fast Data read/set at address A2h.
+    fn civ_radio(mut f: File, fast: std::sync::Arc<std::sync::atomic::AtomicBool>) {
+        use std::sync::atomic::Ordering;
+        std::thread::spawn(move || {
+            let mut d = aether_civ::Deframer::default();
+            let mut buf = [0u8; 64];
+            loop {
+                let Ok(n) = f.read(&mut buf) else { return };
+                if n == 0 {
+                    return;
+                }
+                for fr in d.feed(&buf[..n]) {
+                    let _ = f.write_all(&aether_civ::frame(fr.to, fr.from, &fr.body)); // echo
+                    if fr.to != 0xA2 || !fr.body.starts_with(&[0x1A, 0x05, 0x00, 0x77]) {
+                        continue;
+                    }
+                    let reply = match &fr.body[4..] {
+                        [] => vec![0x1A, 0x05, 0x00, 0x77, fast.load(Ordering::SeqCst) as u8],
+                        [v @ (0 | 1)] => {
+                            fast.store(*v == 1, Ordering::SeqCst);
+                            vec![0xFB]
+                        }
+                        _ => vec![0xFA],
+                    };
+                    let _ = f.write_all(&aether_civ::frame(0xE0, 0xA2, &reply));
+                }
+            }
+        });
+    }
+
+    #[tokio::test]
+    async fn civ_startup_check_read_and_guarded_set() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        use std::sync::Arc;
+        let data = openpty(None, None).unwrap();
+        let civ = openpty(None, None).unwrap();
+        let data_path = ttyname(data.slave.as_fd()).unwrap();
+        let civ_path = ttyname(civ.slave.as_fd()).unwrap();
+        let fast = Arc::new(AtomicBool::new(true)); // radio left in Fast Data
+        civ_radio(File::from(civ.master), fast.clone());
+        let _keep = (data.master, civ.slave, data.slave);
+        let cfg_text = |allow: bool| {
+            format!(
+                "callsign = \"KK4ODA\"\n[[port]]\nkind = \"serial\"\nname = \"rf\"\npath = \"{}\"\nprofile = \"icom-ic9700\"\nmode = \"slow\"\n[port.civ]\npath = \"{}\"\nallow_set = {allow}\n",
+                data_path.display(),
+                civ_path.display()
+            )
+        };
+        let h = engine::start(&Config::parse(&cfg_text(true)).unwrap()).unwrap();
+        let mut ev = h.events.subscribe();
+        // Start-up check: radio in Fast Data, port configured slow -> warning.
+        let warn = wait_for(&mut ev, "mode mismatch warning", |e| {
+            e.topic == "engine.event"
+                && e.data["message"]
+                    .as_str()
+                    .unwrap_or("")
+                    .contains("cannot decode each other")
+        })
+        .await;
+        assert_eq!(warn.data["level"], "warn");
+        let read = ask(&h, |reply| Cmd::RadioMode {
+            port: "rf".into(),
+            set: None,
+            confirm: false,
+            reply,
+        })
+        .await
+        .unwrap();
+        assert_eq!(
+            (read["fastData"].as_bool(), read["matches"].as_bool()),
+            (Some(true), Some(false))
+        );
+        // Setting needs an explicit confirm.
+        let e = ask(&h, |reply| Cmd::RadioMode {
+            port: "rf".into(),
+            set: Some(false),
+            confirm: false,
+            reply,
+        })
+        .await
+        .unwrap_err();
+        assert!(e.message.contains("confirm"), "{}", e.message);
+        let set = ask(&h, |reply| Cmd::RadioMode {
+            port: "rf".into(),
+            set: Some(false),
+            confirm: true,
+            reply,
+        })
+        .await
+        .unwrap();
+        assert_eq!(
+            (set["fastData"].as_bool(), set["matches"].as_bool()),
+            (Some(false), Some(true))
+        );
+        assert!(
+            !fast.load(Ordering::SeqCst),
+            "the simulated radio was switched"
+        );
+        let ports = ask(&h, Cmd::Ports).await.unwrap();
+        assert_eq!(ports[0]["radioFastData"], false);
+        assert_eq!(ports[0]["civ"], true);
+    }
+
+    #[tokio::test]
+    async fn civ_set_is_refused_unless_allowed_and_ports_without_civ_say_so() {
+        let data = openpty(None, None).unwrap();
+        let data_path = ttyname(data.slave.as_fd()).unwrap();
+        let cfg = Config::parse(&format!(
+            "callsign = \"KK4ODA\"\n[[port]]\nkind = \"serial\"\nname = \"rf\"\npath = \"{}\"\nprofile = \"icom-ic9700\"\n[port.civ]\npath = \"/nonexistent/civ\"\n[[port]]\nkind = \"serial\"\nname = \"plain\"\npath = \"/nonexistent/data\"\nprofile = \"kenwood-tmd750\"\n",
+            data_path.display()
+        ))
+        .unwrap();
+        let h = engine::start(&cfg).unwrap();
+        let e = ask(&h, |reply| Cmd::RadioMode {
+            port: "rf".into(),
+            set: Some(true),
+            confirm: true,
+            reply,
+        })
+        .await
+        .unwrap_err();
+        assert!(e.message.contains("allow_set"), "{}", e.message);
+        let e = ask(&h, |reply| Cmd::RadioMode {
+            port: "plain".into(),
+            set: None,
+            confirm: false,
+            reply,
+        })
+        .await
+        .unwrap_err();
+        assert!(e.message.contains("no CI-V channel"), "{}", e.message);
+        // An unreachable CI-V port is an honest error, not a guess.
+        let e = ask(&h, |reply| Cmd::RadioMode {
+            port: "rf".into(),
+            set: None,
+            confirm: false,
+            reply,
+        })
+        .await
+        .unwrap_err();
+        assert!(e.message.contains("cannot open CI-V port"), "{}", e.message);
+        assert!(Config::parse("callsign = \"KK4ODA\"\n[[port]]\nkind = \"serial\"\nname = \"x\"\npath = \"/dev/null\"\nprofile = \"kenwood-tmd750\"\n[port.civ]\npath = \"/dev/null\"\n").is_err(), "CI-V on a profile without a documented command");
+    }
+
     #[tokio::test]
     async fn radio_gps_tx_output_outside_frames_becomes_a_position() {
         let pty = openpty(None, None).unwrap();

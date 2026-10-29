@@ -26,3 +26,11 @@ baud = 9600
 profile = "icom-id52plus"
 mode = "slow"
 flow = "none"
+
+# Optional: CI-V. On the ID-52 PLUS the USB port is either CI-V or DV Data,
+# so CI-V needs the Bluetooth serial port (Serialport Function = CI-V there).
+# [port.civ]
+# path = "/dev/rfcomm0"
+# baud = 19200
+# addr = "B4"          # reported default for the ID-52; check MENU > SET > Function > CI-V
+# allow_set = false

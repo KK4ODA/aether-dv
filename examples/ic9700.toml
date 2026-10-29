@@ -35,3 +35,11 @@ kind = "ratflector"
 name = "sewx"
 host = "sewx.ratflector.com"
 tcp_port = 9000
+
+# Optional: CI-V on USB port A, so Aether can check the radio's DV Fast Data
+# setting against `mode` above at start-up (`aether-cli radio-mode IC-9700`).
+# [port.civ]
+# path = "/dev/serial/by-id/usb-Icom_Inc._IC-9700_...-if00"   # USB (A), CI-V
+# baud = 19200
+# addr = "A2"          # IC-9700 default per Icom's CI-V guide
+# allow_set = false    # true lets `radio-mode IC-9700 fast --confirm` change the radio
