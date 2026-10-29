@@ -19,7 +19,7 @@ States: `Absent`, `Identified`, `Opening`, `Open`, `Ready`, `Suspended`, `Confli
 | From | Event | Guard | Action | To |
 |---|---|---|---|---|
 | Absent | `DeviceAppeared(id)` | id matches a configured profile's stable identity | record path | Identified |
-| Identified | `OpenRequested` | — | open exclusive (Unix: `TIOCEXCL`; Windows: exclusive by default); set 8N1, profile baud and flow control; **assert DTR** if the profile says so (TH-D75/TM-D750: required per macrats) | Opening |
+| Identified | `OpenRequested` | — | open exclusive (Unix: `TIOCEXCL`; Windows: exclusive by default); set 8N1, profile baud and flow control; **assert DTR** if the profile says so (TH-D75: required per macrats; TM-D750: untested) | Opening |
 | Opening | `OpenOk` | — | start the reader; **write nothing** | Open |
 | Opening | `OpenFailed(Busy)` | — | report the owning process if the OS can tell | Conflict |
 | Open | `ProfileValidated` | operator confirmed, or documented identification succeeded (CI-V `19 00` on a CI-V-designated port only) | — | Ready |

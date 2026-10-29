@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Aether DV</title>
+<link rel="stylesheet" href="fonts/fonts.css">
+<link rel="stylesheet" href="tokens.css">
+<style>
+  html, body { margin: 0; height: 100%; background: var(--bg-base); color: var(--text-1);
+    font: 400 var(--fs-md)/var(--lh) var(--font-ui); }
+  main { height: 100%; display: grid; place-content: center; gap: var(--s4); padding: var(--s6); max-width: 60ch; margin: 0 auto; }
+  h1 { font-size: var(--fs-xl); margin: 0; }
+  p { margin: 0; color: var(--text-2); }
+  .band { width: 48px; height: 6px; background: var(--fast); }
+  code { color: var(--text-1); }
+</style>
+</head>
+<body>
+<main>
+  <div class="band" aria-hidden="true"></div>
+  <h1>Aether DV</h1>
+  <p>This is the Phase B packaging spike: an empty desktop shell. The engine (<code>aetherd</code>) and the real interface arrive in Phase C.</p>
+  <p id="ver"></p>
+</main>
+<script>
+  // Tauri injects window.__TAURI__ when withGlobalTauri is enabled.
+  const t = window.__TAURI__;
+  if (t && t.app) t.app.getVersion().then(v => { document.getElementById('ver').textContent = 'Shell version ' + v; });
+</script>
+</body>
+</html>
