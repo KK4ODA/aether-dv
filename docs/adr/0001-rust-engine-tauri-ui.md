@@ -23,3 +23,8 @@ The RF engine must survive UI failure, run headless on a Raspberry Pi, and share
 
 ## Validation
 Phase C spike: a serial loopback at 9600/38400/115200 on all three OSes with USB unplug/replug, plus Tauri packaging of an empty shell for all targets in CI, before committing.
+
+## Validation record (2026-10-29, Phase B)
+- Serial: `serialport` exclusive open, binary transparency, unplug detection and stable-path reopen verified on Linux PTYs. macOS PTYs reject the baud ioctl, so macOS needs a real device (open item).
+- Tauri 2 shell built and launched on Linux, and packaged on Linux, macOS and Windows in GitHub Actions (all green, unsigned).
+- Full test matrix green on Linux, macOS 14 and Windows 2022.

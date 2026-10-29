@@ -15,7 +15,7 @@ Likelihood and impact use H/M/L.
 | R4 | Remote fast-capability cannot be known, so data is sent that the peer can't decode | H | H | Evidence states (unknown/declared/proven); warnings; slow default toward unknown peers | HW-8 matrix |
 | R5 | Legacy receivers mis-handle Layer-1 optimisations (large windows, uncompressed control frames, no warm-up) | M | H | ADR-0003 gate: interop test per optimisation; per-peer clamp | Interop suite failures |
 | R6 | Mixed 0.3.x / 0.4.x nets behave differently (flow control; DR#262) | L | L | **Owner decision D4: 0.4.x only**; 0.3.x best-effort, no test gate | Field reports |
-| R7 | Ratflector loops or amplification caused by Aether bridges or by mixed server meshes | M | H | Cross-link duplicate suppression, hop limits, rate limits, loop simulation suite | Loop-suite frame counts |
+| R7 | Ratflector loops or amplification caused by Aether bridges or by mixed server meshes (simulated: legacy triangle = 1000× amplification in 60 s; mitigated by per-link windows, RF links ≥30 s) | M | H | Cross-link duplicate suppression, hop limits, rate limits, loop simulation suite | Loop-suite frame counts |
 | R8 | Dedup heuristics drop legitimate legacy repeats | M | M | Cross-link-only rule (`04` §5.2); per-link TTL tuning; metrics | Simulated "ok ok" test |
 | R9 | No access to enough real radios for validation | H | H | Recruit beta testers with specific models early; publish a hardware-test kit (procedures + capture tool) | Phase C staffing |
 | R10 | Regulatory: auto-TX data, unattended bridges, identification, third-party traffic differ by country | M | H | Per-jurisdiction notes; control-operator settings; beacon defaults off; ID via radio MYCALL | Pre-release review |
@@ -27,6 +27,7 @@ Likelihood and impact use H/M/L.
 | R16 | The D-RATS community perceives a competing fork | L | M | Engage upstream: share the spec, test vectors and hardware findings; credit sources | Upstream response |
 | R17 | Assumed JARL/Icom facts (e.g. Fast Data framing) prove wrong | M | M | Phase A marks every claim with its evidence level; hardware tests before reliance | — |
 | R18 | Licensing contamination (GPL-2.0-only code, API keys) | L | H | ADR-0008; CI licence scan | CI |
+| R22 | Legacy ARQ wrap and stale-ACK defects (P19/P20) make large transfers to D-RATS stations fail on one side only | M | M | Block sizing ≤256 blocks; RTO discipline; `wrapWarning` in UI; receiver diagnostics; reproduce against real D-RATS in Phase C | Interop test (arq-model-findings reproduction plan) |
 
 ## 2. Milestone roadmap with acceptance criteria
 
@@ -41,6 +42,8 @@ Each phase ends with a review. **A phase is not complete until every criterion h
 - **Exit:** owner review of the open questions in `README.md` §5.
 
 ### Phase B — Architecture (2–4 weeks of design work)
+
+**Status 2026-10-29:** B1–B3 and B5 done; B4 built and audited, **awaiting owner acceptance**. Details: `phase-b/README.md`.
 - B1 ADRs 0001–0008 accepted or amended.
 - B2 Formal state machines (TLA+ or model-based test specs) for legacy ARQ, the scheduler, the ratflector client and message delivery, with legacy defects P1–P18 encoded as negative cases.
 - B3 API schema v0 (engine ↔ UI) and storage schema v0.
