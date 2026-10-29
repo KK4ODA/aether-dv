@@ -1,14 +1,16 @@
-//! `aetherd --config aether.toml`
+//! `aetherd --config aether.toml [--token-file PATH] [--api-listen ADDR]`
 //!
 //! Starts the engine, its ports and the local API, writes the API token to
 //! the token file (mode 0600 on Unix) and runs until Ctrl-C / SIGTERM.
+//! `--token-file` and `--api-listen` override the configuration; the desktop
+//! app uses them when it starts the bundled engine.
 
 use std::path::PathBuf;
 
 use aetherd::config::Config;
 
 fn usage() -> ! {
-    eprintln!("usage: aetherd --config FILE");
+    eprintln!("usage: aetherd --config FILE [--token-file PATH] [--api-listen ADDR]");
     std::process::exit(2)
 }
 
@@ -34,9 +36,17 @@ async fn main() {
     tracing_subscriber::fmt().with_target(false).init();
     let mut args = std::env::args().skip(1);
     let mut cfg_path = None;
+    let mut token_override = None;
+    let mut api_override = None;
     while let Some(a) = args.next() {
         match a.as_str() {
             "--config" | "-c" => cfg_path = args.next(),
+            "--token-file" => token_override = args.next().map(PathBuf::from),
+            "--api-listen" => api_override = args.next(),
+            "--version" | "-V" => {
+                println!("aetherd {}", aetherd::station::VERSION);
+                return;
+            }
             _ => usage(),
         }
     }
@@ -45,10 +55,16 @@ async fn main() {
         eprintln!("cannot read {cfg_path}: {e}");
         std::process::exit(1)
     });
-    let cfg = Config::parse(&text).unwrap_or_else(|e| {
+    let mut cfg = Config::parse(&text).unwrap_or_else(|e| {
         eprintln!("{e}");
         std::process::exit(1)
     });
+    if let Some(t) = token_override {
+        cfg.token_file = Some(t);
+    }
+    if let Some(a) = api_override {
+        cfg.api_listen = a;
+    }
     let token_path = cfg.token_file.clone().unwrap_or_else(|| match &cfg.db {
         Some(db) => db.with_file_name("aetherd.token"),
         None => std::env::temp_dir().join("aetherd.token"),

@@ -318,9 +318,37 @@ function renderDrawer() {
 
 function renderConnect() {
   $('#strip').replaceChildren(h('li', { class: 'plate-empty' }, 'Not connected to the engine'));
+  const existing = $('#main .connect');
+  if (existing) {
+    // Keep what the operator typed; only refresh the error line.
+    $('#cx-error').textContent = S.lastError || '';
+    return;
+  }
   const tauri = window.__TAURI__ && window.__TAURI__.core;
   const tokenFile = h('input', { class: 'field', id: 'tokfile', value: localStorage.getItem('aether.tokenFile') || '', placeholder: 'aetherd.token next to your database' });
   const api = h('input', { class: 'field', id: 'apiaddr', value: localStorage.getItem('aether.api') || '127.0.0.1:7373' });
+  const config = h('input', { class: 'field', id: 'cfgfile', value: localStorage.getItem('aether.config') || '', placeholder: 'Full path of your aether.toml' });
+  const startBtn = h('button', {
+    class: 'btn primary', type: 'button',
+    onclick: async () => {
+      $('#cx-error').textContent = '';
+      localStorage.setItem('aether.config', config.value.trim());
+      localStorage.setItem('aether.api', api.value.trim());
+      startBtn.disabled = true;
+      startBtn.textContent = 'Starting…';
+      try {
+        await tauri.invoke('engine_start', { config: config.value.trim(), api: api.value.trim() || null });
+        Engine.retry = 1000;
+        if (Engine.ws) Engine.ws.close();
+        else Engine.connect();
+      } catch (e) {
+        $('#cx-error').textContent = String(e);
+      } finally {
+        startBtn.disabled = false;
+        startBtn.textContent = 'Start the engine';
+      }
+    },
+  }, 'Start the engine');
   $('#main').replaceChildren(
     h('form', {
       class: 'connect', 'aria-labelledby': 'cx-title',
@@ -334,11 +362,106 @@ function renderConnect() {
       },
     },
       h('h1', { id: 'cx-title' }, 'Connect to the Aether engine'),
-      h('p', {}, 'The engine (aetherd) runs separately and owns the radios. Start it with your configuration file; it writes an access token file when it starts.'),
-      S.lastError ? h('p', { class: 'error-text', role: 'alert' }, S.lastError) : null,
-      tauri ? h('label', {}, 'Token file', tokenFile) : h('p', {}, 'In a browser preview, pass ?api=ADDRESS&token=TOKEN in the address.'),
+      h('p', {}, 'The engine (aetherd) owns the radios and keeps running traffic. It needs your configuration file (see examples/ic9700.toml).'),
+      h('p', { class: 'error-text', role: 'alert', id: 'cx-error' }, S.lastError || ''),
+      !tauri ? h('p', {}, 'In a browser preview, pass ?api=ADDRESS&token=TOKEN in the address.') : null,
+      tauri && Shell.info && Shell.info.bundledEngine ? [
+        h('label', {}, 'Configuration file', config),
+        h('div', {}, startBtn),
+        h('p', { class: 'faint' }, 'Or connect to an engine you started yourself:'),
+      ] : null,
+      tauri ? h('label', {}, 'Token file', tokenFile) : null,
       tauri ? h('label', {}, 'Engine address', api) : null,
-      h('div', {}, h('button', { class: 'btn primary', type: 'submit' }, 'Connect'))));
+      h('div', {}, h('button', { class: tauri && Shell.info && Shell.info.bundledEngine ? 'btn' : 'btn primary', type: 'submit' }, 'Connect'))));
+}
+
+// ---------------------------------------------------------------- app shell: version and updates
+// Updates are checked once shortly after start and on request; they are
+// installed only when the operator clicks Install. The shell verifies each
+// package's signature before installing it.
+const Shell = {
+  info: null, // {version, updatesConfigured, bundledEngine, engineStartedHere}
+  update: null, // {version, notes, date}
+  state: 'idle', // idle | checking | available | none | installing | error
+  message: '',
+  progress: null,
+
+  tauri() {
+    return window.__TAURI__ && window.__TAURI__.core;
+  },
+
+  async init() {
+    const t = this.tauri();
+    if (!t) return;
+    try {
+      this.info = await t.invoke('app_info');
+    } catch {
+      return;
+    }
+    if (window.__TAURI__.event) {
+      window.__TAURI__.event.listen('update-progress', (e) => {
+        this.progress = e.payload;
+        renderUpdate();
+      });
+    }
+    render();
+    if (this.info.updatesConfigured) setTimeout(() => this.check(true), 8000);
+  },
+
+  async check(quiet) {
+    const t = this.tauri();
+    if (!t) return;
+    this.state = 'checking';
+    this.message = '';
+    renderUpdate();
+    try {
+      this.update = await t.invoke('update_check');
+      this.state = this.update ? 'available' : 'none';
+      if (!this.update && quiet) this.state = 'idle';
+    } catch (e) {
+      this.state = quiet ? 'idle' : 'error';
+      this.message = String(e);
+    }
+    renderUpdate();
+    render();
+  },
+
+  async install() {
+    this.state = 'installing';
+    this.progress = null;
+    renderUpdate();
+    try {
+      await this.tauri().invoke('update_install'); // restarts the app on success
+    } catch (e) {
+      this.state = 'error';
+      this.message = String(e);
+      renderUpdate();
+    }
+  },
+};
+
+function renderUpdate() {
+  const box = $('#update');
+  if (!box) return;
+  const show = ['available', 'installing'].includes(Shell.state) || (Shell.state === 'error' && Shell.update);
+  box.hidden = !show;
+  if (!show) return;
+  const u = Shell.update || {};
+  const pct = Shell.progress && Shell.progress.total ? Math.round((100 * Shell.progress.downloaded) / Shell.progress.total) : null;
+  box.replaceChildren(
+    h('h2', {}, `Aether DV ${u.version} is available`),
+    h('p', { class: 'muted' }, `You have ${Shell.info ? Shell.info.version : '?'}.`),
+    u.notes ? h('p', { class: 'notes' }, u.notes.length > 400 ? `${u.notes.slice(0, 400)}…` : u.notes) : null,
+    Shell.state === 'installing'
+      ? [h('p', {}, pct == null ? 'Downloading and checking the signature…' : `Downloading… ${pct}%`),
+        h('div', { class: 'bar', role: 'progressbar', 'aria-valuenow': pct || 0, 'aria-valuemin': 0, 'aria-valuemax': 100, 'aria-label': 'Update download' }, h('span', { style: `width:${pct || 0}%` }))]
+      : [h('p', { class: 'faint' }, Shell.info && Shell.info.engineStartedHere
+          ? 'The engine started by this app stops during the update and does not restart by itself. Install between transfers.'
+          : 'Install between transfers. If you run aetherd from this installation yourself, stop it first.'),
+        Shell.state === 'error' ? h('p', { class: 'error-text', role: 'alert' }, Shell.message) : null,
+        h('div', { class: 'acts' },
+          h('button', { class: 'btn primary', onclick: () => Shell.install() }, 'Install and restart'),
+          h('button', { class: 'btn quiet', onclick: () => { Shell.state = 'idle'; renderUpdate(); } }, 'Later'))]);
 }
 
 // ---------------------------------------------------------------- chat
@@ -686,8 +809,16 @@ function renderDiagnostics(main) {
       }
     },
   }, label);
+  const about = Shell.info
+    ? h('span', { class: 'muted' }, `Aether DV ${Shell.info.version}`,
+      Shell.info.updatesConfigured
+        ? [' · ', h('button', { class: 'btn quiet', onclick: () => Shell.check(false) }, Shell.state === 'checking' ? 'Checking…' : 'Check for updates'),
+          Shell.state === 'none' ? ' You have the latest version.' : '',
+          Shell.state === 'error' && !Shell.update ? h('span', { class: 'error-text' }, ` ${Shell.message}`) : '']
+        : ' · this build cannot update itself (no release key)')
+    : null;
   main.replaceChildren(h('div', { class: 'xfer', style: 'grid-template-rows: auto 1fr' },
-    h('div', { class: 'pane-head', style: 'height:auto; flex-wrap:wrap; padding-block:var(--s3)' }, h('h1', {}, 'Diagnostics'),
+    h('div', { class: 'pane-head', style: 'height:auto; flex-wrap:wrap; padding-block:var(--s3)' }, h('h1', {}, 'Diagnostics'), about,
       ...S.ports.flatMap((p) => [act(`Start capture on ${p.name}`, 'diag.captureStart', { portId: p.id }), act(`Stop capture on ${p.name}`, 'diag.captureStop', { portId: p.id })]),
       act('Write support bundle', 'diag.supportBundle', { includeCaptures: true }), out),
     h('div', { class: 'tablewrap' }, h('table', { class: 'grid' },
@@ -708,4 +839,5 @@ function route() {
 window.addEventListener('hashchange', route);
 setInterval(() => { if (S.connected && S.view === 'chat') render(); }, 10000); // refresh "ago"
 route();
+Shell.init();
 Engine.connect();

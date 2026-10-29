@@ -133,3 +133,11 @@ textarea.field { height: auto; min-height: 120px; padding: var(--s3); resize: ve
 .compose-form { display: grid; grid-template-columns: repeat(6, 1fr); gap: var(--s3) var(--s4); max-width: 760px; }
 .compose-form label { display: grid; gap: 2px; color: var(--text-3); font-size: var(--fs-xs); }
 .compose-form .c6 textarea { width: 100%; }
+
+/* update prompt */
+.update { position: fixed; right: var(--s5); bottom: 44px; width: 360px; padding: var(--s4) var(--s5);
+  background: var(--bg-raised); border: 1px solid var(--line-strong); border-radius: var(--r-md); display: grid; gap: var(--s3); z-index: 10; }
+.update h2 { font-size: var(--fs-lg); margin: 0; }
+.update p { margin: 0; }
+.update .notes { white-space: pre-line; max-height: 140px; overflow: auto; }
+.update .acts { display: flex; gap: var(--s3); }

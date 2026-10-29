@@ -4,9 +4,23 @@ A Tauri 2 shell around a plain HTML/CSS/JS interface (`ui/`). The interface talk
 
 ## Run it
 
-1. Start the engine with your configuration: `aetherd --config my.toml`. It writes `aetherd.token` next to its database.
-2. Start the app: `cargo run -p aether-desktop` (or the packaged build).
-3. If the app doesn't find the token automatically (`AETHER_TOKEN_FILE`, or `aetherd.token` in the temp directory), enter the token file's path on the connect screen. Only the path is remembered, never the token.
+Installed builds include the engine (`aetherd`) and `aether-cli` next to the app. On the connect screen, enter the path of your configuration file (see `examples/`) and choose **Start the engine**.
+- **Token:** the engine's token goes to the app's data directory.
+- **Console output:** goes to `aetherd-console.log` there.
+- **Relative paths** in the configuration are relative to the configuration file.
+- **When the app closes,** it stops the engine it started.
+
+To use an engine you started yourself (`aetherd --config my.toml`), enter its `aetherd.token` path and choose Connect. Only the path is remembered, never the token.
+
+## Updates
+
+Diagnostics shows the version and has **Check for updates**. The app also checks once, a few seconds after it starts.
+- **Prompt:** when an update exists, a prompt shows its notes with **Install and restart**. Nothing installs without that click.
+- **Engine:** an engine started by the app stops during the update; start it again afterwards.
+- **Signing:** every package is signature-checked against the key built into the app. The signature must name the announced version, so replayed or downgraded packages are refused.
+- **Local builds** carry no key and say they can't update.
+
+Release process and key setup: `docs/releasing.md`. End-to-end test: `app/tools/updater-e2e.sh`.
 
 ## What works (Phase C minimal UI)
 
@@ -16,7 +30,7 @@ A Tauri 2 shell around a plain HTML/CSS/JS interface (`ui/`). The interface talk
 | Messages | Inbox, outbox, sent and drafts; ICS-213 rendered as the paper form; delivery ladder; compose and send a new ICS-213; retry a failed message |
 | Transfers | All transfers with progress and outcome; cancel |
 | Stations | Last heard, software, last position |
-| Diagnostics | Engine log, wire capture start/stop per port, support bundle |
+| Diagnostics | Version and update check, engine log, wire capture start/stop per port, support bundle |
 
 Not yet: the command palette, map, file picker for sending files (use `aether-cli send-file`), settings and port setup (edit the TOML).
 
