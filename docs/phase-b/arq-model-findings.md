@@ -81,7 +81,7 @@ The legacy window limits the *number* of outstanding blocks (2–8), not the dis
    - The sender never lets `newest − oldest_unacked` reach half the sequence space.
    - The receiver deduplicates relative to its in-order point.
    - With a 16-bit sequence and windows ≤64 the margin is huge, but the span limit must be enforced explicitly and not assumed from the window size.
-   - ACKs echo the REQACK identifier, so stale ACKs are discarded. L2 is not covered by the window rule alone; this is a design rule for `state-machines.md` §ARQ-2, and the model will be extended to it.
+   - Stale ACKs still occur in that model, but with window-based dedup the resulting duplicate bursts are harmless: the model shows no P1/P2/P3 violation. ACKs echoing a poll identifier are therefore an **efficiency** rule (avoid needless retransmission on a ~119 B/s channel), not a correctness requirement. Recorded in `state-machines.md` §ARQ-2.
 2. **Aether sending to legacy D-RATS (cannot change the receiver):**
    - Prefer block sizes that keep a transfer within 256 blocks: up to 1024 B blocks gives 256 KiB compressed per session on good links.
    - For larger transfers the residual L1 risk remains. Sending the first post-wrap block redundantly lowers the probability but, as the model shows, cannot remove it.

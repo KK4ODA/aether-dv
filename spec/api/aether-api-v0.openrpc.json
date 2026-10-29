@@ -1,0 +1,3014 @@
+{
+  "openrpc": "1.3.2",
+  "info": {
+    "title": "Aether DV engine API",
+    "version": "0.1.0",
+    "description": "Local API between aetherd (engine) and UIs. Transport: JSON-RPC 2.0 over WebSocket on 127.0.0.1 (token in a 0600 file) or a Unix socket / Windows named pipe. Events are JSON-RPC notifications with method 'event' and params {cursor, topic, data}. Phase B draft; additive changes bump minor, breaking changes bump major.",
+    "license": {
+      "name": "GPL-3.0-or-later"
+    }
+  },
+  "methods": [
+    {
+      "name": "system.hello",
+      "summary": "Handshake: negotiate API version and receive engine identity. Must be the first call.",
+      "params": [
+        {
+          "name": "clientName",
+          "required": true,
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "apiVersion",
+          "required": true,
+          "schema": {
+            "type": "string"
+          },
+          "description": "semver of the API the client was built for"
+        }
+      ],
+      "result": {
+        "name": "engine",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "engineVersion": {
+              "type": "string"
+            },
+            "apiVersion": {
+              "type": "string"
+            },
+            "profile": {
+              "type": "string"
+            },
+            "uptimeMs": {
+              "type": "integer"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "engineVersion",
+            "apiVersion",
+            "profile",
+            "uptimeMs"
+          ]
+        }
+      },
+      "errors": [
+        {
+          "code": 1426,
+          "message": "API major version mismatch"
+        }
+      ],
+      "tags": [
+        {
+          "name": "system"
+        }
+      ]
+    },
+    {
+      "name": "system.info",
+      "summary": "Engine and environment info for the support bundle header.",
+      "params": [],
+      "result": {
+        "name": "info",
+        "schema": {
+          "type": "object"
+        }
+      },
+      "tags": [
+        {
+          "name": "system"
+        }
+      ]
+    },
+    {
+      "name": "events.subscribe",
+      "summary": "Start the event stream on this connection; returns the cursor to resume from after reconnect.",
+      "params": [
+        {
+          "name": "topics",
+          "required": true,
+          "schema": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "port",
+                "chat",
+                "message",
+                "transfer",
+                "station",
+                "position",
+                "capability",
+                "engine"
+              ]
+            }
+          }
+        },
+        {
+          "name": "sinceCursor",
+          "required": false,
+          "schema": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "description": "Replay events after this cursor (UI reconnect without loss)"
+        }
+      ],
+      "result": {
+        "name": "subscription",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "cursor": {
+              "type": "integer"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "cursor"
+          ]
+        }
+      },
+      "tags": [
+        {
+          "name": "events"
+        }
+      ]
+    },
+    {
+      "name": "station.getIdentity",
+      "summary": "Local station identity.",
+      "params": [],
+      "result": {
+        "name": "identity",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "callsign": {
+              "$ref": "#/components/schemas/Callsign"
+            },
+            "fullIdent": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "callsign",
+            "fullIdent"
+          ]
+        }
+      },
+      "tags": [
+        {
+          "name": "station"
+        }
+      ]
+    },
+    {
+      "name": "station.setIdentity",
+      "summary": "Set local callsign (must match the radio's MYCALL for RF ports; engine warns if readable and different).",
+      "params": [
+        {
+          "name": "callsign",
+          "required": true,
+          "schema": {
+            "$ref": "#/components/schemas/Callsign"
+          }
+        },
+        {
+          "name": "fullIdent",
+          "required": false,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ],
+      "result": {
+        "name": "ok",
+        "schema": {
+          "type": "boolean"
+        }
+      },
+      "tags": [
+        {
+          "name": "station"
+        }
+      ]
+    },
+    {
+      "name": "devices.list",
+      "summary": "List serial/Bluetooth devices seen by the OS. Never opens or writes to them.",
+      "params": [],
+      "result": {
+        "name": "devices",
+        "schema": {
+          "type": "array",
+          "items": {
+            "$ref": "#/components/schemas/Device"
+          }
+        }
+      },
+      "tags": [
+        {
+          "name": "ports"
+        }
+      ]
+    },
+    {
+      "name": "profiles.list",
+      "summary": "Hardware profiles with evidence levels.",
+      "params": [],
+      "result": {
+        "name": "profiles",
+        "schema": {
+          "type": "array",
+          "items": {
+            "$ref": "#/components/schemas/HardwareProfile"
+          }
+        }
+      },
+      "tags": [
+        {
+          "name": "ports"
+        }
+      ]
+    },
+    {
+      "name": "ports.list",
+      "summary": "Configured ports with live state.",
+      "params": [],
+      "result": {
+        "name": "ports",
+        "schema": {
+          "type": "array",
+          "items": {
+            "$ref": "#/components/schemas/Port"
+          }
+        }
+      },
+      "tags": [
+        {
+          "name": "ports"
+        }
+      ]
+    },
+    {
+      "name": "ports.create",
+      "summary": "Create a port (radio or ratflector).",
+      "params": [
+        {
+          "name": "kind",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "enum": [
+              "radio_serial",
+              "radio_bt",
+              "ratflector",
+              "sim"
+            ]
+          }
+        },
+        {
+          "name": "name",
+          "required": true,
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "profileId",
+          "required": false,
+          "schema": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        {
+          "name": "deviceIdent",
+          "required": false,
+          "schema": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        {
+          "name": "config",
+          "required": true,
+          "schema": {
+            "type": "object"
+          }
+        }
+      ],
+      "result": {
+        "name": "port",
+        "schema": {
+          "$ref": "#/components/schemas/Port"
+        }
+      },
+      "errors": [
+        {
+          "code": 1423,
+          "message": "device in use by another process"
+        }
+      ],
+      "tags": [
+        {
+          "name": "ports"
+        }
+      ]
+    },
+    {
+      "name": "ports.update",
+      "summary": "Update port configuration.",
+      "params": [
+        {
+          "name": "id",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "description": "UUIDv7"
+          }
+        },
+        {
+          "name": "patch",
+          "required": true,
+          "schema": {
+            "type": "object"
+          }
+        }
+      ],
+      "result": {
+        "name": "port",
+        "schema": {
+          "$ref": "#/components/schemas/Port"
+        }
+      },
+      "errors": [
+        {
+          "code": 1404,
+          "message": "not found"
+        }
+      ],
+      "tags": [
+        {
+          "name": "ports"
+        }
+      ]
+    },
+    {
+      "name": "ports.setEnabled",
+      "summary": "Enable/disable a port.",
+      "params": [
+        {
+          "name": "id",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "description": "UUIDv7"
+          }
+        },
+        {
+          "name": "enabled",
+          "required": true,
+          "schema": {
+            "type": "boolean"
+          }
+        }
+      ],
+      "result": {
+        "name": "port",
+        "schema": {
+          "$ref": "#/components/schemas/Port"
+        }
+      },
+      "errors": [
+        {
+          "code": 1404,
+          "message": "not found"
+        }
+      ],
+      "tags": [
+        {
+          "name": "ports"
+        }
+      ]
+    },
+    {
+      "name": "ports.delete",
+      "summary": "Delete a port (must be disabled).",
+      "params": [
+        {
+          "name": "id",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "description": "UUIDv7"
+          }
+        }
+      ],
+      "result": {
+        "name": "ok",
+        "schema": {
+          "type": "boolean"
+        }
+      },
+      "errors": [
+        {
+          "code": 1404,
+          "message": "not found"
+        },
+        {
+          "code": 1409,
+          "message": "invalid state for this operation"
+        }
+      ],
+      "tags": [
+        {
+          "name": "ports"
+        }
+      ]
+    },
+    {
+      "name": "ports.setModePolicy",
+      "summary": "Slow/Fast/Auto policy (ADR-0005). Does not itself change the radio setting.",
+      "params": [
+        {
+          "name": "id",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "description": "UUIDv7"
+          }
+        },
+        {
+          "name": "policy",
+          "required": true,
+          "schema": {
+            "$ref": "#/components/schemas/ModePolicy"
+          }
+        }
+      ],
+      "result": {
+        "name": "port",
+        "schema": {
+          "$ref": "#/components/schemas/Port"
+        }
+      },
+      "errors": [
+        {
+          "code": 1404,
+          "message": "not found"
+        }
+      ],
+      "tags": [
+        {
+          "name": "ports"
+        },
+        {
+          "name": "fastdata"
+        }
+      ]
+    },
+    {
+      "name": "ports.readRadioMode",
+      "summary": "Read the radio's DV Fast Data setting via CI-V. Only for profiles with fdControl documented/verified and a concurrent CI-V channel.",
+      "params": [
+        {
+          "name": "id",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "description": "UUIDv7"
+          }
+        }
+      ],
+      "result": {
+        "name": "mode",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "fastData": {
+              "type": "boolean"
+            },
+            "readAt": {
+              "type": "integer",
+              "description": "Unix epoch milliseconds (UTC)"
+            },
+            "via": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "fastData",
+            "readAt",
+            "via"
+          ]
+        }
+      },
+      "errors": [
+        {
+          "code": 1501,
+          "message": "not supported by this hardware profile"
+        }
+      ],
+      "tags": [
+        {
+          "name": "ports"
+        },
+        {
+          "name": "fastdata"
+        }
+      ]
+    },
+    {
+      "name": "ports.setRadioMode",
+      "summary": "Set the radio's DV Fast Data via CI-V. Refused unless profile fdControl=verified, no transfer active, and the operator confirmed.",
+      "params": [
+        {
+          "name": "id",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "description": "UUIDv7"
+          }
+        },
+        {
+          "name": "fastData",
+          "required": true,
+          "schema": {
+            "type": "boolean"
+          }
+        },
+        {
+          "name": "confirm",
+          "required": true,
+          "schema": {
+            "type": "boolean"
+          }
+        }
+      ],
+      "result": {
+        "name": "mode",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "fastData": {
+              "type": "boolean"
+            },
+            "readBackAt": {
+              "type": "integer",
+              "description": "Unix epoch milliseconds (UTC)"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "fastData",
+            "readBackAt"
+          ]
+        }
+      },
+      "errors": [
+        {
+          "code": 1501,
+          "message": "not supported by this hardware profile"
+        },
+        {
+          "code": 1409,
+          "message": "invalid state for this operation"
+        }
+      ],
+      "tags": [
+        {
+          "name": "ports"
+        },
+        {
+          "name": "fastdata"
+        }
+      ]
+    },
+    {
+      "name": "ports.assertRadioMode",
+      "summary": "Operator asserts the radio's Fast Data setting when it cannot be read.",
+      "params": [
+        {
+          "name": "id",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "description": "UUIDv7"
+          }
+        },
+        {
+          "name": "fastData",
+          "required": true,
+          "schema": {
+            "type": "boolean"
+          }
+        }
+      ],
+      "result": {
+        "name": "port",
+        "schema": {
+          "$ref": "#/components/schemas/Port"
+        }
+      },
+      "tags": [
+        {
+          "name": "ports"
+        },
+        {
+          "name": "fastdata"
+        }
+      ]
+    },
+    {
+      "name": "ports.stats",
+      "summary": "Current link statistics.",
+      "params": [
+        {
+          "name": "id",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "description": "UUIDv7"
+          }
+        }
+      ],
+      "result": {
+        "name": "stats",
+        "schema": {
+          "$ref": "#/components/schemas/PortStats"
+        }
+      },
+      "errors": [
+        {
+          "code": 1404,
+          "message": "not found"
+        }
+      ],
+      "tags": [
+        {
+          "name": "ports"
+        }
+      ]
+    },
+    {
+      "name": "ports.runTest",
+      "summary": "Run a hardware test procedure (HW-0..HW-11) and return its report id.",
+      "params": [
+        {
+          "name": "id",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "description": "UUIDv7"
+          }
+        },
+        {
+          "name": "test",
+          "required": true,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ],
+      "result": {
+        "name": "report",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "reportId": {
+              "type": "string",
+              "description": "UUIDv7"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "reportId"
+          ]
+        }
+      },
+      "errors": [
+        {
+          "code": 1501,
+          "message": "not supported by this hardware profile"
+        }
+      ],
+      "tags": [
+        {
+          "name": "ports"
+        },
+        {
+          "name": "diag"
+        }
+      ]
+    },
+    {
+      "name": "ratflectors.listServers",
+      "summary": "Saved and directory ratflector servers.",
+      "params": [],
+      "result": {
+        "name": "servers",
+        "schema": {
+          "type": "array",
+          "items": {
+            "$ref": "#/components/schemas/RatflectorServer"
+          }
+        }
+      },
+      "tags": [
+        {
+          "name": "ratflector"
+        }
+      ]
+    },
+    {
+      "name": "ratflectors.refreshDirectory",
+      "summary": "Fetch ratflectors.yml (online) and merge; offline returns the bundled snapshot.",
+      "params": [],
+      "result": {
+        "name": "result",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "added": {
+              "type": "integer"
+            },
+            "updated": {
+              "type": "integer"
+            },
+            "source": {
+              "type": "string",
+              "enum": [
+                "online",
+                "bundled"
+              ]
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "added",
+            "updated",
+            "source"
+          ]
+        }
+      },
+      "tags": [
+        {
+          "name": "ratflector"
+        }
+      ]
+    },
+    {
+      "name": "ratflectors.saveServer",
+      "summary": "Add or update a user server; password goes to the OS keychain.",
+      "params": [
+        {
+          "name": "server",
+          "required": true,
+          "schema": {
+            "$ref": "#/components/schemas/RatflectorServer"
+          }
+        },
+        {
+          "name": "password",
+          "required": false,
+          "schema": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      ],
+      "result": {
+        "name": "server",
+        "schema": {
+          "$ref": "#/components/schemas/RatflectorServer"
+        }
+      },
+      "tags": [
+        {
+          "name": "ratflector"
+        }
+      ]
+    },
+    {
+      "name": "chat.send",
+      "summary": "Queue a chat line. Result txState is 'queued'; later events report 'transmitted' or 'failed'. Never 'delivered'.",
+      "params": [
+        {
+          "name": "portId",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "description": "UUIDv7"
+          }
+        },
+        {
+          "name": "dst",
+          "required": true,
+          "schema": {
+            "type": "string"
+          },
+          "description": "'CQCQCQ' or a callsign"
+        },
+        {
+          "name": "body",
+          "required": true,
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "requestReceipt",
+          "required": false,
+          "schema": {
+            "type": "boolean"
+          },
+          "description": "Aether peers only"
+        }
+      ],
+      "result": {
+        "name": "line",
+        "schema": {
+          "$ref": "#/components/schemas/ChatLine"
+        }
+      },
+      "errors": [
+        {
+          "code": 1404,
+          "message": "not found"
+        },
+        {
+          "code": 1422,
+          "message": "self-addressed traffic refused"
+        }
+      ],
+      "tags": [
+        {
+          "name": "chat"
+        }
+      ]
+    },
+    {
+      "name": "chat.history",
+      "summary": "Chat lines for a port (null = merged view), newest first.",
+      "params": [
+        {
+          "name": "portId",
+          "required": true,
+          "schema": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        {
+          "name": "beforeId",
+          "required": false,
+          "schema": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          }
+        },
+        {
+          "name": "limit",
+          "required": false,
+          "schema": {
+            "type": "integer"
+          }
+        }
+      ],
+      "result": {
+        "name": "lines",
+        "schema": {
+          "type": "array",
+          "items": {
+            "$ref": "#/components/schemas/ChatLine"
+          }
+        }
+      },
+      "tags": [
+        {
+          "name": "chat"
+        }
+      ]
+    },
+    {
+      "name": "stations.ping",
+      "summary": "Send a legacy ping (chat type 1).",
+      "params": [
+        {
+          "name": "portId",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "description": "UUIDv7"
+          }
+        },
+        {
+          "name": "callsign",
+          "required": true,
+          "schema": {
+            "$ref": "#/components/schemas/Callsign"
+          }
+        }
+      ],
+      "result": {
+        "name": "ok",
+        "schema": {
+          "type": "boolean"
+        }
+      },
+      "tags": [
+        {
+          "name": "stations"
+        }
+      ]
+    },
+    {
+      "name": "messages.list",
+      "summary": "List messages in a folder.",
+      "params": [
+        {
+          "name": "folder",
+          "required": true,
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "limit",
+          "required": false,
+          "schema": {
+            "type": "integer"
+          }
+        },
+        {
+          "name": "offset",
+          "required": false,
+          "schema": {
+            "type": "integer"
+          }
+        }
+      ],
+      "result": {
+        "name": "messages",
+        "schema": {
+          "type": "array",
+          "items": {
+            "$ref": "#/components/schemas/MessageSummary"
+          }
+        }
+      },
+      "tags": [
+        {
+          "name": "messages"
+        }
+      ]
+    },
+    {
+      "name": "messages.get",
+      "summary": "Full message incl. rendered fields.",
+      "params": [
+        {
+          "name": "id",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "description": "UUIDv7"
+          }
+        }
+      ],
+      "result": {
+        "name": "message",
+        "schema": {
+          "$ref": "#/components/schemas/Message"
+        }
+      },
+      "errors": [
+        {
+          "code": 1404,
+          "message": "not found"
+        }
+      ],
+      "tags": [
+        {
+          "name": "messages"
+        }
+      ]
+    },
+    {
+      "name": "messages.createDraft",
+      "summary": "Create a draft from a form template.",
+      "params": [
+        {
+          "name": "formId",
+          "required": true,
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "fields",
+          "required": true,
+          "schema": {
+            "type": "object"
+          }
+        },
+        {
+          "name": "dst",
+          "required": false,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ],
+      "result": {
+        "name": "message",
+        "schema": {
+          "$ref": "#/components/schemas/Message"
+        }
+      },
+      "errors": [
+        {
+          "code": 1404,
+          "message": "not found"
+        }
+      ],
+      "tags": [
+        {
+          "name": "messages"
+        }
+      ]
+    },
+    {
+      "name": "messages.updateDraft",
+      "summary": "Update draft fields/destination.",
+      "params": [
+        {
+          "name": "id",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "description": "UUIDv7"
+          }
+        },
+        {
+          "name": "fields",
+          "required": false,
+          "schema": {
+            "type": "object"
+          }
+        },
+        {
+          "name": "dst",
+          "required": false,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ],
+      "result": {
+        "name": "message",
+        "schema": {
+          "$ref": "#/components/schemas/Message"
+        }
+      },
+      "errors": [
+        {
+          "code": 1404,
+          "message": "not found"
+        },
+        {
+          "code": 1409,
+          "message": "invalid state for this operation"
+        }
+      ],
+      "tags": [
+        {
+          "name": "messages"
+        }
+      ]
+    },
+    {
+      "name": "messages.send",
+      "summary": "Queue a draft for delivery. Returns after the queue entry is durable.",
+      "params": [
+        {
+          "name": "id",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "description": "UUIDv7"
+          }
+        }
+      ],
+      "result": {
+        "name": "message",
+        "schema": {
+          "$ref": "#/components/schemas/MessageSummary"
+        }
+      },
+      "errors": [
+        {
+          "code": 1404,
+          "message": "not found"
+        },
+        {
+          "code": 1409,
+          "message": "invalid state for this operation"
+        },
+        {
+          "code": 1422,
+          "message": "self-addressed traffic refused"
+        }
+      ],
+      "tags": [
+        {
+          "name": "messages"
+        }
+      ]
+    },
+    {
+      "name": "messages.retry",
+      "summary": "Retry a failed/unconfirmed message now.",
+      "params": [
+        {
+          "name": "id",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "description": "UUIDv7"
+          }
+        }
+      ],
+      "result": {
+        "name": "message",
+        "schema": {
+          "$ref": "#/components/schemas/MessageSummary"
+        }
+      },
+      "errors": [
+        {
+          "code": 1409,
+          "message": "invalid state for this operation"
+        }
+      ],
+      "tags": [
+        {
+          "name": "messages"
+        }
+      ]
+    },
+    {
+      "name": "messages.cancel",
+      "summary": "Cancel a queued/sending message.",
+      "params": [
+        {
+          "name": "id",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "description": "UUIDv7"
+          }
+        }
+      ],
+      "result": {
+        "name": "message",
+        "schema": {
+          "$ref": "#/components/schemas/MessageSummary"
+        }
+      },
+      "errors": [
+        {
+          "code": 1409,
+          "message": "invalid state for this operation"
+        }
+      ],
+      "tags": [
+        {
+          "name": "messages"
+        }
+      ]
+    },
+    {
+      "name": "messages.events",
+      "summary": "Delivery journal for a message (append-only).",
+      "params": [
+        {
+          "name": "id",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "description": "UUIDv7"
+          }
+        }
+      ],
+      "result": {
+        "name": "events",
+        "schema": {
+          "type": "array",
+          "items": {
+            "$ref": "#/components/schemas/MessageEvent"
+          }
+        }
+      },
+      "errors": [
+        {
+          "code": 1404,
+          "message": "not found"
+        }
+      ],
+      "tags": [
+        {
+          "name": "messages"
+        }
+      ]
+    },
+    {
+      "name": "messages.export",
+      "summary": "Export traffic records (journal + messages) for a time range.",
+      "params": [
+        {
+          "name": "from",
+          "required": true,
+          "schema": {
+            "type": "integer",
+            "description": "Unix epoch milliseconds (UTC)"
+          }
+        },
+        {
+          "name": "to",
+          "required": true,
+          "schema": {
+            "type": "integer",
+            "description": "Unix epoch milliseconds (UTC)"
+          }
+        },
+        {
+          "name": "format",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "enum": [
+              "csv",
+              "json",
+              "legacy_xml"
+            ]
+          }
+        }
+      ],
+      "result": {
+        "name": "file",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "path"
+          ]
+        }
+      },
+      "tags": [
+        {
+          "name": "messages"
+        }
+      ]
+    },
+    {
+      "name": "forms.listTemplates",
+      "summary": "Available form templates (first release: ICS-213).",
+      "params": [],
+      "result": {
+        "name": "templates",
+        "schema": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "title": {
+                "type": "string"
+              },
+              "version": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "id",
+              "title",
+              "version"
+            ]
+          }
+        }
+      },
+      "tags": [
+        {
+          "name": "forms"
+        }
+      ]
+    },
+    {
+      "name": "transfers.list",
+      "summary": "Transfers, active first.",
+      "params": [
+        {
+          "name": "includeFinished",
+          "required": false,
+          "schema": {
+            "type": "boolean"
+          }
+        }
+      ],
+      "result": {
+        "name": "transfers",
+        "schema": {
+          "type": "array",
+          "items": {
+            "$ref": "#/components/schemas/Transfer"
+          }
+        }
+      },
+      "tags": [
+        {
+          "name": "transfers"
+        }
+      ]
+    },
+    {
+      "name": "transfers.sendFile",
+      "summary": "Send a file to a station.",
+      "params": [
+        {
+          "name": "portId",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "description": "UUIDv7"
+          }
+        },
+        {
+          "name": "peer",
+          "required": true,
+          "schema": {
+            "$ref": "#/components/schemas/Callsign"
+          }
+        },
+        {
+          "name": "path",
+          "required": true,
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "priority",
+          "required": false,
+          "schema": {
+            "type": "integer"
+          }
+        }
+      ],
+      "result": {
+        "name": "transfer",
+        "schema": {
+          "$ref": "#/components/schemas/Transfer"
+        }
+      },
+      "errors": [
+        {
+          "code": 1404,
+          "message": "not found"
+        },
+        {
+          "code": 1422,
+          "message": "self-addressed traffic refused"
+        }
+      ],
+      "tags": [
+        {
+          "name": "transfers"
+        }
+      ]
+    },
+    {
+      "name": "transfers.pause",
+      "summary": "Pause a transfer (session kept if possible).",
+      "params": [
+        {
+          "name": "id",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "description": "UUIDv7"
+          }
+        }
+      ],
+      "result": {
+        "name": "transfer",
+        "schema": {
+          "$ref": "#/components/schemas/Transfer"
+        }
+      },
+      "errors": [
+        {
+          "code": 1409,
+          "message": "invalid state for this operation"
+        }
+      ],
+      "tags": [
+        {
+          "name": "transfers"
+        }
+      ]
+    },
+    {
+      "name": "transfers.resume",
+      "summary": "Resume a paused/suspended transfer.",
+      "params": [
+        {
+          "name": "id",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "description": "UUIDv7"
+          }
+        }
+      ],
+      "result": {
+        "name": "transfer",
+        "schema": {
+          "$ref": "#/components/schemas/Transfer"
+        }
+      },
+      "errors": [
+        {
+          "code": 1409,
+          "message": "invalid state for this operation"
+        }
+      ],
+      "tags": [
+        {
+          "name": "transfers"
+        }
+      ]
+    },
+    {
+      "name": "transfers.cancel",
+      "summary": "Cancel a transfer.",
+      "params": [
+        {
+          "name": "id",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "description": "UUIDv7"
+          }
+        }
+      ],
+      "result": {
+        "name": "transfer",
+        "schema": {
+          "$ref": "#/components/schemas/Transfer"
+        }
+      },
+      "errors": [
+        {
+          "code": 1409,
+          "message": "invalid state for this operation"
+        }
+      ],
+      "tags": [
+        {
+          "name": "transfers"
+        }
+      ]
+    },
+    {
+      "name": "transfers.setPriority",
+      "summary": "Reprioritise (0..100).",
+      "params": [
+        {
+          "name": "id",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "description": "UUIDv7"
+          }
+        },
+        {
+          "name": "priority",
+          "required": true,
+          "schema": {
+            "type": "integer"
+          }
+        }
+      ],
+      "result": {
+        "name": "transfer",
+        "schema": {
+          "$ref": "#/components/schemas/Transfer"
+        }
+      },
+      "tags": [
+        {
+          "name": "transfers"
+        }
+      ]
+    },
+    {
+      "name": "stations.list",
+      "summary": "Known stations with paths and capabilities.",
+      "params": [
+        {
+          "name": "heardWithinMs",
+          "required": false,
+          "schema": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          }
+        }
+      ],
+      "result": {
+        "name": "stations",
+        "schema": {
+          "type": "array",
+          "items": {
+            "$ref": "#/components/schemas/Station"
+          }
+        }
+      },
+      "tags": [
+        {
+          "name": "stations"
+        }
+      ]
+    },
+    {
+      "name": "stations.get",
+      "summary": "One station.",
+      "params": [
+        {
+          "name": "callsign",
+          "required": true,
+          "schema": {
+            "$ref": "#/components/schemas/Callsign"
+          }
+        }
+      ],
+      "result": {
+        "name": "station",
+        "schema": {
+          "$ref": "#/components/schemas/Station"
+        }
+      },
+      "errors": [
+        {
+          "code": 1404,
+          "message": "not found"
+        }
+      ],
+      "tags": [
+        {
+          "name": "stations"
+        }
+      ]
+    },
+    {
+      "name": "stations.positions",
+      "summary": "Position history.",
+      "params": [
+        {
+          "name": "callsign",
+          "required": true,
+          "schema": {
+            "$ref": "#/components/schemas/Callsign"
+          }
+        },
+        {
+          "name": "since",
+          "required": false,
+          "schema": {
+            "type": "integer",
+            "description": "Unix epoch milliseconds (UTC)"
+          }
+        }
+      ],
+      "result": {
+        "name": "positions",
+        "schema": {
+          "type": "array",
+          "items": {
+            "$ref": "#/components/schemas/Position"
+          }
+        }
+      },
+      "tags": [
+        {
+          "name": "stations"
+        }
+      ]
+    },
+    {
+      "name": "stations.declareFastData",
+      "summary": "Operator declaration of a peer's Fast Data capability on a port (SM-8).",
+      "params": [
+        {
+          "name": "callsign",
+          "required": true,
+          "schema": {
+            "$ref": "#/components/schemas/Callsign"
+          }
+        },
+        {
+          "name": "portId",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "description": "UUIDv7"
+          }
+        },
+        {
+          "name": "state",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "enum": [
+              "unknown",
+              "declared",
+              "declared_required"
+            ]
+          }
+        }
+      ],
+      "result": {
+        "name": "ok",
+        "schema": {
+          "type": "boolean"
+        }
+      },
+      "tags": [
+        {
+          "name": "stations"
+        },
+        {
+          "name": "fastdata"
+        }
+      ]
+    },
+    {
+      "name": "stations.queryCapabilities",
+      "summary": "Send RPCGetVersion to learn software/ALP capability.",
+      "params": [
+        {
+          "name": "portId",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "description": "UUIDv7"
+          }
+        },
+        {
+          "name": "callsign",
+          "required": true,
+          "schema": {
+            "$ref": "#/components/schemas/Callsign"
+          }
+        }
+      ],
+      "result": {
+        "name": "ok",
+        "schema": {
+          "type": "boolean"
+        }
+      },
+      "tags": [
+        {
+          "name": "stations"
+        }
+      ]
+    },
+    {
+      "name": "diag.captureStart",
+      "summary": "Start .aecap wire capture on a port.",
+      "params": [
+        {
+          "name": "portId",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "description": "UUIDv7"
+          }
+        }
+      ],
+      "result": {
+        "name": "capture",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "captureId": {
+              "type": "string",
+              "description": "UUIDv7"
+            },
+            "path": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "captureId",
+            "path"
+          ]
+        }
+      },
+      "tags": [
+        {
+          "name": "diag"
+        }
+      ]
+    },
+    {
+      "name": "diag.captureStop",
+      "summary": "Stop capture.",
+      "params": [
+        {
+          "name": "captureId",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "description": "UUIDv7"
+          }
+        }
+      ],
+      "result": {
+        "name": "ok",
+        "schema": {
+          "type": "boolean"
+        }
+      },
+      "tags": [
+        {
+          "name": "diag"
+        }
+      ]
+    },
+    {
+      "name": "diag.supportBundle",
+      "summary": "Write a support bundle (logs, config with secrets removed, versions, recent captures if chosen).",
+      "params": [
+        {
+          "name": "includeCaptures",
+          "required": false,
+          "schema": {
+            "type": "boolean"
+          }
+        }
+      ],
+      "result": {
+        "name": "file",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "path"
+          ]
+        }
+      },
+      "tags": [
+        {
+          "name": "diag"
+        }
+      ]
+    },
+    {
+      "name": "diag.events",
+      "summary": "Engine event log page.",
+      "params": [
+        {
+          "name": "beforeId",
+          "required": false,
+          "schema": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          }
+        },
+        {
+          "name": "limit",
+          "required": false,
+          "schema": {
+            "type": "integer"
+          }
+        }
+      ],
+      "result": {
+        "name": "events",
+        "schema": {
+          "type": "array",
+          "items": {
+            "$ref": "#/components/schemas/EngineEvent"
+          }
+        }
+      },
+      "tags": [
+        {
+          "name": "diag"
+        }
+      ]
+    }
+  ],
+  "components": {
+    "schemas": {
+      "Callsign": {
+        "type": "string",
+        "pattern": "^[A-Z0-9/-]{3,8}$",
+        "description": "DDT2 station field (≤8 chars)"
+      },
+      "PathKind": {
+        "type": "string",
+        "enum": [
+          "rf_slow",
+          "rf_fast",
+          "rf_unknown",
+          "internet"
+        ]
+      },
+      "ModePolicy": {
+        "type": "string",
+        "enum": [
+          "slow",
+          "fast",
+          "auto"
+        ]
+      },
+      "Evidence": {
+        "type": "string",
+        "enum": [
+          "tcp_accepted",
+          "arq_ack",
+          "alp_complete",
+          "receipt",
+          "operator",
+          "none"
+        ]
+      },
+      "ValidationLevel": {
+        "type": "string",
+        "enum": [
+          "unverified",
+          "documented",
+          "simulated",
+          "interoperability",
+          "hardware",
+          "over_the_air"
+        ]
+      },
+      "PortState": {
+        "type": "string",
+        "enum": [
+          "absent",
+          "identified",
+          "opening",
+          "open",
+          "ready",
+          "suspended",
+          "conflict",
+          "lost",
+          "closed",
+          "rfl_resolving",
+          "rfl_connecting",
+          "rfl_banner",
+          "rfl_authenticating",
+          "rfl_up",
+          "rfl_draining",
+          "rfl_backoff"
+        ]
+      },
+      "SchedulerState": {
+        "type": "string",
+        "enum": [
+          "idle",
+          "hold_off",
+          "assemble",
+          "writing",
+          "air_drain",
+          "listen",
+          "receiving",
+          "down"
+        ]
+      },
+      "Port": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "UUIDv7"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "radio_serial",
+              "radio_bt",
+              "ratflector",
+              "sim"
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "profileId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "deviceIdent": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "config": {
+            "type": "object"
+          },
+          "modePolicy": {
+            "$ref": "#/components/schemas/ModePolicy"
+          },
+          "state": {
+            "$ref": "#/components/schemas/PortState"
+          },
+          "scheduler": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/SchedulerState"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "activeMode": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "slow",
+              "fast",
+              "internet",
+              null
+            ],
+            "description": "Mode the engine believes is active; for radios this is the radio setting"
+          },
+          "radioModeSource": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "civ_read",
+              "operator",
+              "assumed",
+              null
+            ],
+            "description": "How activeMode is known (CI-V read vs operator assertion)"
+          },
+          "stateReason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "kind",
+          "name",
+          "enabled",
+          "modePolicy",
+          "state",
+          "activeMode",
+          "radioModeSource"
+        ]
+      },
+      "PortStats": {
+        "type": "object",
+        "properties": {
+          "portId": {
+            "type": "string",
+            "description": "UUIDv7"
+          },
+          "queueDepth": {
+            "type": "integer"
+          },
+          "queueBytes": {
+            "type": "integer"
+          },
+          "goodputBps": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "retxRatio": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "rttMsP50": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "txBytes": {
+            "type": "integer"
+          },
+          "rxBytes": {
+            "type": "integer"
+          },
+          "lastRxAt": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "lastTxAt": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "portId",
+          "queueDepth",
+          "queueBytes",
+          "txBytes",
+          "rxBytes"
+        ]
+      },
+      "Device": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "stableIdent": {
+            "type": "string"
+          },
+          "vid": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "pid": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "serial": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "interface": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "suggestedProfiles": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "inUseBy": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "path",
+          "stableIdent",
+          "suggestedProfiles"
+        ]
+      },
+      "HardwareProfile": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "vendor": {
+            "type": "string"
+          },
+          "model": {
+            "type": "string"
+          },
+          "fastData": {
+            "type": "string",
+            "enum": [
+              "yes",
+              "no",
+              "unknown"
+            ]
+          },
+          "fdControl": {
+            "type": "string",
+            "enum": [
+              "verified",
+              "documented",
+              "none",
+              "unknown"
+            ]
+          },
+          "slowTx": {
+            "type": "string",
+            "enum": [
+              "yes",
+              "no",
+              "unknown"
+            ]
+          },
+          "validation": {
+            "$ref": "#/components/schemas/ValidationLevel"
+          },
+          "setupSteps": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "text": {
+                  "type": "string"
+                },
+                "menuPath": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "validation": {
+                  "$ref": "#/components/schemas/ValidationLevel"
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "text",
+                "validation"
+              ]
+            }
+          },
+          "notes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "vendor",
+          "model",
+          "fastData",
+          "fdControl",
+          "slowTx",
+          "validation",
+          "setupSteps"
+        ]
+      },
+      "RatflectorServer": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "UUIDv7"
+          },
+          "name": {
+            "type": "string"
+          },
+          "host": {
+            "type": "string"
+          },
+          "tcpPort": {
+            "type": "integer"
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "directory",
+              "user"
+            ]
+          },
+          "favourite": {
+            "type": "boolean"
+          },
+          "needsAuth": {
+            "type": "boolean"
+          },
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "name",
+          "host",
+          "tcpPort",
+          "source",
+          "favourite",
+          "needsAuth"
+        ]
+      },
+      "ChatLine": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "portId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "direction": {
+            "type": "string",
+            "enum": [
+              "in",
+              "out"
+            ]
+          },
+          "src": {
+            "$ref": "#/components/schemas/Callsign"
+          },
+          "dst": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "text",
+              "ping_req",
+              "ping_rsp",
+              "echo_req",
+              "echo_rsp",
+              "status",
+              "raw"
+            ]
+          },
+          "body": {
+            "type": "string"
+          },
+          "at": {
+            "type": "integer",
+            "description": "Unix epoch milliseconds (UTC)"
+          },
+          "txState": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "queued",
+              "transmitted",
+              "failed",
+              null
+            ]
+          },
+          "receiptAt": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "pathKind": {
+            "$ref": "#/components/schemas/PathKind"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "direction",
+          "src",
+          "dst",
+          "kind",
+          "body",
+          "at"
+        ]
+      },
+      "MessageState": {
+        "type": "string",
+        "enum": [
+          "draft",
+          "queued",
+          "sending",
+          "handed_off",
+          "delivered",
+          "unconfirmed",
+          "failed",
+          "expired",
+          "received"
+        ]
+      },
+      "MessageSummary": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "UUIDv7"
+          },
+          "mid": {
+            "type": "string"
+          },
+          "folder": {
+            "type": "string",
+            "enum": [
+              "inbox",
+              "outbox",
+              "sent",
+              "drafts",
+              "archive",
+              "trash"
+            ]
+          },
+          "formId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "subject": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "src": {
+            "type": "string"
+          },
+          "dst": {
+            "type": "string"
+          },
+          "priority": {
+            "type": "string",
+            "enum": [
+              "routine",
+              "priority",
+              "immediate",
+              "flash"
+            ]
+          },
+          "state": {
+            "$ref": "#/components/schemas/MessageState"
+          },
+          "stateReason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "updatedAt": {
+            "type": "integer",
+            "description": "Unix epoch milliseconds (UTC)"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "mid",
+          "folder",
+          "src",
+          "dst",
+          "priority",
+          "state",
+          "updatedAt"
+        ]
+      },
+      "Message": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "UUIDv7"
+          },
+          "mid": {
+            "type": "string"
+          },
+          "folder": {
+            "type": "string",
+            "enum": [
+              "inbox",
+              "outbox",
+              "sent",
+              "drafts",
+              "archive",
+              "trash"
+            ]
+          },
+          "formId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "subject": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "src": {
+            "type": "string"
+          },
+          "dst": {
+            "type": "string"
+          },
+          "priority": {
+            "type": "string",
+            "enum": [
+              "routine",
+              "priority",
+              "immediate",
+              "flash"
+            ]
+          },
+          "state": {
+            "$ref": "#/components/schemas/MessageState"
+          },
+          "stateReason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "updatedAt": {
+            "type": "integer",
+            "description": "Unix epoch milliseconds (UTC)"
+          },
+          "xml": {
+            "type": "string"
+          },
+          "fields": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          },
+          "attachments": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "sha256": {
+                  "type": "string"
+                },
+                "filename": {
+                  "type": "string"
+                },
+                "size": {
+                  "type": "integer"
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "sha256",
+                "filename",
+                "size"
+              ]
+            }
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "mid",
+          "folder",
+          "src",
+          "dst",
+          "priority",
+          "state",
+          "updatedAt",
+          "xml",
+          "fields",
+          "attachments"
+        ]
+      },
+      "MessageEvent": {
+        "type": "object",
+        "properties": {
+          "at": {
+            "type": "integer",
+            "description": "Unix epoch milliseconds (UTC)"
+          },
+          "state": {
+            "type": "string"
+          },
+          "hop": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "portId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "pathKind": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "evidence": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Evidence"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "detail": {
+            "type": [
+              "object",
+              "null"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "at",
+          "state"
+        ]
+      },
+      "Transfer": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "UUIDv7"
+          },
+          "direction": {
+            "type": "string",
+            "enum": [
+              "send",
+              "receive"
+            ]
+          },
+          "protocol": {
+            "type": "string",
+            "enum": [
+              "legacy_file",
+              "legacy_form",
+              "alp"
+            ]
+          },
+          "peer": {
+            "type": "string"
+          },
+          "portId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "filename": {
+            "type": "string"
+          },
+          "totalBytes": {
+            "type": "integer"
+          },
+          "doneBytes": {
+            "type": "integer"
+          },
+          "blockSize": {
+            "type": "integer"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "queued",
+              "opening",
+              "offering",
+              "sending",
+              "polling",
+              "suspended",
+              "done",
+              "failed",
+              "cancelled"
+            ]
+          },
+          "stateReason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "priority": {
+            "type": "integer"
+          },
+          "retries": {
+            "type": "integer"
+          },
+          "rateBps": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "wrapWarning": {
+            "type": "boolean",
+            "description": "Legacy transfer >256 blocks: delivery cannot be confirmed (P19)"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "direction",
+          "protocol",
+          "peer",
+          "filename",
+          "totalBytes",
+          "doneBytes",
+          "blockSize",
+          "state",
+          "priority",
+          "retries",
+          "wrapWarning"
+        ]
+      },
+      "Station": {
+        "type": "object",
+        "properties": {
+          "callsign": {
+            "$ref": "#/components/schemas/Callsign"
+          },
+          "firstHeard": {
+            "type": "integer",
+            "description": "Unix epoch milliseconds (UTC)"
+          },
+          "lastHeard": {
+            "type": "integer",
+            "description": "Unix epoch milliseconds (UTC)"
+          },
+          "software": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "paths": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "portId": {
+                  "type": "string"
+                },
+                "pathKind": {
+                  "$ref": "#/components/schemas/PathKind"
+                },
+                "lastHeard": {
+                  "type": "integer",
+                  "description": "Unix epoch milliseconds (UTC)"
+                },
+                "frames": {
+                  "type": "integer"
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "portId",
+                "pathKind",
+                "lastHeard",
+                "frames"
+              ]
+            }
+          },
+          "capability": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "software": {
+                "type": "string"
+              },
+              "alpVersion": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "fdState": {
+                "type": "string",
+                "enum": [
+                  "unknown",
+                  "declared",
+                  "declared_required",
+                  "proven",
+                  "stale",
+                  "disproven"
+                ]
+              },
+              "fdStateAt": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              }
+            }
+          },
+          "lastPosition": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Position"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "callsign",
+          "firstHeard",
+          "lastHeard",
+          "paths"
+        ]
+      },
+      "Position": {
+        "type": "object",
+        "properties": {
+          "callsign": {
+            "type": "string"
+          },
+          "receivedAt": {
+            "type": "integer",
+            "description": "Unix epoch milliseconds (UTC)"
+          },
+          "lat": {
+            "type": "number"
+          },
+          "lon": {
+            "type": "number"
+          },
+          "altM": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "courseDeg": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "speedKmh": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "symbol": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "comment": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "sourceFmt": {
+            "type": "string",
+            "enum": [
+              "nmea",
+              "dprs",
+              "manual",
+              "alp"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "callsign",
+          "receivedAt",
+          "lat",
+          "lon",
+          "sourceFmt"
+        ]
+      },
+      "EngineEvent": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "at": {
+            "type": "integer",
+            "description": "Unix epoch milliseconds (UTC)"
+          },
+          "level": {
+            "type": "string",
+            "enum": [
+              "debug",
+              "info",
+              "warn",
+              "error"
+            ]
+          },
+          "category": {
+            "type": "string"
+          },
+          "portId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "message": {
+            "type": "string"
+          },
+          "detail": {
+            "type": [
+              "object",
+              "null"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "at",
+          "level",
+          "category",
+          "message"
+        ]
+      },
+      "Error": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "integer"
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "type": "object"
+          }
+        },
+        "additionalProperties": true,
+        "required": [
+          "code",
+          "message"
+        ]
+      }
+    }
+  },
+  "x-events": {
+    "port.state": {
+      "schema": {
+        "$ref": "#/components/schemas/Port"
+      }
+    },
+    "port.stats": {
+      "schema": {
+        "$ref": "#/components/schemas/PortStats"
+      }
+    },
+    "chat.line": {
+      "schema": {
+        "$ref": "#/components/schemas/ChatLine"
+      }
+    },
+    "message.state": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "message": {
+            "$ref": "#/components/schemas/MessageSummary"
+          },
+          "event": {
+            "$ref": "#/components/schemas/MessageEvent"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "message",
+          "event"
+        ]
+      }
+    },
+    "transfer.progress": {
+      "schema": {
+        "$ref": "#/components/schemas/Transfer"
+      }
+    },
+    "station.heard": {
+      "schema": {
+        "$ref": "#/components/schemas/Station"
+      }
+    },
+    "station.position": {
+      "schema": {
+        "$ref": "#/components/schemas/Position"
+      }
+    },
+    "capability.changed": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "callsign": {
+            "type": "string"
+          },
+          "portId": {
+            "type": "string"
+          },
+          "fdState": {
+            "type": "string"
+          },
+          "software": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "callsign",
+          "portId",
+          "fdState"
+        ]
+      }
+    },
+    "engine.event": {
+      "schema": {
+        "$ref": "#/components/schemas/EngineEvent"
+      }
+    }
+  }
+}
