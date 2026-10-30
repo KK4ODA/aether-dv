@@ -8,7 +8,9 @@
 //!   history [PORT] [N]            recent chat lines (all ports if PORT omitted)
 //!   ping PORT CALL                legacy ping
 //!   version PORT CALL             ask a station for its version/capabilities
-//!   send-file PORT CALL PATH      send a file (legacy D-RATS file transfer)
+//!   send-file PORT CALL PATH [--confirm-reflector]
+//!                                 send a file (legacy D-RATS file transfer); on a
+//!                                 port in reflector scope it must be confirmed
 //!   transfers [all]               active transfers (or all, newest first)
 //!   cancel ID                     cancel an active transfer
 //!   ics213 CALL SUBJECT MESSAGE [field=value...]
@@ -22,6 +24,13 @@
 //!   radio-mode PORT               read the radio's DV Fast Data setting over CI-V
 //!   radio-mode PORT fast|slow --confirm
 //!                                 change it (needs civ.allow_set = true)
+//!   route PORT                    the radio's route vs this port's scope, and the channel
+//!   route PORT confirm            confirm the route (radios without CI-V) or the reflector reach
+//!   route PORT check              read the radio's UR/R1/R2 again (CI-V)
+//!   route PORT apply --confirm    set UR/R1/R2 for the scope (CI-V, allow_set, tested models)
+//!   pause PORT [MINUTES]          stop sending on PORT (until resumed, or for MINUTES)
+//!   resume PORT                   send again
+//!   repeater-check PORT           send a short check and report the repeater's acknowledgement
 //!   capture-start PORT            start a wire capture (.aecap) on PORT
 //!   capture-stop PORT             stop it; prints the file (read it with `aetherdv-cap show`)
 //!   log [N]                       the last N engine log entries (default 50)
@@ -33,6 +42,89 @@ use std::time::Duration;
 
 use aetherdv::client;
 use serde_json::{json, Value};
+
+fn print_route(port: &str, p: &Value) {
+    let r = &p["route"];
+    if r.is_null() {
+        println!("{port}: not a radio port");
+        return;
+    }
+    let scope = match r["scope"].as_str() {
+        Some("repeater") => "this repeater only",
+        Some("reflector") => "the linked reflector",
+        _ => "direct (simplex)",
+    };
+    println!(
+        "{port}: {} {scope}; sending {}",
+        r["repeater"]
+            .as_str()
+            .map(|x| format!("{x},"))
+            .unwrap_or_default(),
+        r["gate"].as_str().unwrap_or("?")
+    );
+    if let Some(m) = r["message"].as_str() {
+        println!("  {m}");
+    }
+    let calls = &r["observed"]["calls"];
+    if !calls.is_null() {
+        println!(
+            "  radio:    UR {:8} R1 {:8} R2 {:8}",
+            calls["ur"].as_str().unwrap_or(""),
+            calls["r1"].as_str().unwrap_or(""),
+            calls["r2"].as_str().unwrap_or("")
+        );
+    }
+    let req = &r["required"];
+    if !req.is_null() {
+        println!(
+            "  required: UR {:8} R1 {:8} R2 {:8}",
+            req["ur"].as_str().unwrap_or(""),
+            req["r1"].as_str().unwrap_or(""),
+            if req["r2"] == "" {
+                "(blank)"
+            } else {
+                req["r2"].as_str().unwrap_or("")
+            }
+        );
+    }
+    println!(
+        "  route known from: {}",
+        match r["source"].as_str() {
+            Some("civ") => "the radio (CI-V)",
+            Some("operator") => "your confirmation",
+            _ => "nothing yet",
+        }
+    );
+    if let Some(l) = r["link"]["reflector"].as_str() {
+        println!("  repeater linked to {l}");
+    }
+    let ch = &p["channel"];
+    if !ch.is_null() {
+        println!(
+            "  channel: {}{}; busy detection: {}",
+            ch["state"].as_str().unwrap_or("?"),
+            ch["why"]
+                .as_str()
+                .map(|w| format!(" ({w})"))
+                .unwrap_or_default(),
+            ch["sources"]
+                .as_array()
+                .map(|v| v
+                    .iter()
+                    .filter_map(Value::as_str)
+                    .collect::<Vec<_>>()
+                    .join(", "))
+                .unwrap_or_default()
+        );
+        if ch["airBudgetMs"].as_u64().unwrap_or(0) > 0 {
+            println!(
+                "  air time: {} s of {} s allowed in the window",
+                ch["airUsedMs"].as_u64().unwrap_or(0) / 1000,
+                ch["airBudgetMs"].as_u64().unwrap_or(0) / 1000
+            );
+        }
+    }
+}
 
 fn die(msg: &str) -> ! {
     eprintln!("{msg}");
@@ -169,10 +261,46 @@ fn main() {
             c.call("stations.queryCapabilities", json!({ "portId": args[1], "callsign": args[2] }));
             println!("version request sent; the answer appears in `tail` and `stations`");
         }
-        "send-file" if args.len() == 4 => {
+        "send-file" if args.len() == 4 || (args.len() == 5 && args[4] == "--confirm-reflector") => {
             let path = std::fs::canonicalize(&args[3]).unwrap_or_else(|e| die(&format!("{}: {e}", args[3])));
-            let r = c.call("transfers.sendFile", json!({ "portId": args[1], "peer": args[2], "path": path }));
+            let r = c.call(
+                "transfers.sendFile",
+                json!({ "portId": args[1], "peer": args[2], "path": path, "confirmReflector": args.len() == 5 }),
+            );
             println!("{}", transfer(&r));
+        }
+        "route" if (2..=4).contains(&args.len()) => {
+            let r = match args.get(2).map(String::as_str) {
+                None => c
+                    .call("ports.list", json!({}))
+                    .as_array()
+                    .and_then(|v| v.iter().find(|p| p["id"] == args[1].as_str()).cloned())
+                    .unwrap_or_else(|| die(&format!("no port {}", args[1]))),
+                Some("confirm") => json!({ "route": c.call("ports.confirmRoute", json!({ "id": args[1] })) }),
+                Some("check") => json!({ "route": c.call("ports.verifyRoute", json!({ "id": args[1] })) }),
+                Some("apply") => json!({ "route": c.call(
+                    "ports.applyRoute",
+                    json!({ "id": args[1], "confirm": args.get(3).is_some_and(|a| a == "--confirm") }),
+                ) }),
+                Some(_) => die("route PORT [confirm|check|apply --confirm]"),
+            };
+            print_route(&args[1], &r);
+        }
+        "pause" if args.len() == 2 || args.len() == 3 => {
+            let minutes = args.get(2).map(|m| m.parse::<u64>().unwrap_or_else(|_| die("MINUTES must be a number")));
+            c.call("ports.pause", json!({ "id": args[1], "minutes": minutes }));
+            match minutes {
+                Some(m) => println!("{}: sending paused for {m} min", args[1]),
+                None => println!("{}: sending paused until `resume {}`", args[1], args[1]),
+            }
+        }
+        "resume" if args.len() == 2 => {
+            c.call("ports.resume", json!({ "id": args[1] }));
+            println!("{}: sending resumed", args[1]);
+        }
+        "repeater-check" if args.len() == 2 => {
+            c.call("diag.repeaterCheck", json!({ "id": args[1] }));
+            println!("check sent; the result appears in `log` and `tail` (port.accessCheck)");
         }
         "transfers" => {
             let all = args.get(1).is_some_and(|a| a == "all");
@@ -304,6 +432,6 @@ fn main() {
                 }
             }
         }
-        _ => die("usage: aetherdv-cli [--api ADDR] [--token-file PATH] ports|stations|send PORT DST TEXT|history [PORT] [N]|ping PORT CALL|version PORT CALL|send-file PORT CALL PATH|transfers [all]|cancel ID|ics213 CALL SUBJECT MESSAGE|msg-send ID [PORT]|messages [FOLDER]|msg ID|positions [CALL]|send-position PORT [dprs|nmea]|radio-mode PORT [fast|slow --confirm]|capture-start PORT|capture-stop PORT|log [N]|bundle [captures]|tail"),
+        _ => die("usage: aetherdv-cli [--api ADDR] [--token-file PATH] ports|stations|send PORT DST TEXT|history [PORT] [N]|ping PORT CALL|version PORT CALL|send-file PORT CALL PATH [--confirm-reflector]|route PORT [confirm|check|apply --confirm]|pause PORT [MINUTES]|resume PORT|repeater-check PORT|transfers [all]|cancel ID|ics213 CALL SUBJECT MESSAGE|msg-send ID [PORT]|messages [FOLDER]|msg ID|positions [CALL]|send-position PORT [dprs|nmea]|radio-mode PORT [fast|slow --confirm]|capture-start PORT|capture-stop PORT|log [N]|bundle [captures]|tail"),
     }
 }

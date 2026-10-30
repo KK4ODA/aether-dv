@@ -166,3 +166,25 @@ textarea.field { height: auto; min-height: 120px; padding: var(--s3); resize: ve
 /* sounds */
 .sounds .srow { display: flex; gap: var(--s6); align-items: center; margin: var(--s4) 0; }
 .sounds table.grid { max-width: 640px; }
+
+/* ---- port route panel (docs/10 §5) ---- */
+.sheet { width: min(560px, calc(100vw - 32px)); max-height: calc(100vh - 64px); overflow: auto; padding: 0;
+  background: var(--bg-raised); color: var(--text-1); border: 1px solid var(--line-strong); border-radius: var(--r-md); }
+.sheet::backdrop { background: rgb(0 0 0 / .45); }
+.sheet-head { display: flex; align-items: center; gap: var(--s4); padding: var(--s4) var(--s5); border-bottom: 1px solid var(--line-hair); }
+.sheet-head h2 { margin: 0; font-size: var(--fs-lg); font-weight: 600; }
+.sheet-head .btn.quiet { margin-left: auto; }
+.sheet section { padding: var(--s4) var(--s5); border-bottom: 1px solid var(--line-hair); }
+.sheet h3 { margin: 0 0 var(--s3); font-size: var(--fs-md); font-weight: 600; }
+.sheet p { margin: 0 0 var(--s3); max-width: 64ch; }
+.sheet .warn { color: var(--pending); }
+.sheet > .error-text { margin: var(--s3) var(--s5); }
+.sheet-actions { display: flex; flex-wrap: wrap; gap: var(--s3); margin-top: var(--s3); }
+.sheet-actions a.btn { display: inline-flex; align-items: center; text-decoration: none; }
+.calls { border-collapse: collapse; margin: var(--s2) 0 var(--s3); }
+.calls th, .calls td { text-align: left; padding: 2px var(--s5) 2px 0; font-size: var(--fs-md); }
+.calls thead th { color: var(--text-3); font-weight: 500; font-size: var(--fs-sm); }
+.calls tbody th { color: var(--text-2); font-weight: 500; }
+.calls td.differs { color: var(--pending); }
+.meter { display: grid; gap: var(--s2); margin-bottom: var(--s3); }
+.meter .bar > span { background: var(--slow); }

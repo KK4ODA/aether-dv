@@ -37,6 +37,14 @@ button { font: inherit; color: inherit; }
 .plate-state { color: var(--text-2); font-size: var(--fs-sm); white-space: nowrap; }
 .plate-nums { justify-self: end; color: var(--text-2); font-size: var(--fs-sm); white-space: nowrap; }
 .plate-nums b { color: var(--text-1); font-weight: 500; }
+.plate-route { color: var(--text-2); font-size: var(--fs-sm); white-space: nowrap; }
+.plate-chan { justify-self: end; color: var(--text-2); font-size: var(--fs-sm); white-space: nowrap; }
+.plate[data-state="held"]::before { background: repeating-linear-gradient(180deg, var(--band) 0 4px, var(--pending) 4px 8px); }
+.plate:has(> .plate-btn) { padding: 0; }
+.plate-btn { all: unset; box-sizing: border-box; display: grid; grid-template-columns: auto auto; column-gap: var(--s5);
+  align-content: center; width: 100%; height: 100%; padding: 0 var(--s5) 0 calc(var(--s4) + 6px); cursor: pointer; }
+.plate-btn:hover { background: var(--bg-hover); }
+.plate-btn:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
 .air { display: inline-flex; gap: 3px; margin-right: 6px; vertical-align: -1px; }
 .air i { width: 7px; height: 7px; border-radius: 50%; border: 1px solid var(--line-strong); display: inline-block; }
 .air i.on-tx { background: var(--tx); border-color: var(--tx); }

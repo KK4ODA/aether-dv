@@ -135,9 +135,15 @@ impl Engine {
     }
 
     pub(super) fn route_json(&self, port: &str) -> Value {
-        let Some(l) = self.ports.get(port).and_then(|p| p.link.as_ref()) else {
+        let Some(p) = self.ports.get(port) else {
             return Value::Null;
         };
+        let Some(l) = p.link.as_ref() else {
+            return Value::Null;
+        };
+        let can_apply = p.civ.as_ref().is_some_and(|(c, m)| {
+            c.allow_set && m.route_write_tested && m.dstar == aether_civ::Support::Documented
+        });
         let now = self.now();
         let g = &l.guard;
         let gate = g.gate(now);
@@ -188,6 +194,11 @@ impl Engine {
                 "at": at, "text": text, "ber": text.as_deref().and_then(ber_in),
             })),
             "answerBroadcast": self.broadcast_allowed(port),
+            "canApply": can_apply && g.route.scope != Scope::Direct,
+            "check": l.check.as_ref().map(|c| json!({
+                "started": c.started, "done": c.done, "ackAt": c.ack_at,
+                "overEnd": c.over_end, "text": c.ack_text,
+            })),
         })
     }
 
