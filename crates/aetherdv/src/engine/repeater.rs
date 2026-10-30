@@ -706,7 +706,7 @@ impl Engine {
                     json!({ "ok": false, "reason": "not_sent", "message": "the check could not be sent (channel busy or held)" })
                 }
                 (Some(_), None) => {
-                    json!({ "ok": false, "reason": "no_ack", "message": "no acknowledgement from the repeater: check R1, the offset/duplex, tone settings and range. Some repeaters (Icom controllers, or MMDVMHost with AckReply off) never acknowledge." })
+                    json!({ "ok": false, "reason": "no_ack", "message": "no acknowledgement from the repeater. Icom-controller repeaters only reply when they refuse to relay, and MMDVMHost repeaters with AckReply off never do, so on those this is normal: ask another station whether it heard you. Otherwise check R1, the duplex offset, tone settings and range." })
                 }
                 (Some(end), Some(at)) => json!({
                     "ok": true, "ackAfterMs": (at - end).max(0),
