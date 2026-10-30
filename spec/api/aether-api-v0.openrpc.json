@@ -1438,6 +1438,14 @@
           "schema": {
             "type": "integer"
           }
+        },
+        {
+          "name": "confirmReflector",
+          "required": false,
+          "schema": {
+            "type": "boolean",
+            "description": "Required on a port in reflector scope (files up to 8 KiB)"
+          }
         }
       ],
       "result": {
@@ -1947,6 +1955,190 @@
           "name": "diag"
         }
       ]
+    },
+    {
+      "name": "ports.confirmRoute",
+      "summary": "Confirm what the route gate asks for: the radio's UR/R1/R2 (radios without CI-V reads) and/or sending to the linked reflector this session. Refused while the radio reports a different route.",
+      "params": [
+        {
+          "name": "id",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "description": "Port id"
+          }
+        }
+      ],
+      "result": {
+        "name": "route",
+        "schema": {
+          "$ref": "#/components/schemas/RouteState"
+        }
+      },
+      "tags": [
+        {
+          "name": "ports"
+        },
+        {
+          "name": "repeater"
+        }
+      ]
+    },
+    {
+      "name": "ports.verifyRoute",
+      "summary": "Read the radio's UR/R1/R2 and duplex again over CI-V; the result arrives as port.route.",
+      "params": [
+        {
+          "name": "id",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "description": "Port id"
+          }
+        }
+      ],
+      "result": {
+        "name": "route",
+        "schema": {
+          "$ref": "#/components/schemas/RouteState"
+        }
+      },
+      "tags": [
+        {
+          "name": "ports"
+        },
+        {
+          "name": "repeater"
+        }
+      ]
+    },
+    {
+      "name": "ports.applyRoute",
+      "summary": "Set the radio's UR/R1/R2 for the port's scope over CI-V, then read them back. Requires civ.allow_set, confirm=true and a model whose route writes passed hardware test HW-R1.",
+      "params": [
+        {
+          "name": "id",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "description": "Port id"
+          }
+        },
+        {
+          "name": "confirm",
+          "required": true,
+          "schema": {
+            "type": "boolean"
+          }
+        }
+      ],
+      "result": {
+        "name": "route",
+        "schema": {
+          "$ref": "#/components/schemas/RouteState"
+        }
+      },
+      "tags": [
+        {
+          "name": "ports"
+        },
+        {
+          "name": "repeater"
+        }
+      ]
+    },
+    {
+      "name": "ports.pause",
+      "summary": "Stop sending on a radio port, until resumed or for a number of minutes. Queued traffic is kept and transfer timers pause.",
+      "params": [
+        {
+          "name": "id",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "description": "Port id"
+          }
+        },
+        {
+          "name": "minutes",
+          "required": false,
+          "schema": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 1440
+          }
+        }
+      ],
+      "result": {
+        "name": "paused",
+        "schema": {
+          "type": "object"
+        }
+      },
+      "tags": [
+        {
+          "name": "ports"
+        },
+        {
+          "name": "repeater"
+        }
+      ]
+    },
+    {
+      "name": "ports.resume",
+      "summary": "Send again after ports.pause.",
+      "params": [
+        {
+          "name": "id",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "description": "Port id"
+          }
+        }
+      ],
+      "result": {
+        "name": "paused",
+        "schema": {
+          "type": "object"
+        }
+      },
+      "tags": [
+        {
+          "name": "ports"
+        },
+        {
+          "name": "repeater"
+        }
+      ]
+    },
+    {
+      "name": "diag.repeaterCheck",
+      "summary": "Send one short frame addressed to ourselves and report the repeater's acknowledgement (BER, link) as port.accessCheck. Needs CI-V call-sign reads.",
+      "params": [
+        {
+          "name": "id",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "description": "Port id"
+          }
+        }
+      ],
+      "result": {
+        "name": "started",
+        "schema": {
+          "type": "object"
+        }
+      },
+      "tags": [
+        {
+          "name": "diag"
+        },
+        {
+          "name": "repeater"
+        }
+      ]
     }
   ],
   "components": {
@@ -2112,6 +2304,26 @@
             "type": [
               "string",
               "null"
+            ]
+          },
+          "route": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/RouteState"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "channel": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/ChannelState"
+              },
+              {
+                "type": "null"
+              }
             ]
           }
         },
@@ -3028,6 +3240,316 @@
           "code",
           "message"
         ]
+      },
+      "RouteState": {
+        "type": "object",
+        "description": "A radio port's route: the radio's D-STAR call signs against the configured scope (docs/10 §4.2).",
+        "properties": {
+          "via": {
+            "type": "string",
+            "enum": [
+              "direct",
+              "repeater"
+            ]
+          },
+          "scope": {
+            "type": "string",
+            "enum": [
+              "direct",
+              "repeater",
+              "reflector"
+            ]
+          },
+          "repeater": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "R1, e.g. \"W4DOC  B\""
+          },
+          "gateway": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "gate": {
+            "type": "string",
+            "enum": [
+              "open",
+              "checking",
+              "confirm",
+              "held",
+              "blocked"
+            ],
+            "description": "Whether the port may transmit"
+          },
+          "needs": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "route": {
+                "type": "boolean"
+              },
+              "reflector": {
+                "type": "boolean"
+              }
+            },
+            "additionalProperties": false
+          },
+          "code": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Why held/blocked: would_reach_reflector, local_only, ur_command, wrong_repeater, no_repeater, cross_module, unexpected_r2, simplex, duplex_on_direct"
+          },
+          "message": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "source": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "civ",
+              "operator",
+              null
+            ]
+          },
+          "civRoute": {
+            "type": "boolean",
+            "description": "The radio's route can be read over CI-V"
+          },
+          "civError": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "observed": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "calls": {
+                "type": [
+                  "object",
+                  "null"
+                ],
+                "properties": {
+                  "ur": {
+                    "type": "string"
+                  },
+                  "r1": {
+                    "type": "string"
+                  },
+                  "r2": {
+                    "type": "string"
+                  }
+                },
+                "additionalProperties": false
+              },
+              "duplex": {
+                "type": [
+                  "boolean",
+                  "null"
+                ]
+              }
+            },
+            "additionalProperties": false
+          },
+          "required": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "ur": {
+                "type": "string"
+              },
+              "r1": {
+                "type": "string"
+              },
+              "r2": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false
+          },
+          "checkedAt": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "confirmedAt": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "recheckMin": {
+            "type": "integer"
+          },
+          "myCall": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "myCallMatches": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "link": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "reflector": {
+                "type": "string"
+              },
+              "seenAt": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              }
+            },
+            "additionalProperties": false
+          },
+          "lastAck": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "at": {
+                "type": "integer"
+              },
+              "text": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "ber": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "additionalProperties": false
+          },
+          "answerBroadcast": {
+            "type": "boolean"
+          },
+          "canApply": {
+            "type": "boolean"
+          },
+          "check": {
+            "type": [
+              "object",
+              "null"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "via",
+          "scope",
+          "gate"
+        ]
+      },
+      "ChannelState": {
+        "type": "object",
+        "description": "What a radio port's scheduler is doing and why (docs/10 §4.3-4.4).",
+        "properties": {
+          "state": {
+            "type": "string",
+            "enum": [
+              "idle",
+              "sending",
+              "waiting",
+              "down"
+            ]
+          },
+          "why": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "paused",
+              "route",
+              "voice",
+              "other_mode",
+              "signal",
+              "receiving",
+              "holdoff",
+              "voice_gap",
+              "gap",
+              "courtesy",
+              null
+            ]
+          },
+          "until": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "queued": {
+            "type": "integer"
+          },
+          "sources": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "data",
+                "civ_status",
+                "civ_squelch",
+                "inferred_voice"
+              ]
+            }
+          },
+          "sensesVoice": {
+            "type": "boolean"
+          },
+          "inferenceOff": {
+            "type": "boolean"
+          },
+          "holdsTimers": {
+            "type": "boolean"
+          },
+          "airUsedMs": {
+            "type": "integer"
+          },
+          "airBudgetMs": {
+            "type": "integer"
+          },
+          "maxOverMs": {
+            "type": "integer"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "state",
+          "sources"
+        ]
       }
     }
   },
@@ -3108,6 +3630,64 @@
     "engine.event": {
       "schema": {
         "$ref": "#/components/schemas/EngineEvent"
+      }
+    },
+    "port.route": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "portId": {
+            "type": "string"
+          },
+          "route": {
+            "$ref": "#/components/schemas/RouteState"
+          }
+        },
+        "required": [
+          "portId",
+          "route"
+        ]
+      }
+    },
+    "port.channel": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "portId": {
+            "type": "string"
+          },
+          "channel": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/ChannelState"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "portId",
+          "channel"
+        ]
+      }
+    },
+    "port.accessCheck": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "portId": {
+            "type": "string"
+          },
+          "result": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "portId",
+          "result"
+        ]
       }
     }
   }
