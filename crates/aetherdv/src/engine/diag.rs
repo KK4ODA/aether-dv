@@ -119,8 +119,10 @@ impl Engine {
             .ports
             .iter()
             .map(|(n, p)| {
+                // Route and channel: the path record (docs/10 §4.8).
                 json!({ "name": n, "kind": p.kind, "pathKind": p.path_kind, "state": p.state,
-                        "detail": p.detail, "capturing": p.tap.active() })
+                        "detail": p.detail, "capturing": p.tap.active(),
+                        "route": self.route_json(n), "channel": self.channel_json(n) })
             })
             .collect();
         ports.sort_by(|a, b| a["name"].as_str().cmp(&b["name"].as_str()));
