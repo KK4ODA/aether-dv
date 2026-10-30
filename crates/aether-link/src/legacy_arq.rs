@@ -189,6 +189,16 @@ impl LegacySender {
         self.rto
     }
 
+    /// Move every timer `delta` ms later. Used when the channel was held
+    /// by others (voice, a courtesy pause, the operator): the wait must
+    /// not count as the peer failing to answer (docs/10 §4.5).
+    pub fn shift(&mut self, delta: Millis) {
+        self.deadline += delta;
+        self.burst_sent_at += delta;
+        self.earliest_answer += delta;
+        self.air_end += delta;
+    }
+
     /// When the caller should next call [`Self::poll_transmit`].
     pub fn next_deadline(&self) -> Option<Millis> {
         (self.state == SenderState::Sending).then_some(self.deadline)

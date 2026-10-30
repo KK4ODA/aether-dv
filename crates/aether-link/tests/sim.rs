@@ -362,3 +362,25 @@ fn faster_than_estimated_path_is_not_stalled() {
     assert_eq!(next.len(), 5);
     assert_eq!(next[0].seq, 4);
 }
+
+#[test]
+fn shift_pauses_the_retransmission_timer() {
+    let addr = SessionAddr {
+        session: 9,
+        src: "KK4ODA".into(),
+        dst: "W4DRS".into(),
+    };
+    let mut cfg = SenderConfig::legacy_defaults();
+    cfg.block_size = 4;
+    let mut tx = LegacySender::new(cfg, addr, b"0123456789");
+    assert!(!tx.poll_transmit(0).is_empty());
+    let due = tx.next_deadline().unwrap();
+    // Voice held the channel for 60 s while we waited for the ACK.
+    tx.shift(60_000);
+    assert_eq!(tx.next_deadline(), Some(due + 60_000));
+    assert!(
+        tx.poll_transmit(due).is_empty(),
+        "no re-poll during the hold"
+    );
+    assert!(!tx.poll_transmit(due + 60_000).is_empty());
+}
