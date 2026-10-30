@@ -170,7 +170,7 @@ fn data_side(f: File, radio: Option<Shared>) -> DataSide {
                 let from = st
                     .tx_until
                     .filter(|&u| u > now)
-                    .map_or(now + Duration::from_millis(300), |u| u);
+                    .unwrap_or(now + Duration::from_millis(300));
                 st.tx_until = Some(from + Duration::from_millis(900));
             }
             let mut ev = Vec::new();
