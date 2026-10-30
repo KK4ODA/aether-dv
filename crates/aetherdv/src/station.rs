@@ -33,6 +33,9 @@ pub enum Effect {
         frame: Frame,
         encoding: PayloadEncoding,
         delay_ms: Millis,
+        /// An automatic answer to a broadcast (CQCQCQ) request: the
+        /// engine drops it where the port's scope says so (docs/10 §4.6).
+        broadcast: bool,
     },
     /// A chat-session line to record and show.
     Chat {
@@ -205,6 +208,7 @@ impl Station {
                     frame: reply,
                     encoding: PayloadEncoding::Never,
                     delay_ms: delay,
+                    broadcast,
                 });
             }
             (id::CHAT, chat::PING_RSP) => {
@@ -237,6 +241,7 @@ impl Station {
                     frame: reply,
                     encoding: PayloadEncoding::Never,
                     delay_ms: delay,
+                    broadcast,
                 });
                 out.push(Effect::Chat {
                     port: port.into(),
@@ -281,6 +286,7 @@ impl Station {
                         frame: reply,
                         encoding: PayloadEncoding::IfSmaller,
                         delay_ms: 0,
+                        broadcast: false,
                     });
                     out.push(Effect::Log {
                         level: "info",

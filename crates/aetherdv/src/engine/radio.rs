@@ -7,7 +7,7 @@ use std::time::Duration;
 
 use super::*;
 
-const CIV_TIMEOUT: Duration = Duration::from_millis(1500);
+const CIV_TIMEOUT: Duration = Duration::from_millis(5_000);
 
 impl Engine {
     fn civ_job(
@@ -17,15 +17,18 @@ impl Engine {
         action: &'static str,
     ) -> Option<tokio::task::JoinHandle<Result<bool, String>>> {
         let p = self.ports.get(port)?;
-        let (c, model) = p.civ.clone()?;
-        let addr = c.addr_byte().unwrap_or(model.default_addr);
+        let civ = p.link.as_ref()?.civ_tx.clone()?;
         let (evt, name) = (self.evt_tx.clone(), port.to_string());
         Some(tokio::spawn(async move {
-            let result = tokio::task::spawn_blocking(move || {
-                crate::civ::fast_data(&c.path, c.baud, model, addr, set, CIV_TIMEOUT)
-            })
-            .await
-            .unwrap_or_else(|e| Err(format!("CI-V task failed: {e}")));
+            let (tx, rx) = tokio::sync::oneshot::channel();
+            let result = match civ.send(crate::civ::CivReq::FastData { set, reply: tx }) {
+                Err(_) => Err("CI-V session stopped".to_string()),
+                Ok(()) => match tokio::time::timeout(CIV_TIMEOUT, rx).await {
+                    Ok(Ok(r)) => r,
+                    Ok(Err(_)) => Err("CI-V session stopped".to_string()),
+                    Err(_) => Err("the CI-V session did not answer in time".to_string()),
+                },
+            };
             let _ = evt
                 .send(PortEvt::RadioMode {
                     port: name,

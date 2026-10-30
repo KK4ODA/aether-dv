@@ -30,6 +30,11 @@
 //! profile = "icom-ic9700"
 //! mode = "slow"                     # slow | fast (radio setting must match)
 //! flow = "none"                     # none | software (XON/XOFF), per HW-3
+//!
+//! [port.route]                      # optional; without it the port is direct (simplex)
+//! via = "repeater"                  # direct | repeater
+//! repeater = "W4DOC B"              # call sign + module (R1)
+//! scope = "repeater"                # repeater (default) | reflector
 //! ```
 
 use std::path::PathBuf;
@@ -86,6 +91,109 @@ impl CivConfig {
     }
 }
 
+/// How a radio port reaches other stations (docs/10 §4.1). Advanced
+/// timing fields override the preset for `via` + `scope`.
+#[derive(Debug, Clone, Deserialize, PartialEq, Default)]
+#[serde(deny_unknown_fields)]
+pub struct RouteConfig {
+    #[serde(default = "default_via")]
+    pub via: String,
+    /// The repeater (R1): call sign and module, e.g. "W4DOC B".
+    pub repeater: Option<String>,
+    #[serde(default = "default_scope")]
+    pub scope: String,
+    /// Minutes after which an operator-confirmed route must be confirmed
+    /// again if nothing was sent (radios without CI-V route reads).
+    #[serde(default = "default_recheck_min")]
+    pub recheck_min: u32,
+    /// Treat relayed D-PRS/NMEA slow data as a voice user on the air.
+    #[serde(default = "default_true")]
+    pub infer_voice: bool,
+    /// Answer broadcast pings and echo requests. Default: on except in
+    /// reflector scope.
+    pub answer_broadcast: Option<bool>,
+    pub holdoff_ms: Option<u64>,
+    pub jitter_ms: Option<u64>,
+    pub voice_gap_ms: Option<u64>,
+    pub min_gap_ms: Option<u64>,
+    pub max_over_ms: Option<u64>,
+    pub duty_percent: Option<u32>,
+    pub duty_window_s: Option<u64>,
+}
+
+fn default_via() -> String {
+    "direct".into()
+}
+fn default_scope() -> String {
+    "repeater".into()
+}
+fn default_recheck_min() -> u32 {
+    30
+}
+fn default_true() -> bool {
+    true
+}
+
+impl RouteConfig {
+    pub fn validate(&self, port: &str) -> Result<(), String> {
+        let bad = |m: String| Err(format!("port {port}: route: {m}"));
+        match self.via.as_str() {
+            "direct" => {
+                if self.repeater.is_some() {
+                    return bad("repeater is only used with via = \"repeater\"".into());
+                }
+                if self.scope == "reflector" {
+                    return bad("scope = \"reflector\" needs via = \"repeater\"".into());
+                }
+            }
+            "repeater" => {
+                let Some(r) = &self.repeater else {
+                    return bad(
+                        "via = \"repeater\" needs repeater = \"CALL M\" (call sign and module)"
+                            .into(),
+                    );
+                };
+                if let Err(e) = crate::route::parse_repeater(r) {
+                    return bad(e);
+                }
+                if self.scope != "repeater" && self.scope != "reflector" {
+                    return bad("scope must be repeater or reflector".into());
+                }
+            }
+            v => return bad(format!("via must be direct or repeater, not '{v}'")),
+        }
+        if self.recheck_min == 0 || self.recheck_min > 24 * 60 {
+            return bad("recheck_min must be 1-1440".into());
+        }
+        if self.duty_percent.is_some_and(|d| d == 0 || d > 100) {
+            return bad("duty_percent must be 1-100".into());
+        }
+        if self
+            .max_over_ms
+            .is_some_and(|m| !(2_000..=60_000).contains(&m))
+        {
+            return bad("max_over_ms must be 2000-60000".into());
+        }
+        if self
+            .duty_window_s
+            .is_some_and(|w| !(60..=3_600).contains(&w))
+        {
+            return bad("duty_window_s must be 60-3600".into());
+        }
+        for (k, v) in [
+            ("holdoff_ms", self.holdoff_ms),
+            ("jitter_ms", self.jitter_ms),
+            ("voice_gap_ms", self.voice_gap_ms),
+            ("min_gap_ms", self.min_gap_ms),
+        ] {
+            if v.is_some_and(|v| v > 120_000) {
+                return bad(format!("{k} must be at most 120000"));
+            }
+        }
+        Ok(())
+    }
+}
+
 fn default_civ_baud() -> u32 {
     19200
 }
@@ -119,6 +227,8 @@ fn default_api() -> String {
     "127.0.0.1:7373".into()
 }
 
+// Parsed once at start-up; the size difference doesn't matter.
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone, Deserialize, PartialEq)]
 #[serde(tag = "kind", rename_all = "lowercase", deny_unknown_fields)]
 pub enum PortConfig {
@@ -143,6 +253,9 @@ pub enum PortConfig {
         flow: String,
         /// Optional CI-V control channel to the same radio (`[port.civ]`).
         civ: Option<CivConfig>,
+        /// How this radio reaches other stations (`[port.route]`).
+        #[serde(default)]
+        route: Option<RouteConfig>,
     },
 }
 
@@ -231,6 +344,12 @@ impl Config {
                     )));
                 }
             }
+            if let PortConfig::Serial {
+                route: Some(route), ..
+            } = p
+            {
+                route.validate(p.name()).map_err(ConfigError::Invalid)?;
+            }
             if let PortConfig::Serial { mode, flow, .. } = p {
                 if mode != "slow" && mode != "fast" {
                     return Err(ConfigError::Invalid(format!(
@@ -271,6 +390,16 @@ mod tests {
             let c =
                 Config::parse(&with_pos).unwrap_or_else(|e| panic!("{name} with position: {e}"));
             assert_eq!(c.position.unwrap().symbol, "/-");
+            let with_route = text
+                .replace("# [port.route]", "[port.route]")
+                .replace("# via = ", "via = ")
+                .replace("# repeater = ", "repeater = ")
+                .replace("# scope = ", "scope = ");
+            let c = Config::parse(&with_route).unwrap_or_else(|e| panic!("{name} with route: {e}"));
+            assert!(
+                c.ports.iter().any(|p| matches!(p, PortConfig::Serial { route: Some(r), .. } if r.via == "repeater")),
+                "{name}: route attaches to the radio port"
+            );
         }
         let bad = "callsign = \"KK4ODA\"\n[position]\nlat = 95.0\nlon = 0.0\n";
         assert!(Config::parse(bad).is_err());
@@ -303,6 +432,30 @@ mod tests {
         assert!(
             matches!(&c.ports[1], PortConfig::Serial { baud: 9600, mode, .. } if mode == "slow")
         );
+    }
+
+    #[test]
+    fn route_tables() {
+        let base = "callsign = \"KK4ODA\"\n[[port]]\nkind = \"serial\"\nname = \"r\"\npath = \"/dev/x\"\nprofile = \"icom-id51plus\"\n";
+        let ok = format!("{base}[port.route]\nvia = \"repeater\"\nrepeater = \"W4DOC B\"\n");
+        let c = Config::parse(&ok).unwrap();
+        let PortConfig::Serial { route: Some(p), .. } = &c.ports[0] else {
+            panic!("route");
+        };
+        assert_eq!(
+            (p.scope.as_str(), p.recheck_min, p.infer_voice),
+            ("repeater", 30, true)
+        );
+        for bad in [
+            "[port.route]\nvia = \"repeater\"\n",
+            "[port.route]\nvia = \"repeater\"\nrepeater = \"W4DOC\"\n",
+            "[port.route]\nvia = \"repeater\"\nrepeater = \"W4DOC B\"\nscope = \"world\"\n",
+            "[port.route]\nscope = \"reflector\"\n",
+            "[port.route]\nvia = \"satellite\"\n",
+            "[port.route]\nvia = \"repeater\"\nrepeater = \"W4DOC B\"\nduty_percent = 0\n",
+        ] {
+            assert!(Config::parse(&format!("{base}{bad}")).is_err(), "{bad}");
+        }
     }
 
     #[test]

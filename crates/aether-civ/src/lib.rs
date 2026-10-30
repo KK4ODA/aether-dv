@@ -15,6 +15,10 @@
 //! | IC-705 | `1A 05 00 93` + `00`/`01` |
 //! | IC-9700 | `1A 05 00 77` + `00`/`01` |
 //! | IC-905 | `1A 05 00 98` + `00`/`01` |
+//!
+//! D-STAR call signs, receive status, squelch and duplex: see [`dstar`].
+
+pub mod dstar;
 
 /// The controller (computer) address conventionally used with Icom radios.
 pub const CONTROLLER: u8 = 0xE0;
@@ -37,6 +41,22 @@ pub struct Model {
     /// Command + sub-command bytes that read (and, with a data byte, set)
     /// the DV Fast Data setting.
     pub fast_data_cmd: &'static [u8],
+    /// The D-STAR commands in [`dstar`] (`1F`, `20`, `15 01`, `0F`).
+    pub dstar: Support,
+    /// Writing UR/R1/R2 (`1F 01`) has passed hardware test HW-R1 on this
+    /// model. Until then the engine only reads them (ADR-0009).
+    pub route_write_tested: bool,
+}
+
+/// How well a command set is known for a model.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Support {
+    /// Read in the model's Icom CI-V reference guide.
+    Documented,
+    /// Expected (same radio generation) but not checked against the
+    /// model's guide: reads may be tried, and a refusal or silence means
+    /// "not supported" for the session. Never written.
+    Unverified,
 }
 
 /// Profiles with a documented Fast Data command. Addresses: IC-9700 A2h is
@@ -49,6 +69,8 @@ pub const MODELS: &[Model] = &[
         default_addr: 0xA2,
         addr_verified: true,
         fast_data_cmd: &[0x1A, 0x05, 0x00, 0x77],
+        dstar: Support::Documented,
+        route_write_tested: false,
     },
     Model {
         id: "icom-id52plus",
@@ -56,6 +78,8 @@ pub const MODELS: &[Model] = &[
         default_addr: 0xB4,
         addr_verified: false,
         fast_data_cmd: &[0x22, 0x03],
+        dstar: Support::Unverified,
+        route_write_tested: false,
     },
     Model {
         id: "icom-id52",
@@ -63,6 +87,8 @@ pub const MODELS: &[Model] = &[
         default_addr: 0xB4,
         addr_verified: false,
         fast_data_cmd: &[0x22, 0x03],
+        dstar: Support::Unverified,
+        route_write_tested: false,
     },
     Model {
         id: "icom-ic705",
@@ -70,6 +96,8 @@ pub const MODELS: &[Model] = &[
         default_addr: 0xA4,
         addr_verified: false,
         fast_data_cmd: &[0x1A, 0x05, 0x00, 0x93],
+        dstar: Support::Unverified,
+        route_write_tested: false,
     },
     Model {
         id: "icom-ic905",
@@ -77,6 +105,8 @@ pub const MODELS: &[Model] = &[
         default_addr: 0xAC,
         addr_verified: false,
         fast_data_cmd: &[0x1A, 0x05, 0x00, 0x98],
+        dstar: Support::Unverified,
+        route_write_tested: false,
     },
 ];
 
@@ -121,6 +151,14 @@ pub enum Reply {
 }
 
 impl Frame {
+    /// Unsolicited data from `radio` (CI-V transceive: addressed to `00`
+    /// or to the controller) that starts with `cmd`: the bytes after it.
+    pub fn push(&self, cmd: &[u8], radio: u8) -> Option<&[u8]> {
+        (self.from == radio && (self.to == 0x00 || self.to == CONTROLLER))
+            .then_some(())
+            .and_then(|_| self.body.strip_prefix(cmd))
+    }
+
     /// Interpret as the radio's answer to `cmd` (sent by the controller).
     pub fn reply_to(&self, cmd: &[u8], radio: u8) -> Option<Reply> {
         if self.from != radio || self.to != CONTROLLER {

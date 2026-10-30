@@ -30,16 +30,26 @@ profile = "icom-ic9700"
 mode = "slow"
 flow = "none"
 
-[[port]]
-kind = "ratflector"
-name = "sewx"
-host = "sewx.ratflector.com"
-tcp_port = 9000
-
 # Optional: CI-V on USB port A, so Aether can check the radio's DV Fast Data
-# setting against `mode` above at start-up (`aetherdv-cli radio-mode IC-9700`).
+# setting against `mode` above at start-up (`aetherdv-cli radio-mode IC-9700`)
+# and, through a repeater, read the route and sense voice on the channel.
 # [port.civ]
 # path = "/dev/serial/by-id/usb-Icom_Inc._IC-9700_...-if00"   # USB (A), CI-V
 # baud = 19200
 # addr = "A2"          # IC-9700 default per Icom's CI-V guide
 # allow_set = false    # true lets `radio-mode IC-9700 fast --confirm` change the radio
+
+# Optional: through a repeater (docs/10). Without this the port is direct
+# (simplex). Aether DV holds sending until the radio's UR/R1/R2 match the
+# scope: with [port.civ] it reads them; otherwise it asks you to confirm.
+# [port.route]
+# via = "repeater"
+# repeater = "W4DOC B"     # call sign and module (R1)
+# scope = "repeater"       # this repeater only (R2 blank); "reflector" sends to the
+#                          # linked reflector (R2 = gateway) and must be confirmed
+
+[[port]]
+kind = "ratflector"
+name = "sewx"
+host = "sewx.ratflector.com"
+tcp_port = 9000

@@ -10,7 +10,8 @@
     "Set the radio to DV mode and \"DV Data TX\" to Auto, so it keys up when data arrives.",
     "Turn GPS TX (position beacons) off while using data: it shares the same slow-data channel.",
     "Leave Fast Data off on shared frequencies. Fast Data stations cannot decode slow ones and vice versa.",
-    "On a repeater: set the radio to the repeater as for voice (RPT1/RPT2, UR = CQCQCQ). If the repeater is linked to a reflector, everything you send goes to every linked repeater, so use an unlinked module, keep transfers small and ask the repeater's trustee first."
+    "On a repeater: tell Aether DV which repeater (call sign and module) and who should receive your data (this repeater only, or the linked reflector). Set the radio to match: UR = CQCQCQ, R1 = the repeater, and R2 blank for this repeater only. R2 = the gateway (the repeater's call with G) sends everything to every repeater linked to the reflector. Aether DV holds sending until the route matches.",
+    "Store a memory channel used only for data, with UR, R1 and R2 already set. Voice use then can't change the data route by accident."
   ],
   "brands": [
     {
@@ -36,6 +37,13 @@
             { "title": "Aether DV", "items": [
               "Start from examples/ic9700.toml: profile = \"icom-ic9700\", baud = 9600, mode = \"slow\".",
               "Optional: add [port.civ] with the USB (A) device; the IC-9700's default CI-V address is A2h. Aether then warns at start-up if the radio's Fast Data setting doesn't match the port's mode."
+            ]},
+            { "title": "Using a repeater", "items": [
+              "Set the radio to the repeater's channel (duplex) as for voice.",
+              "For this repeater only: UR = CQCQCQ, R1 = repeater call and module (e.g. W4DOC  B), R2 blank. In DR mode this is \"Local CQ\".",
+              "For the linked reflector: R2 = the repeater's gateway (e.g. W4DOC  G), UR = CQCQCQ (\"Gateway CQ\" in DR mode). Only do this with the trustee's agreement.",
+              "Never leave a link or unlink command in UR (e.g. REF030CL or \"       U\") with R2 on the gateway: every data transmission would send it again. Aether DV blocks this when it can read UR.",
+              "Aether DV reads UR/R1/R2, duplex and the receive status over CI-V (USB A). It holds sending when the radio is set for another route, and waits while voice is on the channel. Documented in Icom's CI-V guide; not yet tested on a radio (HW-R1)."
             ]}
           ],
           "links": [
@@ -65,6 +73,13 @@
             { "title": "Aether DV", "items": [
               "Start from examples/id52plus.toml: profile = \"icom-id52plus\", mode = \"slow\".",
               "CI-V (optional, over Bluetooth): the default address reported for the ID-52 is B4h, not confirmed for the PLUS; check MENU > SET > Function > CI-V and set civ.addr."
+            ]},
+            { "title": "Using a repeater", "items": [
+              "Set the radio to the repeater's channel (duplex) as for voice.",
+              "For this repeater only: UR = CQCQCQ, R1 = repeater call and module (e.g. W4DOC  B), R2 blank. In DR mode this is \"Local CQ\".",
+              "For the linked reflector: R2 = the repeater's gateway (e.g. W4DOC  G), UR = CQCQCQ (\"Gateway CQ\" in DR mode). Only do this with the trustee's agreement.",
+              "Never leave a link or unlink command in UR (e.g. REF030CL or \"       U\") with R2 on the gateway: every data transmission would send it again. Aether DV blocks this when it can read UR.",
+              "Over a CI-V connection (Bluetooth while USB carries data) Aether DV tries to read UR/R1/R2 and the receive status. Not yet confirmed on this model: if the radio refuses, Aether DV asks you to confirm the route instead."
             ]}
           ],
           "links": [
@@ -87,6 +102,13 @@
               "[MENU] > SET > Function > USB Serialport Function = DV Data",
               "[MENU] > SET > DV Set > DV Data TX = Auto",
               "Fast Data OFF; GPS TX OFF"
+            ]},
+            { "title": "Using a repeater", "items": [
+              "Set the radio to the repeater's channel (duplex) as for voice.",
+              "For this repeater only: UR = CQCQCQ, R1 = repeater call and module (e.g. W4DOC  B), R2 blank. In DR mode this is \"Local CQ\".",
+              "For the linked reflector: R2 = the repeater's gateway (e.g. W4DOC  G), UR = CQCQCQ (\"Gateway CQ\" in DR mode). Only do this with the trustee's agreement.",
+              "Never leave a link or unlink command in UR (e.g. REF030CL or \"       U\") with R2 on the gateway: every data transmission would send it again. Aether DV blocks this when it can read UR.",
+              "As the ID-52 PLUS: route and voice detection over CI-V are tried, and Aether DV falls back to asking you to confirm."
             ]}
           ],
           "links": [
@@ -107,6 +129,13 @@
             { "title": "Radio menus", "items": [
               "Set the USB (B) function to DV Data and DV Data TX = Auto (see the IC-705 manual for the exact menu path)",
               "Fast Data OFF; GPS TX OFF"
+            ]},
+            { "title": "Using a repeater", "items": [
+              "Set the radio to the repeater's channel (duplex) as for voice.",
+              "For this repeater only: UR = CQCQCQ, R1 = repeater call and module (e.g. W4DOC  B), R2 blank. In DR mode this is \"Local CQ\".",
+              "For the linked reflector: R2 = the repeater's gateway (e.g. W4DOC  G), UR = CQCQCQ (\"Gateway CQ\" in DR mode). Only do this with the trustee's agreement.",
+              "Never leave a link or unlink command in UR (e.g. REF030CL or \"       U\") with R2 on the gateway: every data transmission would send it again. Aether DV blocks this when it can read UR.",
+              "Aether DV tries to read UR/R1/R2 and the receive status over CI-V (USB A). Not yet confirmed on this model; otherwise it asks you to confirm the route."
             ]}
           ],
           "links": [
@@ -124,7 +153,14 @@
           "fastData": "yes",
           "connection": "USB (B) = DV Data.",
           "steps": [
-            { "title": "Radio menus", "items": [ "USB (B) function = DV Data; DV Data TX = Auto; Fast Data OFF; GPS TX OFF" ]}
+            { "title": "Radio menus", "items": [ "USB (B) function = DV Data; DV Data TX = Auto; Fast Data OFF; GPS TX OFF" ]},
+            { "title": "Using a repeater", "items": [
+              "Set the radio to the repeater's channel (duplex) as for voice.",
+              "For this repeater only: UR = CQCQCQ, R1 = repeater call and module (e.g. W4DOC  B), R2 blank. In DR mode this is \"Local CQ\".",
+              "For the linked reflector: R2 = the repeater's gateway (e.g. W4DOC  G), UR = CQCQCQ (\"Gateway CQ\" in DR mode). Only do this with the trustee's agreement.",
+              "Never leave a link or unlink command in UR (e.g. REF030CL or \"       U\") with R2 on the gateway: every data transmission would send it again. Aether DV blocks this when it can read UR.",
+              "Aether DV tries to read UR/R1/R2 and the receive status over CI-V. Not yet confirmed on this model; otherwise it asks you to confirm the route."
+            ]}
           ],
           "links": [
             { "title": "Icom manuals and guides (official)", "url": "https://www.icomjapan.com/support/manual/", "kind": "manual" }
@@ -145,6 +181,14 @@
               "MENU > GPS > GPS SET > GPS OUT (DATA jack) = OFF",
               "MENU > FUNCTION > CI-V > CI-V (DATA jack) = OFF",
               "MENU > FUNCTION > DATA SPEED = 9600"
+            ]},
+            { "title": "Using a repeater", "items": [
+              "Set the radio to the repeater's channel (duplex) as for voice.",
+              "For this repeater only: UR = CQCQCQ, R1 = repeater call and module (e.g. W4DOC  B), R2 blank. In DR mode this is \"Local CQ\".",
+              "For the linked reflector: R2 = the repeater's gateway (e.g. W4DOC  G), UR = CQCQCQ (\"Gateway CQ\" in DR mode). Only do this with the trustee's agreement.",
+              "Never leave a link or unlink command in UR (e.g. REF030CL or \"       U\") with R2 on the gateway: every data transmission would send it again. Aether DV blocks this when it can read UR.",
+              "Aether DV can't read this radio's call signs or detect voice. It asks you to confirm the route each session and after 30 minutes without sending, and uses shorter transmissions with longer gaps. Pause sending during voice contacts and nets.",
+              "Firmware: use the November 2019 release or later, which fixes data loss."
             ]}
           ],
           "links": [
@@ -168,6 +212,13 @@
               "Connectors > USB2/Data1 Function > DV Data/GPS Out Baud = 9600",
               "DV Set > DV Data TX = Auto",
               "Connectors > USB2/Data1 Function > USB2 Function = DV Data"
+            ]},
+            { "title": "Using a repeater", "items": [
+              "Set the radio to the repeater's channel (duplex) as for voice.",
+              "For this repeater only: UR = CQCQCQ, R1 = repeater call and module (e.g. W4DOC  B), R2 blank. In DR mode this is \"Local CQ\".",
+              "For the linked reflector: R2 = the repeater's gateway (e.g. W4DOC  G), UR = CQCQCQ (\"Gateway CQ\" in DR mode). Only do this with the trustee's agreement.",
+              "Never leave a link or unlink command in UR (e.g. REF030CL or \"       U\") with R2 on the gateway: every data transmission would send it again. Aether DV blocks this when it can read UR.",
+              "Aether DV can't read this radio's call signs or detect voice. It asks you to confirm the route each session and after 30 minutes without sending, and uses shorter transmissions with longer gaps. Pause sending during voice contacts and nets."
             ]}
           ],
           "links": [
@@ -184,7 +235,15 @@
           "fastData": "yes (firmware V1.02 or later)",
           "connection": "DATA jack (OPC-2350LU / OPC-2218LU); XON/XOFF flow control reported.",
           "steps": [
-            { "title": "Radio menus", "items": [ "Keep CI-V (DATA jack) OFF while using data; DV Data TX = Auto; Fast Data OFF; GPS TX OFF" ]}
+            { "title": "Radio menus", "items": [ "Keep CI-V (DATA jack) OFF while using data; DV Data TX = Auto; Fast Data OFF; GPS TX OFF" ]},
+            { "title": "Using a repeater", "items": [
+              "Set the radio to the repeater's channel (duplex) as for voice.",
+              "For this repeater only: UR = CQCQCQ, R1 = repeater call and module (e.g. W4DOC  B), R2 blank. In DR mode this is \"Local CQ\".",
+              "For the linked reflector: R2 = the repeater's gateway (e.g. W4DOC  G), UR = CQCQCQ (\"Gateway CQ\" in DR mode). Only do this with the trustee's agreement.",
+              "Never leave a link or unlink command in UR (e.g. REF030CL or \"       U\") with R2 on the gateway: every data transmission would send it again. Aether DV blocks this when it can read UR.",
+              "Aether DV can't read this radio's call signs or detect voice. It asks you to confirm the route each session and after 30 minutes without sending, and uses shorter transmissions with longer gaps. Pause sending during voice contacts and nets.",
+              "Firmware: V1.02 (2019-11-06) or later fixes Fast Data loss."
+            ]}
           ],
           "links": [
             { "title": "Icom manuals and guides (official)", "url": "https://www.icomjapan.com/support/manual/", "kind": "manual" }
@@ -200,7 +259,15 @@
           "fastData": "yes (firmware E2+)",
           "connection": "DATA jack.",
           "steps": [
-            { "title": "Radio menus", "items": [ "DV Data TX = Auto; Fast Data OFF; GPS TX OFF; check firmware before trying Fast Data" ]}
+            { "title": "Radio menus", "items": [ "DV Data TX = Auto; Fast Data OFF; GPS TX OFF; check firmware before trying Fast Data" ]},
+            { "title": "Using a repeater", "items": [
+              "Set the radio to the repeater's channel (duplex) as for voice.",
+              "For this repeater only: UR = CQCQCQ, R1 = repeater call and module (e.g. W4DOC  B), R2 blank. In DR mode this is \"Local CQ\".",
+              "For the linked reflector: R2 = the repeater's gateway (e.g. W4DOC  G), UR = CQCQCQ (\"Gateway CQ\" in DR mode). Only do this with the trustee's agreement.",
+              "Never leave a link or unlink command in UR (e.g. REF030CL or \"       U\") with R2 on the gateway: every data transmission would send it again. Aether DV blocks this when it can read UR.",
+              "Aether DV can't read this radio's call signs or detect voice. It asks you to confirm the route each session and after 30 minutes without sending, and uses shorter transmissions with longer gaps. Pause sending during voice contacts and nets.",
+              "Firmware: Release E2 or later is needed for data."
+            ]}
           ],
           "links": [
             { "title": "Icom manuals and guides (official)", "url": "https://www.icomjapan.com/support/manual/", "kind": "manual" }
@@ -225,6 +292,12 @@
           "steps": [
             { "title": "Status", "items": [
               "Not yet set up with Aether DV. If you try it, send a report: menu path for DV data, baud rate, and whether chat and a small file worked."
+            ]},
+            { "title": "Using a repeater", "items": [
+              "Set the repeater in the radio's D-STAR settings as for voice (DR or the repeater list).",
+              "For this repeater only: UR = CQCQCQ, RPT1 = repeater call and module, RPT2 blank. For the linked reflector: RPT2 = the repeater's gateway (call with G), only with the trustee's agreement.",
+              "Never leave a link or unlink command in UR with RPT2 on the gateway.",
+              "No documented way to read the call signs or receive status: Aether DV asks you to confirm the route. Data on this radio is still unverified."
             ]}
           ],
           "links": [],
@@ -239,7 +312,13 @@
           "fastData": "yes (\"fast data\" in the manual)",
           "connection": "USB-C (the serial control line DTR must be on); Bluetooth serial (Menu 984). Menu 614 must not be Off.",
           "steps": [
-            { "title": "Radio menus", "items": [ "Menu 614 not Off; check the manual for the DV data setting" ]}
+            { "title": "Radio menus", "items": [ "Menu 614 not Off; check the manual for the DV data setting" ]},
+            { "title": "Using a repeater", "items": [
+              "Set the repeater in the radio's D-STAR settings as for voice (DR or the repeater list).",
+              "For this repeater only: UR = CQCQCQ, RPT1 = repeater call and module, RPT2 blank. For the linked reflector: RPT2 = the repeater's gateway (call with G), only with the trustee's agreement.",
+              "Never leave a link or unlink command in UR with RPT2 on the gateway.",
+              "Aether DV can't read this radio's call signs: it asks you to confirm the route. The TH-D75 is reported to send only Fast Data, and Fast Data through repeaters is unverified."
+            ]}
           ],
           "links": [],
           "reports": []
@@ -252,7 +331,14 @@
           "slowData": "reported (receive only)",
           "fastData": "yes (\"Data Mode\")",
           "connection": "USB (appears as ttyACM on Linux).",
-          "steps": [],
+          "steps": [
+            { "title": "Using a repeater", "items": [
+              "Set the repeater in the radio's D-STAR settings as for voice (DR or the repeater list).",
+              "For this repeater only: UR = CQCQCQ, RPT1 = repeater call and module, RPT2 blank. For the linked reflector: RPT2 = the repeater's gateway (call with G), only with the trustee's agreement.",
+              "Never leave a link or unlink command in UR with RPT2 on the gateway.",
+              "Reported to receive slow data but not send it, so it can't send through a repeater with slow data. Aether DV asks you to confirm the route if you try."
+            ]}
+          ],
           "links": [],
           "reports": []
         }

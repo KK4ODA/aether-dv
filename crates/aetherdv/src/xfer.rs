@@ -275,6 +275,9 @@ pub struct Transfers {
     xfers: HashMap<u64, Xfer>,
     next_key: u64,
     next_id: u8,
+    /// Ports whose channel is held by others, and since when: their
+    /// transfers' timers are stopped (docs/10 §4.5).
+    paused: HashMap<String, Millis>,
 }
 
 impl Transfers {
@@ -285,6 +288,44 @@ impl Transfers {
             xfers: HashMap::new(),
             next_key: 1,
             next_id: id::FIRST_DYNAMIC,
+            paused: HashMap::new(),
+        }
+    }
+
+    /// Stop the timers of every transfer on `port` (voice, courtesy pause,
+    /// operator pause, route hold): waiting is not the peer's fault.
+    pub fn pause_port(&mut self, port: &str, now: Millis) {
+        self.paused.entry(port.to_string()).or_insert(now);
+    }
+
+    /// Restart them, later by the time they were stopped.
+    pub fn resume_port(&mut self, port: &str, now: Millis) {
+        self.rebase(port, now);
+        self.paused.remove(port);
+    }
+
+    pub fn port_paused(&self, port: &str) -> bool {
+        self.paused.contains_key(port)
+    }
+
+    /// Credit the time paused so far to the port's transfers and restart
+    /// the pause clock at `now`, so that timers set from now on (a frame
+    /// arrived, a transfer started) are not shifted again.
+    fn rebase(&mut self, port: &str, now: Millis) {
+        let Some(since) = self.paused.get_mut(port) else {
+            return;
+        };
+        let delta = now.saturating_sub(*since);
+        *since = now;
+        if delta == 0 {
+            return;
+        }
+        for x in self.xfers.values_mut().filter(|x| x.port == port) {
+            x.ctl_deadline += delta;
+            x.last_activity += delta;
+            if let Some(tx) = x.tx.as_mut() {
+                tx.shift(delta);
+            }
         }
     }
 
@@ -337,6 +378,7 @@ impl Transfers {
         now: Millis,
         req: SendRequest<'_>,
     ) -> Result<(u64, Vec<XEffect>), String> {
+        self.rebase(req.port, now);
         let SendRequest {
             port,
             peer,
@@ -424,7 +466,7 @@ impl Transfers {
     pub fn next_deadline(&self) -> Option<Millis> {
         self.xfers
             .values()
-            .filter(|x| !x.finished())
+            .filter(|x| !x.finished() && !self.paused.contains_key(&x.port))
             .map(|x| {
                 let t = x.tx.as_ref().and_then(|t| t.next_deadline());
                 let c =
@@ -445,7 +487,7 @@ impl Transfers {
         let idle_ms = self.limits.idle_ms;
         let mut out = Vec::new();
         for x in self.xfers.values_mut() {
-            if x.finished() {
+            if x.finished() || self.paused.contains_key(&x.port) {
                 continue;
             }
             match x.phase {
@@ -583,6 +625,7 @@ impl Transfers {
         if dst != self.callsign || src == self.callsign {
             return out;
         }
+        self.rebase(port, now);
         match f.session {
             id::CONTROL => self.on_control(now, port, &src, f, receive_cfg, &mut out),
             id::CHAT | id::RPC => {}
@@ -1247,6 +1290,37 @@ mod tests {
         }
         assert_eq!(sent, 10);
         assert_eq!(last.unwrap().state, "failed");
+    }
+
+    #[test]
+    fn paused_port_stops_retries_and_resume_shifts_them() {
+        let mut a = Transfers::new("KK4ODA", Limits::default());
+        let req = || SendRequest {
+            port: "rf",
+            peer: "W4DRS",
+            class: Class::File,
+            name: "f",
+            content: b"x",
+            cfg: cfg(),
+        };
+        let (_, first) = a.start_send(0, req()).unwrap();
+        assert!(first.iter().any(|e| matches!(e, XEffect::Send { .. })));
+        let due = a.next_deadline().unwrap();
+        a.pause_port("rf", 1_000);
+        assert!(a.port_paused("rf"));
+        // Ten minutes of voice: no retries, no failure.
+        for t in (1_000..601_000).step_by(1_000) {
+            assert!(!a.poll(t).iter().any(|e| matches!(e, XEffect::Send { .. })));
+        }
+        a.resume_port("rf", 601_000);
+        assert_eq!(a.next_deadline(), Some(due + 600_000));
+        assert_eq!(a.snapshots()[0].state, "opening");
+        let sends = a
+            .poll(due + 600_000)
+            .iter()
+            .filter(|e| matches!(e, XEffect::Send { .. }))
+            .count();
+        assert_eq!(sends, 1, "the next retry, not a burst of missed ones");
     }
 
     #[test]

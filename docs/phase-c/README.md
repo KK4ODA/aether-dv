@@ -81,6 +81,22 @@ If a serial port has a `[port.civ]` section (see the examples), Aether:
 
 The commands are the documented ones (IC-9700 `1A 05 00 77`, ID-52/ID-52 PLUS `22 03`). They are tested against a simulated radio only, so their **validation level is Simulated** until HW-8 is run on your radios. The IC-9700's default CI-V address (A2h) is from Icom's guide. The ID-52 PLUS default (B4h) comes from a secondary source, and Aether says so in the log; set `addr` if it doesn't answer. After switching the radio, the port's `mode` (timers and burst sizing) still has to match: edit the config and restart for now.
 
+## Through a repeater
+
+Add a `[port.route]` section to a radio port (see the examples and `docs/10-repeater-operation.md`):
+
+- **Choose the scope.** `scope = "repeater"` (the default) keeps traffic on the repeater: R2 must be blank. `"reflector"` sends to whatever the repeater is linked to: R2 is the gateway, and you confirm it once per session.
+- **The route check.**
+  - With `[port.civ]`, Aether reads the radio's UR/R1/R2 and holds sending when they don't match the scope. It always blocks a link, unlink or echo command left in UR with R2 on the gateway.
+  - Without CI-V, it asks you to confirm the values (`aetherdv-cli route IC-9700 confirm`, or the port plate in the app).
+- **Courtesy.**
+  - It waits for voice to end, then a gap, before sending. This needs CI-V; without it, voice is inferred only from relayed D-PRS.
+  - It leaves room between its own transmissions and keeps to an air-time budget.
+  - `aetherdv-cli pause IC-9700 30` pauses sending for a net.
+- **Access check.** `aetherdv-cli repeater-check IC-9700` reports the repeater's acknowledgement, BER and link (CI-V needed).
+
+Validation level: **Simulated** (simulated IC-9700 and a simulated repeater). The bench and on-air tests in `docs/10` §7 come next.
+
 ## Positions
 
 Received position reports appear in `aetherdv-cli positions` (latest per station) and `positions CALL` (history), and as `station.position` events. Both D-RATS formats are understood:

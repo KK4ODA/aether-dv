@@ -1,6 +1,6 @@
 # 10 — D-STAR repeater operation: findings and proposed design
 
-Date: 2026-10-30 · Status: **accepted design, not yet implemented** · Decision record: [ADR-0009](adr/0009-repeater-path-scope-and-channel-sense.md) (Accepted)
+Date: 2026-10-30 · Status: **accepted design, implemented (simulation-validated, not yet on air); see §10** · Decision record: [ADR-0009](adr/0009-repeater-path-scope-and-channel-sense.md) (Accepted)
 
 Evidence tags are the ones used in `03`:
 - **[SRC]** read in source (repo@commit:file:line)
@@ -149,7 +149,7 @@ What already fits: the scheduler is sans-I/O with priority queues; ports never c
 
 ### 4.1 Path and scope (configuration model)
 
-Each radio port gets a `path` table. Without one, the port behaves as **direct**, which is today's behaviour.
+Each radio port gets a `route` table (`[port.route]`; `[port.path]` in the first draft, renamed because `path` is already the serial device). Without one, the port behaves as **direct**, which is today's behaviour.
 
 ```toml
 [[port]]
@@ -158,7 +158,7 @@ name = "IC-9700"
 path = "/dev/serial/by-id/…-if01"   # existing
 mode = "slow"
 
-[port.path]
+[port.route]
 via = "repeater"            # direct | repeater
 repeater = "W4DOC  B"       # R1: call sign padded to 7 + module
 scope = "repeater"          # repeater | reflector   (only when via = repeater)
@@ -288,7 +288,7 @@ Receiving data inside other stations' voice (D-PRS positions and similar) alread
 | `aetherdv::route` | New: route-guard decision function + tests |
 | `aetherdv::civ` | From one-shot reads to a long-lived CI-V session task per radio (poll + transceive), emitting `RadioState` events to its port |
 | `aetherdv::ports` / `engine` | Consume `RadioState`; enforce hold/block; scope rules for auto-replies and files; ARQ pause |
-| `aetherdv::config` | `[port.path]` |
+| `aetherdv::config` | `[port.route]` |
 | API | `ports` gains `path { via, repeater, scope, route { state, ur, r1, r2, checkedAt, source }, channel { state, kind, since, sources }, courtesy { used, budget, pausedUntil }, link { reflector, seenAt } }`. New commands: `ports.setPath`, `ports.verifyRoute`, `ports.applyRoute` (needs `allow_set`), `ports.hold` / `ports.resume`, `diag.repeaterCheck`. Events: `port.route`, `port.channel`, `port.courtesy`. |
 | Store | Path record per port (migration 0002) |
 
@@ -424,7 +424,7 @@ The simulator runs in CI. Bench and on-air results are recorded at level A in `0
 Each step is a reviewable PR with tests. Behaviour for direct ports does not change until step 3, and then only through the shared scheduler code paths.
 
 1. **R-1 Path, scope and route guard.**
-   - `[port.path]`, the `route` module, CI-V `1F 00`/`1F 01` read
+   - `[port.route]`, the `route` module, CI-V `1F 00`/`1F 01` read
    - capability tiers in the model profiles; tier C confirmation with exact values and re-confirmation rules (§4.11)
    - auto-reply scope rules
    - port strip plate and the setup flow
@@ -459,3 +459,43 @@ The owner accepted the recommendations:
 4. Air-time budgets: **25 % per 10 min on a repeater, 10 % on a reflector**. These change if a repeater trustee asks for something else.
 
 Radios without the CI-V features follow §4.11.
+
+## 10. Implementation status (2026-10-30)
+
+All five steps of §8 are implemented, apart from the on-air part of R-5. Validation level: **simulated**. Nothing has been through a real repeater yet, and every preset value is still a placeholder until §7 is measured.
+
+| Step | What exists | Tests |
+|---|---|---|
+| R-1 | `[port.route]`; `aetherdv::route` (decision table, gate, operator confirmation and re-confirmation, per-link reflector confirmation); CI-V `1F 00`/`1F 01`/`0F` reads; broadcast-reply and file rules; API `ports.confirmRoute`/`verifyRoute`/`applyRoute` | Unit: every row of §4.2. End to end on a simulated IC-9700 (PTY): held → released after a frequency-change push; UR command blocked; operator confirmation without CI-V; reflector confirmation, 8 KiB limit, no broadcast replies; route write refused until HW-R1 |
+| R-2 | One long-lived CI-V session per radio (Fast Data, route, `20 02` status or `15 01` squelch polling, `20 00`/`20 01` reads); `aether-link::channel`; scheduler `on_channel`, voice gap; voice inferred from relayed D-PRS/NMEA (switched off if the radio streams its own GPS); transfer timers paused while the channel is held | Unit and randomised invariants; PTY: voice holds traffic until the voice gap ends; inferred voice starts the gap |
+| R-3 | Presets for direct / repeater / reflector, with "unsensed" limits; minimum gap; max over; air-time budget with a Control/Chat reserve; operator pause; UI route panel, plate status, held hints; CLI `route`, `pause`, `resume` | Unit; PTY: pause holds and resume releases |
+| R-4 | Repeater access check (ack, BER, link from the ack text); link detection; route and channel in support bundles; "Using a repeater" in every radio guide | Unit (ack text parsing); PTY: access check reads ack, BER and link |
+| R-5 | `aether-link/tests/repeater_sim.rs`: simulated-time repeater (MMDVMHost rules), reflector hub, voice QSOs, Aether DV stations with and without CI-V sensing, a D-RATS-style station, real scheduler and ARQ-1 | Runs in CI (below). Bench and on-air: not yet |
+
+Decisions made while implementing:
+- **Ports start held** until the first route check, so nothing leaves before the guard has decided.
+- **The CI-V session polls** status (4 Hz) and reads the route every minute and after frequency or mode changes. It does not switch on the radio's own automatic outputs, so no radio setting changes behind the operator's back.
+- **MMDVMHost acks are recognised by call signs.** MY is the repeater and UR is us. The flags don't identify them: the ack carries the "relay unavailable" flag and R1 = gateway [SRC: `DStarControl.cpp` `sendAck`, `DStarDefines.h`].
+- **The access check** is a ping addressed to our own call. No station answers it; only the repeater acknowledges the over.
+- **Route writes** (`1F 01` set) are implemented but refused on every model until HW-R1 passes (`route_write_tested` in the model profile).
+
+### Simulation results
+
+Three seeds, 2 h each, 2 data stations, QSOs every few minutes, a 6 kB file during voice activity:
+
+| Stations | Data starting inside a QSO | Overlap with voice | Overs lost | Chat delivered |
+|---|---|---|---|---|
+| Aether DV, CI-V sensing | **0** | **0 s** | 0 | 100 % |
+| Aether DV, no sensing (50 % of voice users send D-PRS) | 18–24 per run | 83 s total | 13–19 per run | ≈ 78 % |
+| D-RATS style (no sensing) | 11–18 per run | 87 s total | 12–22 per run | ≈ 80 % |
+
+With sensing, files finished, air time stayed within the 25 % budget (peak ≈ 12 %), and in repeater scope nothing reached the reflector.
+
+The simulator found one real bug: the repeater's ack after a voice over replaced "voice just ended", so sensed stations lost the voice gap. It is fixed, and a regression test is in the scheduler.
+
+**What this means.** Without voice sensing, Aether DV is about as likely as D-RATS to transmit over voice: neither can hear it. Inference from relayed D-PRS helps a little (88 s with no GPS users, 79 s with all). The other safeguards on those radios are short overs, the air-time cap and the operator's pause. Two hardware answers decide how much this matters in practice:
+- **HW-R3:** does an Icom radio with DV Data TX = Auto refuse to key while receiving? If it does, the radio prevents doubling by itself.
+- **HW-R2:** do the ID-52 family and IC-705 answer the same status commands as the IC-9700?
+
+Until then, CI-V status (IC-9700, or Bluetooth CI-V on the ID-52 family) is the recommended setup for repeater use.
+

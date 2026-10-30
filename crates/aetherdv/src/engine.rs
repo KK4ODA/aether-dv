@@ -15,18 +15,21 @@ use sha2::{Digest, Sha256};
 use tokio::sync::{broadcast, mpsc, oneshot};
 
 use crate::config::{Config, PortConfig};
-use crate::ports::{run_ratflector, run_serial, PortCmd, PortEvt, RflParams, SerialParams};
+use crate::ports::{run_ratflector, run_serial, PortCmd, PortEvt, RflParams, SerialParams, Tuning};
 use crate::station::{Effect, Station};
 use crate::xfer::{self, Class, Dir, Snapshot, Transfers, XEffect};
+use aether_link::scheduler::PathPreset;
 
 mod diag;
 mod messages;
 mod positions;
 mod radio;
+mod repeater;
 use crate::capture::Tap;
 pub use diag::DiagCmd;
 pub use messages::MsgCmd;
 pub use positions::PosCmd;
+pub use repeater::{RouteCmd, REFLECTOR_FILE_LIMIT};
 
 pub type Reply<T> = oneshot::Sender<Result<T, ApiError>>;
 
@@ -80,8 +83,13 @@ pub enum Cmd {
         port: String,
         peer: String,
         path: PathBuf,
+        /// Confirmation for a reflector-scope port (docs/10 §4.6).
+        confirm_reflector: bool,
         reply: Reply<Value>,
     },
+    /// `ports.confirmRoute`, `ports.verifyRoute`, `ports.applyRoute`,
+    /// `ports.pause`, `ports.resume`, `diag.repeaterCheck`.
+    Route(RouteCmd, Reply<Value>),
     /// `messages.*` and `forms.*`.
     Message(MsgCmd, Reply<Value>),
     /// `diag.*`.
@@ -134,6 +142,8 @@ struct PortState {
     civ: Option<(crate::config::CivConfig, &'static aether_civ::Model)>,
     /// Last Fast Data setting the radio reported over CI-V.
     radio_fast: Option<bool>,
+    /// Repeater operation state (radio ports only).
+    link: Option<repeater::RadioLink>,
 }
 
 fn unix_ms() -> i64 {
@@ -322,9 +332,17 @@ impl Engine {
                 state,
                 detail,
             } => {
+                let reconnect = state == "ready"
+                    && self
+                        .ports
+                        .get(&port)
+                        .is_some_and(|p| matches!(p.state, "lost" | "absent"));
                 if let Some(p) = self.ports.get_mut(&port) {
                     p.state = state;
                     p.detail = detail.clone();
+                }
+                if reconnect {
+                    self.on_radio_reconnect(&port);
                 }
                 self.log(
                     "info",
@@ -388,6 +406,8 @@ impl Engine {
                 action,
                 result,
             } => self.on_radio_mode(&port, action, result),
+            PortEvt::Sched { port, report } => self.on_sched(port, report).await,
+            PortEvt::Burst { port, air_ms, .. } => self.on_burst(&port, air_ms),
         }
     }
 
@@ -398,7 +418,16 @@ impl Engine {
                 frame,
                 encoding,
                 delay_ms,
+                broadcast,
             } => {
+                if broadcast && !self.broadcast_allowed(&port) {
+                    self.log(
+                        "info",
+                        Some(&port),
+                        "broadcast request not answered (this port's scope, or the request came from the network)",
+                    );
+                    return;
+                }
                 let prio = if frame.session == aether_ddt2::session::id::CHAT {
                     Priority::Chat
                 } else {
@@ -489,7 +518,7 @@ impl Engine {
                 let mut v: Vec<Value> = self
                     .ports
                     .iter()
-                    .map(|(name, p)| json!({ "id": name, "name": name, "kind": p.kind, "pathKind": p.path_kind, "state": p.state, "detail": p.detail, "civ": p.civ.is_some(), "radioFastData": p.radio_fast }))
+                    .map(|(name, p)| json!({ "id": name, "name": name, "kind": p.kind, "pathKind": p.path_kind, "state": p.state, "detail": p.detail, "civ": p.civ.is_some(), "radioFastData": p.radio_fast, "route": self.route_json(name), "channel": self.channel_json(name) }))
                     .collect();
                 v.sort_by(|a, b| a["name"].as_str().cmp(&b["name"].as_str()));
                 let _ = r.send(Ok(Value::Array(v)));
@@ -550,6 +579,7 @@ impl Engine {
                 port,
                 peer,
                 path,
+                confirm_reflector,
                 reply,
             } => {
                 let res = match std::fs::metadata(&path) {
@@ -562,6 +592,15 @@ impl Engine {
                         E_INVALID,
                         format!("file is larger than the {MAX_SEND_BYTES}-byte limit"),
                     )),
+                    Ok(m)
+                        if self
+                            .check_file_scope(&port, m.len() as usize, confirm_reflector)
+                            .is_err() =>
+                    {
+                        Err(self
+                            .check_file_scope(&port, m.len() as usize, confirm_reflector)
+                            .unwrap_err())
+                    }
                     Ok(_) => match std::fs::read(&path) {
                         Err(e) => Err(ApiError::new(E_INVALID, format!("{}: {e}", path.display()))),
                         Ok(data) => {
@@ -578,6 +617,10 @@ impl Engine {
             }
             Cmd::Message(m, reply) => {
                 let res = self.on_message_cmd(m).await;
+                let _ = reply.send(res);
+            }
+            Cmd::Route(c, reply) => {
+                let res = self.route_cmd(c).await;
                 let _ = reply.send(res);
             }
             Cmd::RadioMode {
@@ -647,6 +690,8 @@ impl Engine {
     }
 
     async fn tick(&mut self) {
+        self.route_tick().await;
+        self.access_check_tick();
         let effs = self.xfers.poll(self.now());
         self.apply_xfer(effs).await;
         self.xfers.reap();
@@ -897,6 +942,7 @@ impl Engine {
 pub fn start(cfg: &Config) -> Result<EngineHandle, String> {
     let store = Store::open(cfg.db.as_deref()).map_err(|e| format!("database: {e}"))?;
     let (evt_tx, mut evt_rx) = mpsc::channel::<PortEvt>(1024);
+    let (civ_evt_tx, mut civ_evt_rx) = mpsc::channel::<(String, crate::civ::CivEvt)>(256);
     let (cmd_tx, mut cmd_rx) = mpsc::channel::<Cmd>(256);
     let (events, _) = broadcast::channel::<ApiEvent>(1024);
     let seed = SystemTime::now()
@@ -908,6 +954,7 @@ pub fn start(cfg: &Config) -> Result<EngineHandle, String> {
     for pc in &cfg.ports {
         let (tx, rx) = mpsc::channel::<PortCmd>(256);
         let tap = Tap::default();
+        let civ_capable = matches!(pc, PortConfig::Serial { civ: Some(_), .. });
         let (kind, path_kind, row_kind, profile) = match pc {
             PortConfig::Ratflector { .. } => ("ratflector", "internet", "ratflector", None),
             PortConfig::Serial { mode, profile, .. } => (
@@ -957,8 +1004,16 @@ pub fn start(cfg: &Config) -> Result<EngineHandle, String> {
                 baud,
                 mode,
                 flow,
+                route,
                 ..
             } => {
+                let r = crate::route::Route::from_config(route.as_ref());
+                let preset = match r.scope {
+                    crate::route::Scope::Direct => PathPreset::Direct,
+                    crate::route::Scope::Repeater => PathPreset::Repeater,
+                    crate::route::Scope::Reflector => PathPreset::Reflector,
+                };
+                let rc = route.clone().unwrap_or_default();
                 let params = SerialParams {
                     tap: tap.clone(),
                     name,
@@ -966,10 +1021,60 @@ pub fn start(cfg: &Config) -> Result<EngineHandle, String> {
                     baud,
                     mode,
                     software_flow: flow == "software",
+                    preset,
+                    tuning: Tuning {
+                        holdoff_ms: rc.holdoff_ms,
+                        jitter_ms: rc.jitter_ms,
+                        voice_gap_ms: rc.voice_gap_ms,
+                        min_gap_ms: rc.min_gap_ms,
+                        max_over_ms: rc.max_over_ms,
+                        duty_percent: rc.duty_percent,
+                        duty_window_s: rc.duty_window_s,
+                    },
+                    infer_voice: route.as_ref().map_or(true, |r| r.infer_voice),
+                    start_held: !crate::route::Guard::new(r.clone(), civ_capable, 30)
+                        .gate(0)
+                        .is_open(),
                 };
                 tokio::spawn(run_serial(params, rx, evt_tx.clone()));
             }
         }
+        let civ_model = match pc {
+            PortConfig::Serial {
+                civ: Some(c),
+                profile,
+                ..
+            } => aether_civ::model(profile).map(|m| (c.clone(), m)),
+            _ => None,
+        };
+        let link = match pc {
+            PortConfig::Serial { route, .. } => {
+                let r = crate::route::Route::from_config(route.as_ref());
+                let recheck = route.as_ref().map_or(30, |r| r.recheck_min);
+                let guard = crate::route::Guard::new(r, civ_model.is_some(), recheck);
+                let mut l = repeater::RadioLink::new(
+                    guard,
+                    route.as_ref().and_then(|r| r.answer_broadcast),
+                );
+                // Matches SerialParams::start_held.
+                l.held_sent = Some(!l.guard.gate(0).is_open());
+                if let Some((c, model)) = &civ_model {
+                    l.civ_tx = Some(crate::civ::spawn(
+                        crate::civ::SessionParams {
+                            port: pc.name().to_string(),
+                            path: c.path.clone(),
+                            baud: c.baud,
+                            model,
+                            addr: c.addr_byte().unwrap_or(model.default_addr),
+                        },
+                        tx.clone(),
+                        civ_evt_tx.clone(),
+                    ));
+                }
+                Some(l)
+            }
+            _ => None,
+        };
         ports.insert(
             pc.name().to_string(),
             PortState {
@@ -979,15 +1084,9 @@ pub fn start(cfg: &Config) -> Result<EngineHandle, String> {
                 detail: None,
                 tx,
                 tap,
-                civ: match pc {
-                    PortConfig::Serial {
-                        civ: Some(c),
-                        profile,
-                        ..
-                    } => aether_civ::model(profile).map(|m| (c.clone(), m)),
-                    _ => None,
-                },
+                civ: civ_model,
                 radio_fast: None,
+                link,
             },
         );
     }
@@ -1012,9 +1111,10 @@ pub fn start(cfg: &Config) -> Result<EngineHandle, String> {
                 "kind": "ratflector", "name": name, "host": host, "tcpPort": tcp_port,
                 "password": password.as_ref().map(|_| "(set, not included)"),
             }),
-            PortConfig::Serial { name, path, baud, profile, mode, flow, civ } => json!({
+            PortConfig::Serial { name, path, baud, profile, mode, flow, civ, route } => json!({
                 "kind": "serial", "name": name, "path": path, "baud": baud,
                 "profile": profile, "mode": mode, "flow": flow,
+                "route": route.as_ref().map(|r| json!({ "via": r.via, "repeater": r.repeater, "scope": r.scope, "recheckMin": r.recheck_min, "inferVoice": r.infer_voice, "answerBroadcast": r.answer_broadcast })),
                 "civ": civ.as_ref().map(|c| json!({ "path": c.path, "baud": c.baud, "addr": c.addr, "allowSet": c.allow_set })),
             }),
         }).collect::<Vec<_>>(),
@@ -1056,6 +1156,7 @@ pub fn start(cfg: &Config) -> Result<EngineHandle, String> {
             tokio::select! {
                 _ = tick.tick() => engine.tick().await,
                 Some(e) = evt_rx.recv() => engine.on_port_evt(e).await,
+                Some((port, e)) = civ_evt_rx.recv() => engine.on_civ_evt(port, e).await,
                 c = cmd_rx.recv() => match c {
                     Some(c) => engine.on_cmd(c).await,
                     None => break,

@@ -9,7 +9,9 @@
 //! * [`capture`]: `.aecap` wire capture
 //! * [`bundle`]: support bundle (tar)
 //! * [`client`]: blocking API client (CLI tools)
-//! * [`civ`]: CI-V Fast Data read/set on a configured control port
+//! * [`civ`]: CI-V session on a configured control port (Fast Data, D-STAR
+//!   route, channel sense)
+//! * [`route`]: route guard: radio route vs configured scope (pure)
 //! * [`api`]: local JSON-RPC 2.0 over WebSocket (subset of API v0)
 
 pub mod api;
@@ -21,6 +23,7 @@ pub mod config;
 pub mod engine;
 pub mod inbox;
 pub mod ports;
+pub mod route;
 pub mod station;
 pub mod xfer;
 

@@ -34,3 +34,12 @@ flow = "none"
 # baud = 19200
 # addr = "B4"          # reported default for the ID-52; check MENU > SET > Function > CI-V
 # allow_set = false
+
+# Optional: through a repeater (docs/10). Without this the port is direct
+# (simplex). Aether DV holds sending until the radio's UR/R1/R2 match the
+# scope: with [port.civ] it reads them; otherwise it asks you to confirm.
+# [port.route]
+# via = "repeater"
+# repeater = "W4DOC B"     # call sign and module (R1)
+# scope = "repeater"       # this repeater only (R2 blank); "reflector" sends to the
+#                          # linked reflector (R2 = gateway) and must be confirmed

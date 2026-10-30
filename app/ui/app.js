@@ -48,6 +48,31 @@ const MODES = {
 };
 const modeOf = (p) => MODES[p && p.pathKind] || MODES.rf_slow;
 
+// Why a radio port is not sending (scheduler, docs/10 §4.4).
+const WAIT_WORDS = {
+  voice: 'Voice on the channel', voice_gap: 'Waiting after voice', other_mode: 'Repeater busy in another mode',
+  signal: 'Channel busy', receiving: 'Receiving', holdoff: 'Waiting for a turn', gap: 'Leaving room for others',
+  courtesy: 'Courtesy pause', paused: 'Paused by you', route: 'Held until the route is OK',
+};
+const GATE_WORDS = {
+  open: 'Route OK', checking: 'Checking the radio', confirm: 'Confirm the route',
+  held: 'Radio set for another route', blocked: 'Blocked by the radio’s UR',
+};
+const SCOPE_WORDS = { direct: 'Direct (simplex)', repeater: 'This repeater only', reflector: 'Linked reflector' };
+
+function channelWords(p) {
+  const c = p.channel;
+  if (!c) return '';
+  if (c.state === 'sending') return 'Sending';
+  if (c.state === 'waiting' && c.why) {
+    const w = WAIT_WORDS[c.why] || c.why;
+    return c.until && ['courtesy', 'paused', 'voice_gap'].includes(c.why) ? `${w} until ${hms(c.until)}` : w;
+  }
+  return 'Clear';
+}
+
+const routeHeld = (p) => p.route && p.route.gate !== 'open';
+
 const PORT_WORDS = {
   starting: 'Starting', connecting: 'Connecting', up: 'Connected', ready: 'Ready',
   backoff: 'Reconnecting', absent: 'Radio not found', lost: 'Connection lost',
@@ -74,6 +99,8 @@ const S = {
   unreadChat: 0,
   unreadMsg: 0,
   lastError: '',
+  checks: new Map(), // portId -> last repeater access check result
+  portOpen: null, // port whose route panel is open
 };
 
 // ---------------------------------------------------------------- engine API
@@ -273,6 +300,19 @@ function onEvent(topic, d) {
       if (S.view === 'messages') loadMessages().then(render);
       break;
     }
+    case 'port.route': {
+      const p = S.ports.find((x) => x.id === d.portId);
+      if (p) p.route = d.route;
+      break;
+    }
+    case 'port.channel': {
+      const p = S.ports.find((x) => x.id === d.portId);
+      if (p) p.channel = d.channel;
+      break;
+    }
+    case 'port.accessCheck':
+      S.checks.set(d.portId, { at: Date.now(), ...d.result });
+      break;
     case 'engine.event':
       S.events.push(d);
       if (S.events.length > 200) S.events.shift();
@@ -306,6 +346,7 @@ function renderAll() {
   const main = $('#main');
   const views = { chat: renderChat, messages: renderMessages, transfers: renderTransfers, stations: renderStations, radios: renderRadios, sounds: renderSounds, diagnostics: renderDiagnostics };
   (views[S.view] || renderChat)(main);
+  if (S.portOpen) renderPort();
 }
 
 function renderStrip() {
@@ -316,11 +357,23 @@ function renderStrip() {
       const word = PORT_WORDS[p.state] || p.state;
       const down = ['absent', 'lost', 'auth_failed', 'backoff'].includes(p.state);
       const heard = [...S.stations.values()].filter((s) => s.portId === p.id && s.lastHeard && Date.now() - s.lastHeard < 3600e3).length;
-      return h('li', { class: 'plate', 'data-mode': m.mode, 'data-state': down ? 'down' : 'ok', 'aria-label': `${p.name}, ${m.words}, ${word}` },
+      const r = p.route;
+      const held = !down && routeHeld(p);
+      const where = r && r.via === 'repeater'
+        ? `${r.repeater}, ${r.scope === 'reflector' ? `reflector${r.link ? ` ${r.link.reflector}` : ''}` : 'this repeater'}`
+        : null;
+      const status = held ? h('span', { class: 'st pending' }, GATE_WORDS[r.gate] || r.gate) : channelWords(p);
+      const label = `${p.name}, ${m.words}, ${word}${where ? `, ${where}` : ''}${held ? `, ${GATE_WORDS[r.gate]}` : ''}`;
+      const kids = [
         h('span', { class: 'plate-name' }, p.name),
         h('span', { class: 'plate-mode' }, m.label),
         h('span', { class: 'plate-state' }, down ? h('span', { class: 'st fail' }, word) : word),
-        h('span', { class: 'plate-nums' }, p.detail && down ? p.detail : [h('b', {}, heard), ' heard in the last hour']));
+        h('span', { class: 'plate-nums' }, p.detail && down ? p.detail : [h('b', {}, heard), ' heard in the last hour']),
+      ];
+      if (r) kids.push(h('span', { class: 'plate-route' }, where || 'Direct'), h('span', { class: 'plate-chan' }, status));
+      if (!r) return h('li', { class: 'plate', 'data-mode': m.mode, 'data-state': down ? 'down' : 'ok', 'aria-label': label }, ...kids);
+      return h('li', { class: 'plate', 'data-mode': m.mode, 'data-state': down ? 'down' : held ? 'held' : 'ok' },
+        h('button', { class: 'plate-btn', 'aria-label': `${label}. Open route and channel`, onclick: () => openPort(p.id) }, ...kids));
     }),
     h('li', { class: 'strip-end' }, S.ports.length ? '' : 'No ports configured'));
 }
@@ -583,6 +636,12 @@ function updateEstimate() {
   const bytes = ($('#msg').value.length || 0) + 61;
   const bcast = $('#to').value === 'CQCQCQ' ? ' Broadcasts can’t be confirmed.' : '';
   est.textContent = m.rate ? `About ${(1.1 + bytes / m.rate).toFixed(1)} s on air.${bcast}` : `Internet: sent at once.${bcast}`;
+  if (port && routeHeld(port)) {
+    est.replaceChildren(h('span', { class: 'st pending' }, `${GATE_WORDS[port.route.gate]}: messages wait.`), ' ',
+      h('button', { class: 'btn quiet', type: 'button', onclick: () => openPort(port.id) }, 'Review route'));
+  } else if (port && port.route && port.route.scope === 'reflector') {
+    est.textContent += ' Goes to every repeater on the linked reflector.';
+  }
 }
 
 function updateChat(view) {
@@ -806,11 +865,139 @@ function renderTransfers(main) {
           h('td', {}, p ? p.name : t.portId || ''),
           h('td', {}, t.state === 'done' ? h('span', { class: 'st ok', title: t.stateReason || '' }, t.direction === 'send' ? 'Handed off' : 'Received')
             : t.state === 'failed' ? h('span', { class: 'st fail', title: t.stateReason || '' }, t.stateReason || 'Failed')
-            : h('span', { class: 'st pending' }, t.state)),
+            : h('span', { class: 'st pending', title: p && p.channel && p.channel.holdsTimers ? 'Timers are paused while the channel is held' : '' },
+              p && (routeHeld(p) || (p.channel && p.channel.holdsTimers)) ? `${t.state}, ${routeHeld(p) ? GATE_WORDS[p.route.gate] : channelWords(p)}`.toLowerCase().replace(/^./, (c) => c.toUpperCase()) : t.state)),
           h('td', {}, h('div', { class: 'prog' }, h('div', { class: `bar ${p ? modeOf(p).mode : ''}`, role: 'progressbar', 'aria-valuenow': pctv, 'aria-valuemin': 0, 'aria-valuemax': 100, 'aria-label': `${t.filename} progress` }, h('span', { style: `width:${pctv}%` })), h('span', { class: 'num' }, `${pctv}%`))),
           h('td', { class: 'num' }, t.retries),
           h('td', {}, active ? h('button', { class: 'btn quiet', onclick: () => Engine.call('transfers.cancel', { id: t.id }).catch((e) => alert(e.message)) }, 'Cancel') : null));
       }))) : h('p', { class: 'empty' }, 'No transfers yet.'))));
+}
+
+// ---------------------------------------------------------------- route panel
+// One port's route (radio UR/R1/R2 vs the scope) and channel (docs/10 §5).
+function openPort(id) {
+  S.portOpen = id;
+  let dlg = $('#port-dialog');
+  if (!dlg) {
+    dlg = h('dialog', { id: 'port-dialog', class: 'sheet', 'aria-labelledby': 'port-title' });
+    dlg.addEventListener('close', () => { S.portOpen = null; });
+    document.body.append(dlg);
+  }
+  renderPort();
+  if (!dlg.open) dlg.showModal();
+}
+
+function callsRow(label, have, need) {
+  const shown = (v) => (v === '' ? '(blank)' : v);
+  const differs = have != null && need != null && have !== need;
+  return h('tr', {}, h('th', { scope: 'row' }, label),
+    h('td', { class: `call${differs ? ' differs' : ''}` }, have == null ? '—' : shown(have)),
+    h('td', { class: 'call' }, need == null ? '—' : shown(need)));
+}
+
+function renderPort() {
+  const dlg = $('#port-dialog');
+  const p = S.ports.find((x) => x.id === S.portOpen);
+  if (!dlg || !p) return;
+  const r = p.route || {};
+  const c = p.channel || {};
+  const out = h('p', { class: 'error-text', role: 'alert' });
+  const call = (method, params, label) => h('button', {
+    class: 'btn', type: 'button', onclick: async () => {
+      out.textContent = '';
+      try {
+        const res = await Engine.call(method, { id: p.id, ...(params || {}) });
+        if (res && res.gate) p.route = res;
+        render();
+      } catch (e) {
+        out.textContent = e.message;
+      }
+    },
+  }, label);
+  const obs = r.observed && r.observed.calls;
+  const req = r.required;
+  const reach = r.scope === 'reflector'
+    ? `Every repeater and hotspot linked to ${r.link ? r.link.reflector : `whatever ${r.repeater} is linked to right now`}. That can change at any time.`
+    : r.scope === 'repeater'
+      ? `Stations in range of ${r.repeater}. Stays local even when the repeater is linked to a reflector.`
+      : 'Stations in range of this radio.';
+  const route = [];
+  if (r.gate === 'confirm') {
+    if (r.needs && r.needs.route) {
+      route.push(h('p', {}, 'This radio can’t report its call signs to Aether DV. Check them on the radio’s screen. Storing them in a memory channel used only for data keeps them from changing.'));
+    }
+    if (r.needs && r.needs.reflector) {
+      route.push(h('p', { class: 'warn' }, `Data on this port goes to ${r.link ? `every repeater linked to ${r.link.reflector}` : `whatever ${r.repeater} is linked to`}. Keep messages short and files small.`));
+    }
+  } else if (r.message) {
+    route.push(h('p', { class: r.gate === 'blocked' ? 'error-text' : 'warn' }, r.message));
+  }
+  const buttons = [];
+  if (r.gate === 'confirm') {
+    buttons.push(h('button', { class: 'btn primary', type: 'button', onclick: async () => {
+      out.textContent = '';
+      try {
+        p.route = await Engine.call('ports.confirmRoute', { id: p.id });
+        render();
+      } catch (e) {
+        out.textContent = e.message;
+      }
+    } }, r.needs && r.needs.route ? 'The radio matches' : 'Send to the reflector'));
+  }
+  if (r.civRoute) buttons.push(call('ports.verifyRoute', null, 'Check the radio again'));
+  if (r.canApply && ['held'].includes(r.gate)) buttons.push(call('ports.applyRoute', { confirm: true }, 'Set the radio for this route'));
+  if (r.via === 'repeater') {
+    buttons.push(h('a', { class: 'btn quiet', href: '#radios', onclick: () => $('#port-dialog').close() }, 'Radio setup help'));
+  }
+  const src = (c.sources || []).filter((x) => x !== 'data');
+  const sensing = c.sensesVoice
+    ? 'Data and voice are detected from the radio (CI-V).'
+    : src.includes('inferred_voice')
+      ? 'Only data is detected directly. Voice is noticed only when the speaker’s radio sends position data, so pause sending during nets.'
+      : 'Only data is detected. Voice is not, so pause sending during voice contacts and nets.';
+  const budget = c.airBudgetMs || 0;
+  const used = Math.min(c.airUsedMs || 0, budget);
+  const check = S.checks.get(p.id);
+  const paused = c.why === 'paused';
+  // Keep keyboard focus on the same control across re-renders.
+  const focused = dlg.contains(document.activeElement) ? document.activeElement.textContent : null;
+  dlg.replaceChildren(...[
+    h('div', { class: 'sheet-head' }, h('h2', { id: 'port-title' }, p.name),
+      h('span', { class: 'muted' }, SCOPE_WORDS[r.scope] || ''),
+      h('button', { class: 'btn quiet', type: 'button', 'aria-label': 'Close', onclick: () => dlg.close() }, '✕')),
+    h('section', {}, h('h3', {}, 'Who receives your data'), h('p', {}, reach),
+      r.lastAck ? h('p', { class: 'muted' }, `Repeater last acknowledged us at ${hms(r.lastAck.at)}${r.lastAck.ber ? `, BER ${r.lastAck.ber}` : ''}.`) : null),
+    r.via === 'repeater' ? h('section', {}, h('h3', {}, 'Route'),
+      h('p', {}, h('span', { class: `st ${r.gate === 'open' ? 'ok' : r.gate === 'blocked' ? 'fail' : 'pending'}` }, GATE_WORDS[r.gate] || r.gate),
+        h('span', { class: 'muted' }, r.source === 'civ' ? ' Read from the radio.' : r.source === 'operator' ? ' Confirmed by you.' : '')),
+      ...route,
+      obs
+        ? h('table', { class: 'calls' }, h('thead', {}, h('tr', {}, h('th', {}), h('th', { scope: 'col' }, 'Radio'), h('th', { scope: 'col' }, 'Needed'))),
+          h('tbody', {}, callsRow('UR', obs.ur, req && req.ur), callsRow('R1', obs.r1, req && req.r1), callsRow('R2', obs.r2, req && req.r2)))
+        : req ? h('table', { class: 'calls' }, h('thead', {}, h('tr', {}, h('th', {}), h('th', { scope: 'col' }, 'Set on the radio'))),
+          h('tbody', {}, ...[['UR', req.ur], ['R1', req.r1], ['R2', req.r2]].map(([k, v]) => h('tr', {}, h('th', { scope: 'row' }, k), h('td', { class: 'call' }, v === '' ? '(blank)' : v))))) : null,
+      r.myCallMatches === false ? h('p', { class: 'warn' }, `The radio’s MY call is ${r.myCall}; this station is ${S.me}.`) : null,
+      h('div', { class: 'sheet-actions' }, ...buttons)) : null,
+    h('section', {}, h('h3', {}, 'Channel'),
+      h('p', {}, channelWords(p) || 'Clear', c.queued ? h('span', { class: 'muted' }, `, ${c.queued} waiting`) : null),
+      h('p', { class: 'muted' }, sensing),
+      budget ? h('div', { class: 'meter' }, h('div', { class: 'bar', role: 'meter', 'aria-valuenow': Math.round(used / 1000), 'aria-valuemin': 0, 'aria-valuemax': Math.round(budget / 1000), 'aria-label': 'Air time used' },
+        h('span', { style: `width:${Math.round((100 * used) / budget)}%` })),
+        h('span', { class: 'muted' }, `${Math.round(used / 1000)} of ${Math.round(budget / 1000)} s air time used in the last 10 minutes`)) : null,
+      h('div', { class: 'sheet-actions' },
+        paused ? call('ports.resume', null, 'Resume sending') : call('ports.pause', null, 'Pause sending'),
+        paused ? null : call('ports.pause', { minutes: 30 }, 'Pause for 30 minutes'))),
+    r.via === 'repeater' && r.civRoute ? h('section', {}, h('h3', {}, 'Repeater access'),
+      h('p', { class: 'muted' }, 'Sends one short check and reads the repeater’s acknowledgement.'),
+      check ? h('p', {}, check.ok
+        ? h('span', { class: 'st ok' }, `Acknowledged${check.ber ? `, BER ${check.ber}` : ''}${check.link ? `, linked to ${check.link}` : ', not linked'}`)
+        : h('span', { class: 'st fail' }, check.message)) : null,
+      h('div', { class: 'sheet-actions' }, call('diag.repeaterCheck', null, 'Check access'))) : null,
+    out].filter(Boolean));
+  if (focused) {
+    const again = [...dlg.querySelectorAll('button, a')].find((b) => b.textContent === focused);
+    if (again) again.focus();
+  }
 }
 
 // ---------------------------------------------------------------- stations
@@ -851,6 +1038,7 @@ function renderDiagnostics(main) {
   main.replaceChildren(h('div', { class: 'xfer', style: 'grid-template-rows: auto 1fr' },
     h('div', { class: 'pane-head', style: 'height:auto; flex-wrap:wrap; padding-block:var(--s3)' }, h('h1', {}, 'Diagnostics'), about,
       ...S.ports.flatMap((p) => [act(`Start capture on ${p.name}`, 'diag.captureStart', { portId: p.id }), act(`Stop capture on ${p.name}`, 'diag.captureStop', { portId: p.id })]),
+      ...S.ports.filter((p) => p.route && p.route.via === 'repeater' && p.route.civRoute).map((p) => act(`Check access to ${p.route.repeater}`, 'diag.repeaterCheck', { id: p.id })),
       act('Write support bundle', 'diag.supportBundle', { includeCaptures: true }), out),
     h('div', { class: 'tablewrap' }, h('table', { class: 'grid' },
       h('thead', {}, h('tr', {}, ...['Time', 'Level', 'Port', 'Event'].map((c) => h('th', { scope: 'col' }, c)))),
