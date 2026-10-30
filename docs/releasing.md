@@ -19,15 +19,32 @@ Installed copies find the update when they next check. They install it only when
 ## One-time setup
 
 1. **Releases repo.** On GitHub, create the public repository `KK4ODA/aether-dv-releases` and tick **Add a README** (the feed is committed to its `main` branch).
-2. **Update key.** On your own computer:
+2. **Update key.** On your own computer, with either Node.js or Rust installed. Choose a password when asked. The command writes `aether-dv.key` (private) and `aether-dv.key.pub` (public). Back up both, with the password, somewhere offline.
+
+   **Windows (PowerShell), with Node.js.** No Rust needed. If `node --version` fails, run `winget install OpenJS.NodeJS.LTS` and reopen PowerShell.
+   ```powershell
+   mkdir $HOME\.tauri -Force
+   ```
+   ```powershell
+   npx.cmd @tauri-apps/cli signer generate -w $HOME\.tauri\aether-dv.key
+   ```
+   - Use `npx.cmd`, not `npx`. On Windows' default settings, PowerShell refuses to run `npx.ps1` ("running scripts is disabled").
+   - Use `$HOME`, not `~`. PowerShell doesn't always expand `~` for other programs.
+
+   To copy a key file into a GitHub secret or variable without retyping it (repeat with `aether-dv.key.pub` for the variable):
+   ```powershell
+   Get-Content $HOME\.tauri\aether-dv.key -Raw | Set-Clipboard
+   ```
+
+   **Linux or macOS, with Rust:**
    ```bash
    cargo install tauri-cli --version "^2" --locked
    ```
    ```bash
    cargo tauri signer generate -w ~/.tauri/aether-dv.key
    ```
-   Choose a password when asked. This writes `aether-dv.key` (private) and `aether-dv.key.pub` (public). Back up both, with the password, somewhere offline.
-3. **Token for publishing.** GitHub → Settings → Developer settings → Fine-grained tokens → Generate new token:
+   With Node.js instead of Rust, the generate command is `npx @tauri-apps/cli signer generate -w ~/.tauri/aether-dv.key`.
+3. **Token for publishing.** The releases repo must exist first, because the token page only lists existing repositories. Open https://github.com/settings/personal-access-tokens/new (or GitHub → Settings → Developer settings → Fine-grained tokens → Generate new token). Copy the token as soon as it's shown; GitHub shows it only once.
    - **Resource owner:** KK4ODA
    - **Repository access:** only `aether-dv-releases`
    - **Permissions:** Contents set to Read and write
@@ -54,6 +71,11 @@ Installed copies find the update when they next check. They install it only when
    ```bash
    git push origin vX.Y.Z
    ```
+   Without git, create the tag on GitHub instead:
+   - Open https://github.com/KK4ODA/aether-dv/releases/new, then **Choose a tag** → type `vX.Y.Z` → **Create new tag on publish**.
+   - Set the target to `main` and tick **Set as a pre-release**, then **Publish release**.
+
+   This also leaves an empty release entry in the private repo. You can delete it afterwards; the tag stays.
 4. Watch the `package` workflow. When it's green, the release is on the releases repo and the feed points at it.
 
 Versions `0.x` and versions with a suffix (`1.0.0-rc.1`) are published as GitHub pre-releases.
