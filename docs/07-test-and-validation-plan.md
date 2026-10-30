@@ -30,7 +30,7 @@ Components:
 - **Golden vectors**: the two upstream vectors already matched (`02` §2.4), extended from captures of real D-RATS sessions (chat, ping, status, RPC, file with resume, form). Stored as `.aecap` and replayed in CI.
 - **Property/fuzz tests**: DDT2 decoder, yEnc, NMEA/DPRS parsers, form XML, ratflector handshake (cargo-fuzz).
 - **State-machine tests**: model-based tests (e.g. `proptest-state-machine`) for ARQ, the scheduler, the ratflector client and message delivery. Every legacy defect in `02` §8 gets a reproducing test.
-- **Fault injection**: kill -9 the engine mid-transfer, pull the virtual USB, full disk, clock jump, TCP half-open (drop packets without FIN), slow-loris clients against `aether-rfd`.
+- **Fault injection**: kill -9 the engine mid-transfer, pull the virtual USB, full disk, clock jump, TCP half-open (drop packets without FIN), slow-loris clients against `aetherdv-rfd`.
 - **Loop/amplification suite**: ratflector triangles, two RF bridges hearing each other, and a mixed legacy + Aether servers topology. The pass criterion is bounded total frames per injected frame.
 
 ## 3. First hardware validation tests (Phase C, in this order)

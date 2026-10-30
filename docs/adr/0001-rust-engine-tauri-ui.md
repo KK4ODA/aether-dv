@@ -7,7 +7,7 @@ The RF engine must survive UI failure, run headless on a Raspberry Pi, and share
 
 ## Decision
 - A Rust workspace provides every non-UI component (codec, link, radio, store, ratflector client/server, sim).
-- The engine `aetherd` is its own OS process. The UI talks to it over a versioned local JSON-RPC + event API.
+- The engine `aetherdv` is its own OS process. The UI talks to it over a versioned local JSON-RPC + event API.
 - The desktop shell is Tauri 2 with a TypeScript UI. Maps use MapLibre GL with offline tiles.
 
 ## Alternatives

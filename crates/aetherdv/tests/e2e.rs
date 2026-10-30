@@ -4,8 +4,8 @@
 use std::time::Duration;
 
 use aether_rfd::server::{Server, ServerConfig};
-use aetherd::config::Config;
-use aetherd::engine::{self, ApiEvent, Cmd, EngineHandle, MsgCmd};
+use aetherdv::config::Config;
+use aetherdv::engine::{self, ApiEvent, Cmd, EngineHandle, MsgCmd};
 use serde_json::{json, Value};
 use tokio::sync::{broadcast, oneshot};
 use tokio::time::timeout;
@@ -199,7 +199,7 @@ async fn rpc(ws: &mut Ws, id: u64, method: &str, params: Value) -> Value {
 async fn api_requires_token_and_serves_methods() {
     let cfg = Config::parse("callsign = \"KK4ODA\"").unwrap();
     let h = engine::start(&cfg).unwrap();
-    let addr = aetherd::api::serve("127.0.0.1:0", "secret".into(), h)
+    let addr = aetherdv::api::serve("127.0.0.1:0", "secret".into(), h)
         .await
         .unwrap();
     let (mut ws, _) = tokio_tungstenite::connect_async(format!("ws://{addr}"))
@@ -535,7 +535,7 @@ async fn ratflector_driver_enables_tcp_keepalive() {
     let s = tokio::net::TcpStream::connect(l.local_addr().unwrap())
         .await
         .unwrap();
-    aetherd::ports::enable_keepalive(&s).unwrap();
+    aetherdv::ports::enable_keepalive(&s).unwrap();
     let sock = socket2::SockRef::from(&s);
     assert!(sock.keepalive().unwrap());
     #[cfg(any(target_os = "linux", target_os = "macos"))]
@@ -790,8 +790,8 @@ async fn transfer_to_an_absent_station_can_be_cancelled_and_bad_requests_fail() 
 
 #[tokio::test]
 async fn wire_capture_decodes_and_support_bundle_excludes_secrets() {
-    use aetherd::capture::{self, Record};
-    use aetherd::engine::DiagCmd;
+    use aetherdv::capture::{self, Record};
+    use aetherdv::engine::DiagCmd;
     let srv = Server::start("127.0.0.1:0", ServerConfig::default())
         .await
         .unwrap();
@@ -930,13 +930,13 @@ fn hex_of(s: &str) -> String {
 
 #[tokio::test]
 async fn position_report_sent_by_one_engine_is_mapped_by_the_other() {
-    use aetherd::engine::PosCmd;
+    use aetherdv::engine::PosCmd;
     let srv = Server::start("127.0.0.1:0", ServerConfig::default())
         .await
         .unwrap();
     let a = engine::start(&rfl_config("KK4ODA", srv.local_addr)).unwrap();
     let mut bc = rfl_config("W4DRS", srv.local_addr);
-    bc.position = Some(aetherd::config::PositionConfig {
+    bc.position = Some(aetherdv::config::PositionConfig {
         lat: 33.749,
         lon: -84.388,
         alt_m: Some(320.0),

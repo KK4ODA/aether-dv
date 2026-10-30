@@ -1,4 +1,4 @@
-# aetherd example: Icom ID-52 PLUS, DV data over USB-C.
+# aetherdv example: Icom ID-52 PLUS, DV data over USB-C.
 # ID-52 PLUS setup (verify on your radio; see docs/03 §3):
 #   [MENU] > SET > Function > USB Connect = Serialport
 #   [MENU] > SET > Function > USB Serialport Function = DV Data
@@ -8,10 +8,10 @@ callsign = "KK4ODA"
 db = "aether-id52.db"
 # files_dir = "received"     # received files (messages/forms go to the database); default: next to the db
 # max_incoming_kib = 4096    # largest incoming transfer accepted (compressed size)
-capture = true                # record all port traffic (.aecap) for test evidence; read with `aecap show`
+capture = true                # record all port traffic (.aecap) for test evidence; read with `aetherdv-cap show`
 api_listen = "127.0.0.1:7374"
 
-# Your fixed position, sent only when you run `aether-cli send-position PORT`.
+# Your fixed position, sent only when you run `aetherdv-cli send-position PORT`.
 # [position]
 # lat = 33.749
 # lon = -84.388

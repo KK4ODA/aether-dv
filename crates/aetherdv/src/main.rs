@@ -1,4 +1,4 @@
-//! `aetherd --config aether.toml [--token-file PATH] [--api-listen ADDR]`
+//! `aetherdv --config aether.toml [--token-file PATH] [--api-listen ADDR]`
 //!
 //! Starts the engine, its ports and the local API, writes the API token to
 //! the token file (mode 0600 on Unix) and runs until Ctrl-C / SIGTERM.
@@ -7,10 +7,10 @@
 
 use std::path::PathBuf;
 
-use aetherd::config::Config;
+use aetherdv::config::Config;
 
 fn usage() -> ! {
-    eprintln!("usage: aetherd --config FILE [--token-file PATH] [--api-listen ADDR]");
+    eprintln!("usage: aetherdv --config FILE [--token-file PATH] [--api-listen ADDR]");
     std::process::exit(2)
 }
 
@@ -44,7 +44,7 @@ async fn main() {
             "--token-file" => token_override = args.next().map(PathBuf::from),
             "--api-listen" => api_override = args.next(),
             "--version" | "-V" => {
-                println!("aetherd {}", aetherd::station::VERSION);
+                println!("aetherdv {}", aetherdv::station::VERSION);
                 return;
             }
             _ => usage(),
@@ -66,27 +66,27 @@ async fn main() {
         cfg.api_listen = a;
     }
     let token_path = cfg.token_file.clone().unwrap_or_else(|| match &cfg.db {
-        Some(db) => db.with_file_name("aetherd.token"),
-        None => std::env::temp_dir().join("aetherd.token"),
+        Some(db) => db.with_file_name("aetherdv.token"),
+        None => std::env::temp_dir().join("aetherdv.token"),
     });
-    let engine = aetherd::engine::start(&cfg).unwrap_or_else(|e| {
+    let engine = aetherdv::engine::start(&cfg).unwrap_or_else(|e| {
         eprintln!("{e}");
         std::process::exit(1)
     });
-    let token = aetherd::new_token();
+    let token = aetherdv::new_token();
     if let Err(e) = write_token(&token_path, &token) {
         eprintln!("cannot write token file {}: {e}", token_path.display());
         std::process::exit(1)
     }
-    let addr = aetherd::api::serve(&cfg.api_listen, token, engine)
+    let addr = aetherdv::api::serve(&cfg.api_listen, token, engine)
         .await
         .unwrap_or_else(|e| {
             eprintln!("cannot listen on {}: {e}", cfg.api_listen);
             std::process::exit(1)
         });
     tracing::info!(
-        "aetherd {} for {}: API ws://{addr} (token in {})",
-        aetherd::station::VERSION,
+        "aetherdv {} for {}: API ws://{addr} (token in {})",
+        aetherdv::station::VERSION,
         cfg.callsign,
         token_path.display()
     );

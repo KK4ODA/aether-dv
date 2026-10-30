@@ -1,4 +1,4 @@
-# aetherd example: Icom IC-9700 on USB, DV slow data, plus a public ratflector.
+# aetherdv example: Icom IC-9700 on USB, DV slow data, plus a public ratflector.
 # IC-9700 setup (verify on your radio; see docs/03 §3):
 #   SET > Connectors > USB (B) Function = DV Data   (USB port A stays CI-V)
 #   SET > DV/DD Set > DV Data TX = Auto
@@ -8,10 +8,10 @@ callsign = "KK4ODA"
 db = "aether.db"
 # files_dir = "received"     # received files (messages/forms go to the database); default: next to the db
 # max_incoming_kib = 4096    # largest incoming transfer accepted (compressed size)
-capture = true                # record all port traffic (.aecap) for test evidence; read with `aecap show`
+capture = true                # record all port traffic (.aecap) for test evidence; read with `aetherdv-cap show`
 api_listen = "127.0.0.1:7373"
 
-# Your fixed position, sent only when you run `aether-cli send-position PORT`.
+# Your fixed position, sent only when you run `aetherdv-cli send-position PORT`.
 # [position]
 # lat = 33.749
 # lon = -84.388
@@ -37,7 +37,7 @@ host = "sewx.ratflector.com"
 tcp_port = 9000
 
 # Optional: CI-V on USB port A, so Aether can check the radio's DV Fast Data
-# setting against `mode` above at start-up (`aether-cli radio-mode IC-9700`).
+# setting against `mode` above at start-up (`aetherdv-cli radio-mode IC-9700`).
 # [port.civ]
 # path = "/dev/serial/by-id/usb-Icom_Inc._IC-9700_...-if00"   # USB (A), CI-V
 # baud = 19200

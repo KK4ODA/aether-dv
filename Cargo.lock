@@ -73,7 +73,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "aetherd"
+name = "aetherdv"
 version = "0.1.0"
 dependencies = [
  "aether-civ",

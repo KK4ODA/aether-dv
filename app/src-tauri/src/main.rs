@@ -1,4 +1,4 @@
-// Aether DV desktop shell. The UI talks to the engine (aetherd) over its
+// Aether DV desktop shell. The UI talks to the engine (aetherdv) over its
 // local API; the shell never owns serial ports itself (ADR-0001). Its
 // native jobs: find (or start) the engine, and update the app.
 //
@@ -63,13 +63,13 @@ fn app_token_file(app: &tauri::AppHandle) -> Result<PathBuf, String> {
         .app_data_dir()
         .map_err(|e| format!("no app data directory: {e}"))?;
     std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
-    Ok(dir.join("aetherd.token"))
+    Ok(dir.join("aetherdv.token"))
 }
 
 /// The engine's API address (loopback only) and access token. The token is
 /// read from, in order: the engine this app started, the file the user
-/// chose, `AETHER_TOKEN_FILE`, and `aetherd.token` in the temp directory
-/// (aetherd's default without a database). Only small `*.token` files.
+/// chose, `AETHERDV_TOKEN_FILE`, and `aetherdv.token` in the temp directory
+/// (aetherdv's default without a database). Only small `*.token` files.
 #[tauri::command]
 fn engine_endpoint(
     app: tauri::AppHandle,
@@ -79,7 +79,7 @@ fn engine_endpoint(
 ) -> Result<Endpoint, String> {
     let api = api
         .filter(|a| !a.trim().is_empty())
-        .or_else(|| std::env::var("AETHER_API").ok())
+        .or_else(|| std::env::var("AETHERDV_API").ok())
         .unwrap_or_else(|| DEFAULT_API.into());
     loopback_only(&api)?;
     let ours = state.engine.lock().map(|e| e.is_some()).unwrap_or(false);
@@ -92,8 +92,8 @@ fn engine_endpoint(
                 .filter(|t| !t.trim().is_empty())
                 .map(|t| PathBuf::from(t.trim())),
         )
-        .chain(std::env::var_os("AETHER_TOKEN_FILE").map(PathBuf::from))
-        .chain([std::env::temp_dir().join("aetherd.token")])
+        .chain(std::env::var_os("AETHERDV_TOKEN_FILE").map(PathBuf::from))
+        .chain([std::env::temp_dir().join("aetherdv.token")])
         .collect();
     for path in &candidates {
         if let Some(token) = read_token(path) {
@@ -101,7 +101,7 @@ fn engine_endpoint(
         }
     }
     Err(format!(
-        "No engine token found (looked at {}). Start the engine below, or enter the path of a running engine's aetherd.token file.",
+        "No engine token found (looked at {}). Start the engine below, or enter the path of a running engine's aetherdv.token file.",
         candidates.iter().map(|p| p.display().to_string()).collect::<Vec<_>>().join(", ")
     ))
 }
@@ -109,13 +109,13 @@ fn engine_endpoint(
 /// The engine binary shipped inside this app, if present.
 fn bundled_engine() -> Option<PathBuf> {
     let dir = std::env::current_exe().ok()?.parent()?.to_path_buf();
-    let p = dir.join(format!("aetherd{}", std::env::consts::EXE_SUFFIX));
+    let p = dir.join(format!("aetherdv{}", std::env::consts::EXE_SUFFIX));
     p.is_file().then_some(p)
 }
 
 /// Start the bundled engine with the operator's configuration file. Its
 /// token goes to the app data directory; its console output to
-/// `aetherd-console.log` there. Relative paths in the configuration are
+/// `aetherdv-console.log` there. Relative paths in the configuration are
 /// relative to the configuration file.
 #[tauri::command]
 fn engine_start(
@@ -128,7 +128,7 @@ fn engine_start(
         .filter(|a| !a.trim().is_empty())
         .unwrap_or_else(|| DEFAULT_API.into());
     loopback_only(&api)?;
-    let exe = bundled_engine().ok_or("This installation has no bundled engine (aetherd).")?;
+    let exe = bundled_engine().ok_or("This installation has no bundled engine (aetherdv).")?;
     let config = PathBuf::from(config.trim());
     if !config.is_file() {
         return Err(format!("{} is not a file", config.display()));
@@ -141,7 +141,7 @@ fn engine_start(
     }
     let token = app_token_file(&app)?;
     let _ = std::fs::remove_file(&token);
-    let log_path = token.with_file_name("aetherd-console.log");
+    let log_path = token.with_file_name("aetherdv-console.log");
     let log =
         std::fs::File::create(&log_path).map_err(|e| format!("{}: {e}", log_path.display()))?;
     let mut cmd = Command::new(&exe);

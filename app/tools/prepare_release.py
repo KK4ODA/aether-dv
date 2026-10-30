@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Prepare a release build of the desktop app (run from the repo root, after
-`cargo build --release -p aetherd`).
+`cargo build --release -p aetherdv`).
 
-* copies aetherd and aether-cli into app/src-tauri/binaries/ with the
+* copies aetherdv and aetherdv-cli into app/src-tauri/binaries/ with the
   target-triple suffix Tauri's externalBin expects;
 * writes app/src-tauri/tauri.release.conf.json (merged with --config): the
   bundled engine, updater artifacts, and the update public key;
@@ -32,10 +32,10 @@ def main():
     exe = ".exe" if "windows" in a.target else ""
     out = TAURI / "binaries"
     out.mkdir(exist_ok=True)
-    for name in ("aetherd", "aether-cli"):
+    for name in ("aetherdv", "aetherdv-cli"):
         src = ROOT / "target" / "release" / f"{name}{exe}"
         if not src.is_file():
-            sys.exit(f"{src} missing: run cargo build --release -p aetherd first")
+            sys.exit(f"{src} missing: run cargo build --release -p aetherdv first")
         shutil.copy2(src, out / f"{name}-{a.target}{exe}")
 
     pubkey = ""
@@ -49,7 +49,7 @@ def main():
     if pubkey and not signing:
         print("warning: public key set but no signing key; building without updater artifacts", file=sys.stderr)
 
-    conf = {"bundle": {"externalBin": ["binaries/aetherd", "binaries/aether-cli"],
+    conf = {"bundle": {"externalBin": ["binaries/aetherdv", "binaries/aetherdv-cli"],
                        "createUpdaterArtifacts": bool(pubkey and signing)}}
     if pubkey:
         conf["plugins"] = {"updater": {"pubkey": pubkey}}

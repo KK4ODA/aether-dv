@@ -106,10 +106,10 @@ Table: `03` §6.
 
 **8. What is the best implementation architecture?**
 - A Rust workspace with **sans-I/O protocol cores** and an injected clock: codec, link/scheduler, ARQ.
-- A separate engine process (`aetherd`) owning ports, store and routing.
+- A separate engine process (`aetherdv`) owning ports, store and routing.
 - A Tauri 2 + TypeScript desktop UI over a versioned local API.
 - SQLite WAL durable store.
-- A standalone `aether-rfd` ratflector server from the same crates.
+- A standalone `aetherdv-rfd` ratflector server from the same crates.
 - A deterministic simulator for every test below hardware level.
 
 Slow and Fast share everything above a data-only `ModeProfile`. See `05`; ADR-0001…0008.
@@ -131,7 +131,7 @@ In order, with captures for each:
 The baseline comes before any optimisation: D-RATS vs Aether with identical parameters on the same rig. See `07` §3–4.
 
 **10. What is the smallest viable prototype that demonstrates a real advantage over D-RATS?**
-A headless `aetherd` plus a minimal UI or TUI that:
+A headless `aetherdv` plus a minimal UI or TUI that:
 1. Interoperates byte-exactly with D-RATS 0.4.2 for chat, ping and an ICS-213 form and 10 KB file, over one Icom radio and over a ratflector.
 2. Keeps a durable queue that survives kill -9 and USB unplug, with operator-visible delivery state that never claims more than the evidence.
 3. Reconnects to ratflectors automatically with back-off and detects half-open sockets.

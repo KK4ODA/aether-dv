@@ -23,7 +23,7 @@ Likelihood and impact use H/M/L.
 | R12 | WebKitGTK / Linux packaging variance breaks UI on some distros | M | M | AppImage with tested baseline; deb/rpm for current LTS only; the headless engine still works | CI matrix |
 | R13 | Serial-port reliability on Windows (port wedging after write timeout, DR#148) | M | H | No write timeouts on the hot path; reopen strategy; USB stable-id tracking | HW-9 on Windows |
 | R14 | Scope creep (Winlink, APRS, email, maps) dilutes core reliability | H | M | Phase gates; deferred list in `01`; "stability over features" principle | Roadmap reviews |
-| R15 | Public ratflector ecosystem is small or partly dead (ref.d-rats.com gone, DR#295) | M | M | Ship `aether-rfd` early as an easy-to-deploy server; keep legacy compatibility | Connection telemetry (local) |
+| R15 | Public ratflector ecosystem is small or partly dead (ref.d-rats.com gone, DR#295) | M | M | Ship `aetherdv-rfd` early as an easy-to-deploy server; keep legacy compatibility | Connection telemetry (local) |
 | R16 | The D-RATS community perceives a competing fork | L | M | Engage upstream: share the spec, test vectors and hardware findings; credit sources | Upstream response |
 | R17 | Assumed JARL/Icom facts (e.g. Fast Data framing) prove wrong | M | M | Phase A marks every claim with its evidence level; hardware tests before reliance | — |
 | R18 | Licensing contamination (GPL-2.0-only code, API keys) | L | H | ADR-0008; CI licence scan | CI |
@@ -66,7 +66,7 @@ Scope is deliberately small: engine, codec, serial adapter, ratflector client, C
 - legacy chat, ping, version, file and form transfer, ICS-213 and positions
 - ratflector client and server
 - capture and support bundle (C5)
-- `aether-bench` for C1/C6
+- `aetherdv-bench` for C1/C6
 - a minimal UI
 
 C1 and C3–C4 need a D-RATS station and the owner's radios, and C6 needs the hardware. Procedures: `phase-c/README.md`. Phase D groundwork (CI-V Fast Data check, read and guarded set) is in place, at Simulated level.
@@ -87,7 +87,7 @@ C1 and C3–C4 need a D-RATS station and the owner's radios, and C6 needs the ha
 - **Exit:** a 72-hour soak test with fault injection, with no lost queued messages and no stuck transfers.
 
 ### Phase F — Ratflector server and release
-- F1 `aether-rfd`: legacy-compatible (I against D-RATS 0.4.2 clients); loop suite passes; 200 simulated clients on a Raspberry Pi 4 at <30 % CPU; graceful restart.
+- F1 `aetherdv-rfd`: legacy-compatible (I against D-RATS 0.4.2 clients); loop suite passes; 200 simulated clients on a Raspberry Pi 4 at <30 % CPU; graceful restart.
 - F2 Packaging: MSI, DMG (signed and notarised), AppImage + deb + rpm, arm64/armv7 server builds; reproducible builds; signed update notifications; config and DB migrations tested across versions.
 - F3 Docs: operator guide, radio setup guides per profile, server admin guide, protocol spec (CC-BY).
 - F4 Validation matrix published in the README from `validation.yaml`.

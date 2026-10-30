@@ -1,12 +1,12 @@
-// UI smoke test in browser-preview mode against a running aetherd.
+// UI smoke test in browser-preview mode against a running aetherdv.
 //   cd app/ui && python3 -m http.server 18080 --bind 127.0.0.1 &
-//   node app/tools/ui-smoke.js 127.0.0.1:7373 path/to/aetherd.token [outdir]
+//   node app/tools/ui-smoke.js 127.0.0.1:7373 path/to/aetherdv.token [outdir]
 // Drives every view, sends a chat line, and fails on console errors or on
 // any element created from received text. Screenshots go to outdir.
 const { chromium } = require('playwright');
 const path = require('path');
 (async () => {
-  const [api = '127.0.0.1:7373', tokenFile = 'aetherd.token', outDir = '.'] = process.argv.slice(2);
+  const [api = '127.0.0.1:7373', tokenFile = 'aetherdv.token', outDir = '.'] = process.argv.slice(2);
   const token = require('fs').readFileSync(tokenFile, 'utf8').trim();
   const shot = (n) => path.join(outDir, n);
   const b = await chromium.launch();

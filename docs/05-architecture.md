@@ -24,7 +24,7 @@ Status: Phase B **proposal** for review. Nothing here is implemented. Decisions 
 | Long-term dependency risk | Tauri 2 stable since 2024, active; WebKitGTK version drift on old distros | Qt LGPL obligations; PySide churn | Slint GPL/royalty-free licence terms; egui/iced pre-1.0 APIs | Qt licensing |
 | Contributor pool | Rust + TS | Python (largest ham-dev pool) | Rust only | C++ |
 
-**Recommendation (ADR-0001): a Rust workspace for every non-UI component, plus a Tauri 2 desktop shell with a TypeScript UI (Svelte 5 proposed; see ADR-0006).** The engine runs as a separate process, `aetherd`. The same daemon runs headless on a Raspberry Pi as a bridge/station. The ratflector server `aether-rfd` reuses the codec and link crates.
+**Recommendation (ADR-0001): a Rust workspace for every non-UI component, plus a Tauri 2 desktop shell with a TypeScript UI (Svelte 5 proposed; see ADR-0006).** The engine runs as a separate process, `aetherdv`. The same daemon runs headless on a Raspberry Pi as a bridge/station. The ratflector server `aetherdv-rfd` reuses the codec and link crates.
 
 Cost of this choice: Rust raises the bar for the many Python-literate hams who maintained D-RATS. Mitigations: a sharply specified, test-vector-driven protocol spec (portable to any language), a small, well-documented crate set, and a UI layer in mainstream TypeScript.
 
@@ -38,7 +38,7 @@ Cost of this choice: Rust raises the bar for the many Python-literate hams who m
 │  │  (Tauri shell + TS UI)   │◀─ + event stream; token auth; versioned)│
 │  └──────────────────────────┘                    │                     │
 │                                                  ▼                     │
-│  ┌──────────────────────────── aetherd (engine) ───────────────────┐  │
+│  ┌──────────────────────────── aetherdv (engine) ───────────────────┐  │
 │  │ api ─ app-state ─ messaging ─ store(SQLite WAL)                  │  │
 │  │                    │                                             │  │
 │  │      ┌─────────────┴─────────────┐                               │  │
@@ -51,11 +51,11 @@ Cost of this choice: Rust raises the bar for the many Python-literate hams who m
 │         ▼ USB/serial/BT-SPP           ▼ TCP :9000                        │
 └─────────┼─────────────────────────────┼─────────────────────────────────┘
           ▼                             ▼
-      Icom / Kenwood radio         aether-rfd or legacy ratflector
+      Icom / Kenwood radio         aetherdv-rfd or legacy ratflector
 ```
 
 - The UI may be closed, crash, or be replaced (a future TUI or web UI) without touching RF state.
-- `aetherd` runs as a user-level background process started by the desktop app or the OS (systemd user unit, launchd agent, Windows Task Scheduler/Service), with an option to keep running in the tray.
+- `aetherdv` runs as a user-level background process started by the desktop app or the OS (systemd user unit, launchd agent, Windows Task Scheduler/Service), with an option to keep running in the tray.
 - Single-instance lock per profile. **Exclusive serial-port ownership** lives in the engine only.
 
 ## 4. Crate/module map and contracts
@@ -69,7 +69,7 @@ Cost of this choice: Rust raises the bar for the many Python-literate hams who m
 | 4 | `aether-link` | Per-port **channel scheduler** (half-duplex turns, priorities, burst budget), session multiplexer, ALP (Aether Link Protocol) state machines, capability cache | ddt2 | Sans-I/O: `poll_transmit(now) -> Option<Burst>`, `on_rx_bytes(now, &[u8])`, `next_timeout() -> Instant` |
 | 5 | `aether-radio` | Device discovery, stable identity, hardware profiles, adapter lifecycle, optional CI-V control | — | `trait ByteLink { open, write_all_paced, read, close, health }`; `trait RadioControl` (optional: read/set settings, only where documented) |
 | 6 | `aether-rfl` | Ratflector client: handshake, reconnect state machine, multi-server | ddt2 | Exposes each server as a `ByteLink` with `PathKind::Internet{server}` |
-| 7 | `aether-rfd` (bin) | Ratflector server | ddt2, rfl | Config, admin socket, metrics |
+| 7 | `aetherdv-rfd` (bin) | Ratflector server | ddt2, rfl | Config, admin socket, metrics |
 | 8 | `aether-forms`, `aether-geo` | Form schema (legacy XML import/export), ICS-213 etc.; positions: NMEA/DPRS codecs, station tracking, offline tiles | — | Pure codecs plus models |
 | 9 | `aether-diag` | `tracing` setup, wire capture (`.aecap` = timestamped RX/TX byte records per port), support-bundle export | all | Capture format is documented and replayable into the simulator |
 | — | `aether-sim` | Virtual radios, channel models (loss, burst loss, latency, half-duplex, turnaround), virtual clock, scenario runner | link, ddt2, radio(traits) | Used by every test category below hardware |

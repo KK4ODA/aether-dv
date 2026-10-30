@@ -1,5 +1,5 @@
-//! Blocking client for the local API, used by `aether-cli` and
-//! `aether-bench`. Event notifications that arrive while waiting for a
+//! Blocking client for the local API, used by `aetherdv-cli` and
+//! `aetherdv-bench`. Event notifications that arrive while waiting for a
 //! reply are kept, in order, for [`Client::next_event`].
 
 use std::collections::VecDeque;
@@ -32,7 +32,7 @@ impl Client {
     /// Connect to `addr` (host:port) and authenticate with `token`.
     pub fn connect(addr: &str, token: &str, client_name: &str) -> Result<Client, String> {
         let (ws, _) = connect(format!("ws://{addr}"))
-            .map_err(|e| format!("cannot connect to aetherd at {addr}: {e}"))?;
+            .map_err(|e| format!("cannot connect to aetherdv at {addr}: {e}"))?;
         let mut c = Client {
             ws,
             next: 0,
