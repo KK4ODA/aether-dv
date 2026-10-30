@@ -97,6 +97,36 @@ Add a `[port.route]` section to a radio port (see the examples and `docs/10-repe
 
 Validation level: **Simulated** (simulated IC-9700 and a simulated repeater). The bench and on-air tests in `docs/10` §7 come next.
 
+## Running a radio test and sending the results
+
+In the app, open **Diagnostics → Radio test**:
+
+1. Type what you're testing (for example "simplex, IC-9700 to ID-52 PLUS, chat and a 2 kB file") and click **Start test**. Every port starts recording: data, CI-V traffic, timing, route and channel state.
+2. While testing, click a marker when you do something by hand: **Keyed voice**, **Voice ended**, **Changed a radio setting**, **Something went wrong**. You can also type your own marker and press Enter. Markers carry the exact time, so I can line them up with the recording.
+3. Click **Finish test**. Then:
+   - **Copy summary** and paste it into the chat. That is usually all I need.
+   - Only if I ask for the full bundle: **Upload for the developer** opens GitHub's upload page for the `test-results` branch. **Show file** opens the folder with the bundle. Drag the file onto the page and click **Commit changes**.
+
+From a terminal it's the same:
+- `aetherdv-cli test start WHAT YOU ARE TESTING`
+- `aetherdv-cli test mark WHAT HAPPENED`
+- `aetherdv-cli test finish`, which prints the summary and the bundle's path.
+
+**What's in the bundle** (`aether-test-*.tar.gz`):
+- `summary.txt`
+- the test's captures
+- the engine log
+- each port's route and channel state
+- the configuration without passwords
+
+The captures include what went over the air, including chat text and file contents.
+
+**Reading a capture yourself:**
+- `aetherdv-cap show FILE`: everything in time order (`--no-civ` hides CI-V frames).
+- `aetherdv-cap timing FILE`: the summary report for that port. Per transmission: key-up delay and real against estimated air time.
+
+Without CI-V (older radios) the recording still has the data and the timeline, but no TX/RX state or received call signs. Markers matter more there.
+
 ## Positions
 
 Received position reports appear in `aetherdv-cli positions` (latest per station) and `positions CALL` (history), and as `station.position` events. Both D-RATS formats are understood:

@@ -130,6 +130,13 @@ pub enum RouteCmd {
 }
 
 impl Engine {
+    /// Record a timeline event in the port's capture, if one is running.
+    pub(super) fn tap_event(&self, port: &str, k: &str, v: Value) {
+        if let Some(p) = self.ports.get(port) {
+            p.tap.event(k, v);
+        }
+    }
+
     fn to_unix(&self, t: u64) -> i64 {
         unix_ms() - self.now().saturating_sub(t) as i64
     }
@@ -307,6 +314,13 @@ impl Engine {
                 if let Some(l) = self.ports.get_mut(&n).and_then(|p| p.link.as_mut()) {
                     l.last_gate = Some(gate.clone());
                 }
+                let (g, code) = match &gate {
+                    Gate::Open => ("open", None),
+                    Gate::Checking => ("checking", None),
+                    Gate::NeedsConfirm { .. } => ("confirm", None),
+                    Gate::Wrong(v) => ("held", v.code()),
+                };
+                self.tap_event(&n, "gate", json!({ "gate": g, "code": code }));
                 match &gate {
                     Gate::Wrong(v) => {
                         let level = if matches!(v, Verdict::Block { .. }) {
@@ -340,6 +354,47 @@ impl Engine {
 
     pub(super) async fn on_civ_evt(&mut self, port: String, e: CivEvt) {
         let now = self.now();
+        match &e {
+            CivEvt::Open(r) => {
+                self.tap_event(&port, "civ_open", json!({ "error": r.as_ref().err() }))
+            }
+            CivEvt::Route(Ok(o)) => {
+                let verdict = self
+                    .ports
+                    .get(&port)
+                    .and_then(|p| p.link.as_ref())
+                    .map(|l| crate::route::check(&l.guard.route, o));
+                self.tap_event(
+                    &port,
+                    "route",
+                    json!({
+                        "calls": o.calls.as_ref().map(calls_json), "duplex": o.duplex,
+                        "verdict": verdict.as_ref().and_then(|v| v.code()).unwrap_or("allow"),
+                    }),
+                );
+            }
+            CivEvt::Route(Err(err)) => {
+                self.tap_event(&port, "route_error", json!({ "error": err }))
+            }
+            CivEvt::MyCall(c) => self.tap_event(&port, "my_call", json!({ "call": c })),
+            CivEvt::Changed => self.tap_event(&port, "radio_changed", json!({})),
+            CivEvt::RxCalls(c) => self.tap_event(
+                &port,
+                "rx_calls",
+                json!({
+                    "caller": c.caller.trim_end(), "called": c.called.trim_end(),
+                    "r1": c.r1.trim_end(), "r2": c.r2.trim_end(),
+                    "flag1": c.flag1, "flag2": c.flag2, "data": c.is_data(),
+                    "viaRepeater": c.via_repeater(),
+                }),
+            ),
+            CivEvt::RxMessage(m) => self.tap_event(
+                &port,
+                "rx_message",
+                json!({ "text": m.text.trim_end(), "caller": m.caller.trim_end() }),
+            ),
+            CivEvt::Sources(_) | CivEvt::Channel(_) => {}
+        }
         let Some(l) = self.ports.get_mut(&port).and_then(|p| p.link.as_mut()) else {
             return;
         };
@@ -468,8 +523,10 @@ impl Engine {
         let holds = report.holds_timers;
         if holds && !self.xfers.port_paused(&port) {
             self.xfers.pause_port(&port, now);
+            self.tap_event(&port, "transfers_paused", json!({ "why": report.why }));
         } else if !holds && self.xfers.port_paused(&port) {
             self.xfers.resume_port(&port, now);
+            self.tap_event(&port, "transfers_resumed", json!({}));
         }
         if let Some(l) = self.ports.get_mut(&port).and_then(|p| p.link.as_mut()) {
             l.sched = Some(report);
@@ -480,6 +537,12 @@ impl Engine {
 
     pub(super) fn on_burst(&mut self, port: &str, air_ms: u64) {
         let now = self.now();
+        // Measure key-up and real air time while a capture runs.
+        if let Some(p) = self.ports.get(port).filter(|p| p.tap.on()) {
+            if let Some(civ) = p.link.as_ref().and_then(|l| l.civ_tx.as_ref()) {
+                let _ = civ.send(CivReq::WatchTx { ms: air_ms });
+            }
+        }
         if let Some(l) = self.ports.get_mut(port).and_then(|p| p.link.as_mut()) {
             l.guard.on_transmitted(now);
             let end = unix_ms() + air_ms as i64;
@@ -732,6 +795,7 @@ impl Engine {
                 ),
             };
             self.log("info", Some(&n), &msg);
+            self.tap_event(&n, "access_check", result.clone());
             self.publish("port.accessCheck", json!({ "portId": n, "result": result }));
         }
     }

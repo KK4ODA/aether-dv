@@ -207,6 +207,7 @@ async function loadAll() {
   S.transfers = new Map(transfers.map((t) => [t.id, t]));
   S.events = events.reverse();
   for (const p of await Engine.call('stations.positions', {})) S.positions.set(p.callsign, p);
+  await loadTestStatus();
   await loadChat();
   await loadMessages();
 }
@@ -1015,7 +1016,147 @@ function renderStations(main) {
 }
 
 // ---------------------------------------------------------------- diagnostics
+// Radio test: record everything on every port, add markers, then hand the
+// summary (paste) and bundle (upload) to the developer.
+const UPLOAD_URL = 'https://github.com/KK4ODA/aether-dv/upload/test-results/bundles';
+const Test = { status: { running: false }, result: null, error: '', busy: false };
+const QUICK_MARKS = ['Keyed voice', 'Voice ended', 'Changed a radio setting', 'Something went wrong'];
+
+async function loadTestStatus() {
+  try {
+    Test.status = await Engine.call('diag.testStatus');
+  } catch {
+    Test.status = { running: false };
+  }
+}
+
+setInterval(() => {
+  if (S.connected && S.view === 'diagnostics' && Test.status.running) render();
+}, 1000);
+
+async function testCall(method, params) {
+  Test.error = '';
+  Test.busy = true;
+  render();
+  try {
+    return await Engine.call(method, params);
+  } catch (e) {
+    Test.error = e.message;
+    return null;
+  } finally {
+    Test.busy = false;
+    render();
+  }
+}
+
+async function copyText(text, area) {
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch {
+    if (area) {
+      area.focus();
+      area.select();
+      try {
+        return document.execCommand('copy');
+      } catch {
+        return false;
+      }
+    }
+    return false;
+  }
+}
+
+function testCard(state) {
+  if (state === 'idle') {
+    const what = h('input', { id: 'test-what', placeholder: 'What are you testing? (e.g. simplex, IC-9700 to ID-52 PLUS)', autocomplete: 'off' });
+    const start = async () => {
+      const r = await testCall('diag.testStart', { description: what.value });
+      if (r) Test.status = r;
+    };
+    what.addEventListener('keydown', (e) => { if (e.key === 'Enter') start(); });
+    return h('section', { class: 'testcard', 'aria-labelledby': 'test-h' },
+      h('h2', { id: 'test-h' }, 'Radio test'),
+      h('p', { class: 'muted' }, 'Records everything on every port: data, CI-V and timing. Mark what you do as you go, then send the summary.'),
+      h('div', { class: 'test-row' }, what, h('button', { class: 'btn primary', id: 'test-start', onclick: start }, 'Start test')),
+      h('p', { class: 'error-text', id: 'test-err', role: 'alert' }));
+  }
+  if (state === 'running') {
+    const note = h('input', { id: 'test-note', placeholder: 'What just happened?', autocomplete: 'off' });
+    const mark = async (text) => {
+      const r = await testCall('diag.testMark', { text });
+      if (r) {
+        Test.status.markers = [...(Test.status.markers || []), r];
+        note.value = '';
+      }
+    };
+    note.addEventListener('keydown', (e) => { if (e.key === 'Enter' && note.value.trim()) mark(note.value); });
+    return h('section', { class: 'testcard running', 'aria-labelledby': 'test-h' },
+      h('h2', { id: 'test-h' }, h('span', { class: 'rec', 'aria-hidden': 'true' }), 'Recording ', h('span', { id: 'test-elapsed' })),
+      h('p', { class: 'muted', id: 'test-desc' }),
+      h('div', { class: 'test-row' }, ...QUICK_MARKS.map((m) => h('button', { class: 'btn', onclick: () => mark(m) }, m))),
+      h('div', { class: 'test-row' }, note, h('button', { class: 'btn', onclick: () => note.value.trim() && mark(note.value) }, 'Add marker')),
+      h('ol', { class: 'marks', id: 'test-marks', 'aria-label': 'Markers' }),
+      h('div', { class: 'test-row' }, h('button', {
+        class: 'btn primary', id: 'test-finish', onclick: async () => {
+          const r = await testCall('diag.testFinish');
+          if (r) {
+            Test.result = r;
+            Test.status = { running: false };
+          }
+        },
+      }, 'Finish test')),
+      h('p', { class: 'error-text', id: 'test-err', role: 'alert' }));
+  }
+  const r = Test.result;
+  const area = h('textarea', { class: 'summary', readonly: '', rows: 8, 'aria-label': 'Test summary' });
+  area.value = r.summary;
+  const copied = h('span', { class: 'muted', role: 'status' });
+  const tauri = window.__TAURI__ && window.__TAURI__.core;
+  return h('section', { class: 'testcard done', 'aria-labelledby': 'test-h' },
+    h('h2', { id: 'test-h' }, 'Test saved'),
+    h('ol', { class: 'steps' },
+      h('li', {}, h('button', {
+        class: 'btn primary', onclick: async () => {
+          copied.textContent = (await copyText(r.summary, area)) ? ' Copied. Paste it into the chat with Claude.' : ' Select the text below and copy it.';
+        },
+      }, 'Copy summary'), copied),
+      h('li', {}, 'Only if asked for the full bundle: ',
+        tauri ? h('button', { class: 'btn', onclick: () => tauri.invoke('reveal_bundle', { path: r.path }).catch((e) => { Test.error = String(e); render(); }) }, 'Show file') : null,
+        ' ', h('button', { class: 'btn', onclick: () => openLink(UPLOAD_URL) }, 'Upload for the developer'),
+        h('span', { class: 'muted' }, ' then drag the file onto the page and click Commit changes.'))),
+    h('p', { class: 'muted' }, `${r.path} (${Math.max(1, Math.round(r.bytes / 1024))} kB)`),
+    area,
+    h('div', { class: 'test-row' }, h('button', { class: 'btn quiet', onclick: () => { Test.result = null; render(); } }, 'Start another test')),
+    h('p', { class: 'error-text', id: 'test-err', role: 'alert' }));
+}
+
+function updateTestCard(card) {
+  const err = $('#test-err', card);
+  if (err) err.textContent = Test.error;
+  for (const b of card.querySelectorAll('button')) b.disabled = Test.busy;
+  if (!Test.status.running) return;
+  const secs = Math.max(0, Math.round((Date.now() - Test.status.startedAt) / 1000));
+  $('#test-elapsed', card).textContent = `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, '0')}`;
+  $('#test-desc', card).textContent = Test.status.description || 'No description';
+  const marks = Test.status.markers || [];
+  const list = $('#test-marks', card);
+  if (list.childElementCount !== marks.length) {
+    list.replaceChildren(...marks.map((m) => h('li', {}, h('time', {}, hms(m.at)), ' ', m.text)));
+  }
+}
+
 function renderDiagnostics(main) {
+  let view = $('.diag', main);
+  if (!view) {
+    view = h('div', { class: 'xfer diag', style: 'grid-template-rows: auto auto 1fr' },
+      h('div', { class: 'pane-head', id: 'diag-head', style: 'height:auto; flex-wrap:wrap; padding-block:var(--s3)' }),
+      h('div', { id: 'diag-test' }),
+      h('div', { class: 'tablewrap' }, h('table', { class: 'grid' },
+        h('thead', {}, h('tr', {}, ...['Time', 'Level', 'Port', 'Event'].map((c) => h('th', { scope: 'col' }, c)))),
+        h('tbody', { id: 'diag-events' }))));
+    main.replaceChildren(view);
+  }
   const out = h('p', { class: 'muted', role: 'status' });
   const act = (label, method, params) => h('button', {
     class: 'btn', onclick: async () => {
@@ -1035,16 +1176,24 @@ function renderDiagnostics(main) {
           Shell.state === 'error' && !Shell.update ? h('span', { class: 'error-text' }, ` ${Shell.message}`) : '']
         : ' · this build cannot update itself (no release key)')
     : null;
-  main.replaceChildren(h('div', { class: 'xfer', style: 'grid-template-rows: auto 1fr' },
-    h('div', { class: 'pane-head', style: 'height:auto; flex-wrap:wrap; padding-block:var(--s3)' }, h('h1', {}, 'Diagnostics'), about,
-      ...S.ports.flatMap((p) => [act(`Start capture on ${p.name}`, 'diag.captureStart', { portId: p.id }), act(`Stop capture on ${p.name}`, 'diag.captureStop', { portId: p.id })]),
+  const head = $('#diag-head', view);
+  if (!head.contains(document.activeElement)) {
+    head.replaceChildren(...[h('h1', {}, 'Diagnostics'), about,
       ...S.ports.filter((p) => p.route && p.route.via === 'repeater' && p.route.civRoute).map((p) => act(`Check access to ${p.route.repeater}`, 'diag.repeaterCheck', { id: p.id })),
-      act('Write support bundle', 'diag.supportBundle', { includeCaptures: true }), out),
-    h('div', { class: 'tablewrap' }, h('table', { class: 'grid' },
-      h('thead', {}, h('tr', {}, ...['Time', 'Level', 'Port', 'Event'].map((c) => h('th', { scope: 'col' }, c)))),
-      h('tbody', {}, ...S.events.slice().reverse().map((e) => h('tr', {}, h('td', {}, hms(e.at)),
-        h('td', {}, e.level === 'warn' || e.level === 'error' ? h('span', { class: 'st fail' }, e.level) : e.level),
-        h('td', {}, e.portId || ''), h('td', { style: 'white-space:normal' }, e.message))))))));
+      act('Write support bundle', 'diag.supportBundle', { includeCaptures: true }), out].filter(Boolean));
+  }
+  const state = Test.result ? 'done' : Test.status.running ? 'running' : 'idle';
+  const slot = $('#diag-test', view);
+  if (slot.dataset.state !== state) {
+    slot.dataset.state = state;
+    slot.replaceChildren(testCard(state));
+    const first = $('#test-note', slot) || $('#test-what', slot);
+    if (first && state !== 'done') first.focus();
+  }
+  updateTestCard(slot.firstChild);
+  $('#diag-events', view).replaceChildren(...S.events.slice().reverse().map((e) => h('tr', {}, h('td', {}, hms(e.at)),
+    h('td', {}, e.level === 'warn' || e.level === 'error' ? h('span', { class: 'st fail' }, e.level) : e.level),
+    h('td', {}, e.portId || ''), h('td', { style: 'white-space:normal' }, e.message))));
 }
 
 // ---------------------------------------------------------------- radio setup

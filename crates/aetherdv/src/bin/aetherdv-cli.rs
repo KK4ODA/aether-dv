@@ -35,6 +35,12 @@
 //!   capture-stop PORT             stop it; prints the file (read it with `aetherdv-cap show`)
 //!   log [N]                       the last N engine log entries (default 50)
 //!   bundle [captures]             write a support bundle (.tar), optionally with captures
+//!   test start [WHAT YOU ARE TESTING...]
+//!                                 radio test: record everything on every port
+//!   test mark TEXT...             add a marker ("keyed voice", "changed R2"...)
+//!   test finish                   stop, write the test bundle (.tar.gz) and print
+//!                                 its summary, ready to paste
+//!   test status                   is a test running?
 //!   tail                          print chat, port, station and transfer events live
 //! ```
 
@@ -410,6 +416,31 @@ fn main() {
                 );
             }
         }
+        "test" if args.len() >= 2 => match args[1].as_str() {
+            "start" => {
+                let r = c.call("diag.testStart", json!({ "description": args[2..].join(" ") }));
+                println!(
+                    "Test started: recording on {}.\nAdd markers with `aetherdv-cli test mark WHAT HAPPENED`, then `aetherdv-cli test finish`.",
+                    r["ports"].as_array().map(|v| v.iter().filter_map(Value::as_str).collect::<Vec<_>>().join(", ")).unwrap_or_default()
+                );
+            }
+            "mark" if args.len() >= 3 => {
+                c.call("diag.testMark", json!({ "text": args[2..].join(" ") }));
+                println!("marked");
+            }
+            "finish" => {
+                let r = c.call("diag.testFinish", json!({}));
+                println!("{}", r["summary"].as_str().unwrap_or(""));
+                println!("========================================");
+                println!(
+                    "Bundle: {} ({} kB)\nPaste the summary above into the chat. If asked for the full bundle, upload the file at\nhttps://github.com/KK4ODA/aether-dv/upload/test-results/bundles",
+                    r["path"].as_str().unwrap_or(""),
+                    r["bytes"].as_u64().unwrap_or(0) / 1024
+                );
+            }
+            "status" => println!("{}", c.call("diag.testStatus", json!({}))),
+            _ => die("test start [DESCRIPTION] | test mark TEXT | test finish | test status"),
+        },
         "bundle" => {
             let caps = args.get(1).is_some_and(|a| a == "captures");
             let r = c.call("diag.supportBundle", json!({ "includeCaptures": caps }));
@@ -432,6 +463,6 @@ fn main() {
                 }
             }
         }
-        _ => die("usage: aetherdv-cli [--api ADDR] [--token-file PATH] ports|stations|send PORT DST TEXT|history [PORT] [N]|ping PORT CALL|version PORT CALL|send-file PORT CALL PATH [--confirm-reflector]|route PORT [confirm|check|apply --confirm]|pause PORT [MINUTES]|resume PORT|repeater-check PORT|transfers [all]|cancel ID|ics213 CALL SUBJECT MESSAGE|msg-send ID [PORT]|messages [FOLDER]|msg ID|positions [CALL]|send-position PORT [dprs|nmea]|radio-mode PORT [fast|slow --confirm]|capture-start PORT|capture-stop PORT|log [N]|bundle [captures]|tail"),
+        _ => die("usage: aetherdv-cli [--api ADDR] [--token-file PATH] ports|stations|send PORT DST TEXT|history [PORT] [N]|ping PORT CALL|version PORT CALL|send-file PORT CALL PATH [--confirm-reflector]|route PORT [confirm|check|apply --confirm]|pause PORT [MINUTES]|resume PORT|repeater-check PORT|transfers [all]|cancel ID|ics213 CALL SUBJECT MESSAGE|msg-send ID [PORT]|messages [FOLDER]|msg ID|positions [CALL]|send-position PORT [dprs|nmea]|radio-mode PORT [fast|slow --confirm]|capture-start PORT|capture-stop PORT|log [N]|bundle [captures]|test start|mark|finish|status|tail"),
     }
 }

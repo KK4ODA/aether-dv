@@ -31,6 +31,10 @@ pub const SQUELCH: &[u8] = &[0x15, 0x01];
 /// `0F`: split/duplex (`00` split off, `01` split on, `11` DUP-, `12`
 /// DUP+, `13` DD repeater simplex).
 pub const DUPLEX: &[u8] = &[0x0F];
+/// `1C 00`: read whether the radio is transmitting (`00` RX, `01` TX).
+/// Read only: the same command with a data byte keys the transmitter, so
+/// it must never be sent with data.
+pub const TX_STATE: &[u8] = &[0x1C, 0x00];
 /// Transceive: operating frequency changed (`00`) and mode changed (`01`).
 pub const FREQ_PUSH: &[u8] = &[0x00];
 pub const MODE_PUSH: &[u8] = &[0x01];
@@ -228,6 +232,15 @@ pub fn parse_squelch(data: &[u8]) -> Option<bool> {
     }
 }
 
+/// TX state (`1C 00`): `Some(true)` while transmitting.
+pub fn parse_tx_state(data: &[u8]) -> Option<bool> {
+    match data {
+        [0] => Some(false),
+        [1] => Some(true),
+        _ => None,
+    }
+}
+
 /// Duplex (`0F`): `Some(true)` for DUP- / DUP+, `Some(false)` for simplex.
 pub fn parse_duplex(data: &[u8]) -> Option<bool> {
     match data {
@@ -322,6 +335,11 @@ mod tests {
         assert!(RxStatus::parse(&[0xFF]).is_none());
         assert_eq!(parse_squelch(&[1]), Some(true));
         assert_eq!(parse_squelch(&[2]), None);
+        assert_eq!(parse_tx_state(&[1]), Some(true));
+        assert_eq!(
+            read(0xA2, TX_STATE),
+            vec![0xFE, 0xFE, 0xA2, 0xE0, 0x1C, 0x00, 0xFD]
+        );
         assert_eq!(parse_duplex(&[0x12]), Some(true));
         assert_eq!(parse_duplex(&[0x00]), Some(false));
         assert_eq!(parse_duplex(&[0x07]), None);

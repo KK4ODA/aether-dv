@@ -435,7 +435,21 @@ struct Persist {
 
 impl Persist {
     /// Apply a non-send command. Returns true if the profile must change.
-    fn apply(&mut self, c: &PortCmd, now: u64, sched: Option<&mut Scheduler>) -> bool {
+    fn apply(&mut self, c: &PortCmd, now: u64, sched: Option<&mut Scheduler>, tap: &Tap) -> bool {
+        match c {
+            PortCmd::Send { .. } => {}
+            PortCmd::Channel { source, busy } => tap.event(
+                "channel",
+                serde_json::json!({ "source": source.as_str(), "busy": busy.map(Busy::as_str) }),
+            ),
+            PortCmd::Sources(list) => tap.event(
+                "sources",
+                serde_json::json!(list.iter().map(|s| s.as_str()).collect::<Vec<_>>()),
+            ),
+            PortCmd::RouteHold(h) => tap.event("route_hold", serde_json::json!({ "held": h })),
+            PortCmd::Pause(ms) => tap.event("pause", serde_json::json!({ "ms": ms })),
+            PortCmd::Resume => tap.event("resume", serde_json::json!({})),
+        }
         match c {
             PortCmd::Send { .. } => false,
             PortCmd::Channel { source, busy } => {
@@ -597,7 +611,7 @@ pub async fn run_serial(
                                 .await;
                         }
                         other => {
-                            persist.apply(&other, now(), None);
+                            persist.apply(&other, now(), None, &p.tap);
                         }
                     }
                 }
@@ -677,9 +691,13 @@ pub async fn run_serial(
         let lost_reason = loop {
             if let Some(burst) = sched.poll(now()) {
                 let ids = burst.items.iter().map(|i| i.id).collect();
-                p.tap.tx(&burst.bytes);
                 let (bytes, air_ms) =
                     (burst.bytes.len(), sched.profile().air_ms(burst.bytes.len()));
+                p.tap.event(
+                    "burst",
+                    serde_json::json!({ "bytes": bytes, "frames": burst.items.len(), "airEstMs": air_ms }),
+                );
+                p.tap.tx(&burst.bytes);
                 if wr_tx.send((ids, burst.bytes)).is_err() {
                     break "writer stopped".to_string();
                 }
@@ -693,6 +711,15 @@ pub async fn run_serial(
             }
             let r = report(&mut sched, now(), unix_ms(), &persist);
             if last_report.as_ref() != Some(&r) {
+                let changed = last_report.as_ref().map_or(true, |l| {
+                    (l.state, l.why, l.queued == 0) != (r.state, r.why, r.queued == 0)
+                });
+                if changed {
+                    p.tap.event(
+                        "sched",
+                        serde_json::json!({ "state": r.state, "why": r.why, "until": r.until, "queued": r.queued, "airUsedMs": r.air_used_ms }),
+                    );
+                }
                 last_report = Some(r.clone());
                 if evt
                     .send(PortEvt::Sched {
@@ -721,9 +748,17 @@ pub async fn run_serial(
                         let mut out = Vec::new();
                         deliver(&p.name, &mut deframer, &b, &mut out);
                         if p.infer_voice {
+                            let was_off = persist.infer.disabled();
                             let voice = out.iter().any(|e| matches!(e, PortEvt::Outside { bytes, .. } if persist.infer.feed(t, bytes)));
                             if voice {
+                                p.tap.event("voice_inferred", serde_json::json!({}));
                                 sched.on_voice_inferred(t);
+                            }
+                            if !was_off && persist.infer.disabled() {
+                                p.tap.event(
+                                    "voice_inference_off",
+                                    serde_json::json!({ "reason": "steady GPS output: the radio streams its own position" }),
+                                );
                             }
                         }
                         if !emit(&evt, out).await { return; }
@@ -751,7 +786,7 @@ pub async fn run_serial(
                         sched.enqueue(priority, Item { id, bytes });
                     }
                     Some(other) => {
-                        if persist.apply(&other, now(), Some(&mut sched)) {
+                        if persist.apply(&other, now(), Some(&mut sched), &p.tap) {
                             sched.set_profile(make_profile(&persist.sense));
                         }
                     }

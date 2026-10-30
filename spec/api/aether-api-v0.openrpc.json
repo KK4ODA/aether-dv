@@ -2139,6 +2139,112 @@
           "name": "repeater"
         }
       ]
+    },
+    {
+      "name": "diag.testStart",
+      "summary": "Start a radio test: start captures on every port, record each port's state and a 'test started' marker.",
+      "params": [
+        {
+          "name": "description",
+          "required": false,
+          "schema": {
+            "type": "string",
+            "maxLength": 500
+          }
+        }
+      ],
+      "result": {
+        "name": "status",
+        "schema": {
+          "type": "object"
+        }
+      },
+      "tags": [
+        {
+          "name": "diag"
+        }
+      ]
+    },
+    {
+      "name": "diag.testMark",
+      "summary": "Add a timestamped marker (what the operator just did) to the running test's captures and the engine log.",
+      "params": [
+        {
+          "name": "text",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "maxLength": 300
+          }
+        }
+      ],
+      "result": {
+        "name": "marker",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "at": {
+              "type": "integer"
+            },
+            "text": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "tags": [
+        {
+          "name": "diag"
+        }
+      ]
+    },
+    {
+      "name": "diag.testFinish",
+      "summary": "Stop the test's captures and write one compressed bundle (aether-test-*.tar.gz) with summary.txt; returns its path, size and the summary text.",
+      "params": [],
+      "result": {
+        "name": "bundle",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string"
+            },
+            "bytes": {
+              "type": "integer"
+            },
+            "summary": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "path",
+            "bytes",
+            "summary"
+          ]
+        }
+      },
+      "tags": [
+        {
+          "name": "diag"
+        }
+      ]
+    },
+    {
+      "name": "diag.testStatus",
+      "summary": "Whether a radio test is running, with its description, start time and markers.",
+      "params": [],
+      "result": {
+        "name": "status",
+        "schema": {
+          "type": "object"
+        }
+      },
+      "tags": [
+        {
+          "name": "diag"
+        }
+      ]
     }
   ],
   "components": {

@@ -275,6 +275,8 @@ struct Engine {
     /// Radio GPS-TX output extraction, per serial port.
     scanners: HashMap<String, aether_geo::Scanner>,
     own_position: Option<crate::config::PositionConfig>,
+    /// A radio test in progress (`diag.testStart`).
+    test: Option<diag::TestSession>,
 }
 
 impl Engine {
@@ -1066,6 +1068,7 @@ pub fn start(cfg: &Config) -> Result<EngineHandle, String> {
                             baud: c.baud,
                             model,
                             addr: c.addr_byte().unwrap_or(model.default_addr),
+                            tap: tap.clone(),
                         },
                         tx.clone(),
                         civ_evt_tx.clone(),
@@ -1123,6 +1126,7 @@ pub fn start(cfg: &Config) -> Result<EngineHandle, String> {
         evt_tx: evt_tx.clone(),
         scanners: HashMap::new(),
         own_position: cfg.position.clone(),
+        test: None,
         capture_dir,
         config_summary,
         xfers: Transfers::new(&cfg.callsign, limits),

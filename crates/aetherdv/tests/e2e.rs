@@ -875,7 +875,7 @@ async fn wire_capture_decodes_and_support_bundle_excludes_secrets() {
         match r {
             Record::Rx { bytes, .. } => drx.feed(bytes, &mut ev),
             Record::Tx { bytes, .. } => dtx.feed(bytes, &mut ev),
-            Record::Note { .. } => {}
+            Record::Note { .. } | Record::Civ { .. } | Record::Event { .. } => {}
         }
         for e in ev {
             if let aether_ddt2::Event::Frame { frame, .. } = e {

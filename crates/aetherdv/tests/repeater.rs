@@ -59,6 +59,8 @@ struct Radio {
     /// Frames to push unsolicited (CI-V transceive) on the next read.
     push: Vec<Vec<u8>>,
     writes: u32,
+    /// "Transmitting" until then (set when data reaches the data port).
+    tx_until: Option<Instant>,
 }
 
 type Shared = Arc<Mutex<Radio>>;
@@ -78,6 +80,7 @@ fn radio(ur: &str, r1: &str, r2: &str) -> Shared {
         rx_msg: None,
         push: Vec::new(),
         writes: 0,
+        tx_until: None,
     }))
 }
 
@@ -122,6 +125,11 @@ fn civ_side(mut f: File, r: Shared) {
                     [0x0F] => vec![0x0F, st.duplex],
                     [0x20, 0x02, 0x02] => vec![0x20, 0x02, 0x02, st.status],
                     [0x15, 0x01] => vec![0x15, 0x01, (st.status & 0x10 != 0) as u8],
+                    [0x1C, 0x00] => vec![
+                        0x1C,
+                        0x00,
+                        st.tx_until.is_some_and(|u| Instant::now() < u) as u8,
+                    ],
                     [0x20, 0x00, 0x02] => match &st.rx_calls {
                         Some(c) => [&[0x20, 0x00, 0x02][..], c].concat(),
                         None => vec![0x20, 0x00, 0x02, 0xFF],
@@ -144,7 +152,7 @@ struct DataSide {
     writer: File,
 }
 
-fn data_side(f: File) -> DataSide {
+fn data_side(f: File, radio: Option<Shared>) -> DataSide {
     let frames = Arc::new(Mutex::new(Vec::new()));
     let (out, mut rd) = (frames.clone(), f.try_clone().unwrap());
     std::thread::spawn(move || {
@@ -154,6 +162,16 @@ fn data_side(f: File) -> DataSide {
             let Ok(n) = rd.read(&mut buf) else { return };
             if n == 0 {
                 return;
+            }
+            // The radio keys up a little after data arrives.
+            if let Some(r) = &radio {
+                let now = Instant::now();
+                let mut st = r.lock().unwrap();
+                let from = st
+                    .tx_until
+                    .filter(|&u| u > now)
+                    .unwrap_or(now + Duration::from_millis(300));
+                st.tx_until = Some(from + Duration::from_millis(900));
             }
             let mut ev = Vec::new();
             d.feed(&buf[..n], &mut ev);
@@ -208,6 +226,15 @@ struct Bench {
 
 /// Start an engine with one IC-9700 port. `civ = None` = no CI-V channel.
 async fn bench(route: &str, civ: Option<Shared>) -> Bench {
+    bench_with(route, civ, None).await
+}
+
+async fn bench_with(
+    route: &str,
+    civ: Option<Shared>,
+    capture_dir: Option<&std::path::Path>,
+) -> Bench {
+    let radio = civ.clone();
     let data = openpty(None, None).unwrap();
     let data_path = ttyname(data.slave.as_fd()).unwrap();
     let mut keep = vec![data.slave];
@@ -222,8 +249,11 @@ async fn bench(route: &str, civ: Option<Shared>) -> Bench {
             civ_path.display()
         );
     }
+    let top = capture_dir
+        .map(|d| format!("capture = true\ncapture_dir = \"{}\"\n", d.display()))
+        .unwrap_or_default();
     let cfg = Config::parse(&format!(
-        "callsign = \"KK4ODA\"\n[[port]]\nkind = \"serial\"\nname = \"rf\"\npath = \"{}\"\nprofile = \"icom-ic9700\"\n{civ_cfg}[port.route]\n{route}",
+        "callsign = \"KK4ODA\"\n{top}[[port]]\nkind = \"serial\"\nname = \"rf\"\npath = \"{}\"\nprofile = \"icom-ic9700\"\n{civ_cfg}[port.route]\n{route}",
         data_path.display()
     ))
     .unwrap();
@@ -236,7 +266,7 @@ async fn bench(route: &str, civ: Option<Shared>) -> Bench {
     Bench {
         h,
         ev,
-        data: data_side(File::from(data.master)),
+        data: data_side(File::from(data.master), radio),
         _keep: keep,
     }
 }
@@ -525,4 +555,147 @@ async fn route_writes_wait_for_hardware_testing() {
     .unwrap_err();
     assert!(e.message.contains("HW-R1"), "{}", e.message);
     assert_eq!(r.lock().unwrap().writes, 0, "nothing written to the radio");
+}
+
+#[tokio::test]
+async fn capture_records_civ_frames_timeline_and_key_up() {
+    let dir = tempfile::tempdir().unwrap();
+    let r = radio("CQCQCQ", "W4DOC  B", "");
+    let mut b = bench_with(REPEATER, Some(r.clone()), Some(dir.path())).await;
+    wait_for(&mut b.ev, "route open", |e| {
+        e.topic == "port.route" && e.data["route"]["gate"] == "open"
+    })
+    .await;
+    chat(&b, "timed").await.unwrap();
+    b.data.wait_frame("chat", |f| has_text(f, "timed")).await;
+    // Let the TX watch see key-up and key-down.
+    tokio::time::sleep(Duration::from_millis(2500)).await;
+    let file = std::fs::read_dir(dir.path())
+        .unwrap()
+        .filter_map(|e| e.ok())
+        .map(|e| e.path())
+        .find(|p| p.extension().is_some_and(|x| x == "aecap"))
+        .expect("capture file");
+    if let Ok(keep) = std::env::var("AETHERDV_KEEP_CAPTURE") {
+        std::fs::copy(&file, keep).unwrap();
+    }
+    let (_, recs) = aetherdv::capture::read(&file).unwrap();
+    use aetherdv::capture::Record;
+    let kinds: Vec<String> = recs
+        .iter()
+        .filter_map(|r| match r {
+            Record::Event { kind, .. } => Some(kind.clone()),
+            _ => None,
+        })
+        .collect();
+    for k in [
+        "route", "gate", "sched", "burst", "tx", "sources", "my_call",
+    ] {
+        assert!(kinds.iter().any(|x| x == k), "no {k} event in {kinds:?}");
+    }
+    let civ_tx = recs
+        .iter()
+        .filter(|r| matches!(r, Record::Civ { tx: true, .. }))
+        .count();
+    assert!(civ_tx > 3, "CI-V frames recorded");
+    // Unchanged status polls are recorded once, not four times a second.
+    let status_polls = recs
+        .iter()
+        .filter(|r| matches!(r, Record::Civ { tx: true, bytes, .. } if bytes.get(4..7) == Some(&[0x20, 0x02, 0x02][..])))
+        .count();
+    assert!(
+        status_polls <= 3,
+        "status polls recorded {status_polls} times"
+    );
+    // Key-up follows the burst; key-down follows key-up.
+    let t_of = |k: &str, on: Option<bool>| {
+        recs.iter().find_map(|r| match r {
+            Record::Event { t, kind, data }
+                if kind == k && on.map_or(true, |o| data["on"] == o) =>
+            {
+                Some(*t)
+            }
+            _ => None,
+        })
+    };
+    let (burst, up, down) = (
+        t_of("burst", None).unwrap(),
+        t_of("tx", Some(true)).unwrap(),
+        t_of("tx", Some(false)).unwrap(),
+    );
+    assert!(
+        burst <= up && up < down,
+        "burst {burst} up {up} down {down}"
+    );
+}
+
+#[tokio::test]
+async fn radio_test_session_writes_one_bundle_with_a_summary() {
+    let dir = tempfile::tempdir().unwrap();
+    let r = radio("CQCQCQ", "W4DOC  B", "");
+    let mut b = bench_with(REPEATER, Some(r), Some(dir.path())).await;
+    wait_for(&mut b.ev, "route open", |e| {
+        e.topic == "port.route" && e.data["route"]["gate"] == "open"
+    })
+    .await;
+    let diag = |c| move |reply| Cmd::Diag(c, reply);
+    use aetherdv::engine::DiagCmd;
+    let st = ask(
+        &b.h,
+        diag(DiagCmd::TestStart {
+            description: "bench chat".into(),
+        }),
+    )
+    .await
+    .unwrap();
+    assert_eq!(st["running"], true);
+    assert!(ask(
+        &b.h,
+        diag(DiagCmd::TestStart {
+            description: "again".into()
+        })
+    )
+    .await
+    .is_err());
+    ask(
+        &b.h,
+        diag(DiagCmd::TestMark {
+            text: "keyed voice".into(),
+        }),
+    )
+    .await
+    .unwrap();
+    chat(&b, "during the test").await.unwrap();
+    b.data
+        .wait_frame("chat", |f| has_text(f, "during the test"))
+        .await;
+    let done = ask(&b.h, diag(DiagCmd::TestFinish)).await.unwrap();
+    let summary = done["summary"].as_str().unwrap();
+    for want in [
+        "Test: bench chat",
+        "keyed voice",
+        "Transmissions (1)",
+        "W4DOC  B",
+    ] {
+        assert!(summary.contains(want), "summary lacks {want:?}:\n{summary}");
+    }
+    let path = std::path::PathBuf::from(done["path"].as_str().unwrap());
+    assert!(path
+        .file_name()
+        .unwrap()
+        .to_string_lossy()
+        .ends_with(".tar.gz"));
+    assert!(std::fs::metadata(&path).unwrap().len() > 100);
+    assert_eq!(
+        ask(&b.h, diag(DiagCmd::TestStatus)).await.unwrap()["running"],
+        false
+    );
+    assert!(ask(
+        &b.h,
+        diag(DiagCmd::TestMark {
+            text: "late".into()
+        })
+    )
+    .await
+    .is_err());
 }
