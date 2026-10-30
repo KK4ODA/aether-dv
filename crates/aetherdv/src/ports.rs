@@ -369,6 +369,9 @@ pub struct SerialParams {
     pub tuning: Tuning,
     /// Infer voice from relayed D-PRS/NMEA slow data (docs/10 §4.11).
     pub infer_voice: bool,
+    /// Start with the route guard holding the port (until the engine's
+    /// first check releases it), so nothing slips out before it.
+    pub start_held: bool,
 }
 
 /// Optional overrides of a path preset.
@@ -544,7 +547,7 @@ pub async fn run_serial(
     let epoch = Instant::now();
     let now = || epoch.elapsed().as_millis() as u64;
     let mut persist = Persist {
-        route_hold: false,
+        route_hold: p.start_held,
         pause: None,
         sense: ChannelSense::default(),
         infer: VoiceInference::default(),

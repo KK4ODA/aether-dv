@@ -954,6 +954,7 @@ pub fn start(cfg: &Config) -> Result<EngineHandle, String> {
     for pc in &cfg.ports {
         let (tx, rx) = mpsc::channel::<PortCmd>(256);
         let tap = Tap::default();
+        let civ_capable = matches!(pc, PortConfig::Serial { civ: Some(_), .. });
         let (kind, path_kind, row_kind, profile) = match pc {
             PortConfig::Ratflector { .. } => ("ratflector", "internet", "ratflector", None),
             PortConfig::Serial { mode, profile, .. } => (
@@ -1031,6 +1032,9 @@ pub fn start(cfg: &Config) -> Result<EngineHandle, String> {
                         duty_window_s: rc.duty_window_s,
                     },
                     infer_voice: route.as_ref().map_or(true, |r| r.infer_voice),
+                    start_held: !crate::route::Guard::new(r.clone(), civ_capable, 30)
+                        .gate(0)
+                        .is_open(),
                 };
                 tokio::spawn(run_serial(params, rx, evt_tx.clone()));
             }
@@ -1052,6 +1056,8 @@ pub fn start(cfg: &Config) -> Result<EngineHandle, String> {
                     guard,
                     route.as_ref().and_then(|r| r.answer_broadcast),
                 );
+                // Matches SerialParams::start_held.
+                l.held_sent = Some(!l.guard.gate(0).is_open());
                 if let Some((c, model)) = &civ_model {
                     l.civ_tx = Some(crate::civ::spawn(
                         crate::civ::SessionParams {
