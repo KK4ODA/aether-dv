@@ -1,6 +1,6 @@
 # 11 — Analog FM mode: design note
 
-Date: 2026-10-30 · Status: **proposal for a later decision; nothing implemented**
+Date: 2026-10-30 (digipeaters and easy setup added the same day) · Status: **proposal for a later decision; nothing implemented**
 
 Evidence tags as in `03`:
 - **[SRC]** read in source (repo@commit:file:line)
@@ -36,6 +36,14 @@ At 1200 baud AFSK, which passes through FM repeaters, the usable rate is about t
 - **Containment:** linked FM systems (AllStar, EchoLink, IRLP) carry audio, and nothing on the radio side reveals the link.
 
 A side benefit: TH-D74/D75 owners, whose radios reportedly can't send D-STAR slow data (`03` §3), could use Aether DV through the radio's built-in packet TNC.
+
+Two owner requirements (added 2026-10-30):
+- **Packet digipeaters** are supported as a feature: explicit digipeater paths per station, learned from what is heard, with timing and courtesy that account for every hop (§5).
+- **Setup is easy** for Soundmodem, Direwolf and radio TNCs:
+  - running TNCs are found automatically;
+  - a Direwolf configuration is generated;
+  - the modem can be started from Aether DV;
+  - received audio levels are shown (§6).
 
 ## 1. What D-RATS does
 
@@ -94,7 +102,11 @@ modem = "afsk1200"           # afsk1200 | afsk1200-fec | g3ruh9600 (timing profi
 txdelay_ms = 400             # KISS parameters sent at connect (kiss only)
 persistence = 63
 slottime_ms = 100
-digipeaters = []             # empty by default; see §4
+path = []                    # default digipeater path, e.g. ["N4ABC-1"]; empty = direct (§5)
+
+[port.modem]                 # optional: start the sound modem with the port (§6)
+program = "C:/direwolf/direwolf.exe"
+args = ["-c", "direwolf.conf"]
 
 [port.route]                 # reuses the repeater section (docs/10)
 via = "fm-repeater"          # direct | fm-repeater
@@ -132,13 +144,13 @@ linked = "unknown"           # no | yes | unknown: declared, can't be detected
 | Route check | Enforced, read over CI-V or confirmed | **Not possible**: there is no routing field |
 | Linked networks | Reflector via R2 = G: our choice | AllStar, EchoLink, IRLP, analog bridges: **the repeater's choice, invisible to us** |
 | Data through links | Bit-exact on most paths | AllStar carries audio in µ-law (probably fine); EchoLink uses GSM 06.10, which may or may not pass AFSK 1200 **[UNK]** |
-| Digipeaters | n/a | An AX.25 path (`WIDE1-1`…) would spread frames over APRS digipeaters: **never by default** |
+| Digipeaters | n/a | Supported deliberately (§5). Explicit call-sign paths only by default; generic APRS-style aliases (`WIDEn-N`) would spread frames over APRS digipeaters, so they need confirmation and one hop at most |
 
 Safeguards:
 - **Declare the link status at setup** (`linked = no | yes | unknown`).
   - `yes` and `unknown` get the reflector rules from `10` §4.6: a confirmation each session, the smaller air-time budget, files limited, no broadcast auto-replies.
   - The setup text tells the operator to ask the trustee.
-- **Digipeater paths are empty by default.** Adding one needs the same double confirmation as reflector scope.
+- **Digipeater paths are empty by default** and always explicit (§5).
 - **The APRS-frequency guard** (§3).
 - **Timing.** TXDELAY must cover:
   - our radio's key-up;
@@ -148,34 +160,86 @@ Safeguards:
 
   So expect 300-800 ms more than simplex, and a repeater-specific value. Courtesy beeps and hang time look like signals to a squelch sensor, so the hold-off covers them, much as the D-STAR repeater tail does.
 
-## 5. User experience
+## 5. Packet digipeaters
 
-Port setup gets a third choice beside "D-STAR radio" and "Internet ratflector": **"FM radio (packet TNC)"**, with:
-- **Which TNC:**
-  - Direwolf (filled in: TCP 8001, KISS);
-  - Soundmodem (TCP 8000, AGWPE);
-  - "My radio's built-in TNC" (Bluetooth or USB serial; the TH-D74/D75 steps from Aether Term's manual, section 5.7);
-  - "Bluetooth LE TNC" (Scan);
-  - a serial KISS TNC.
-- **Where:** simplex or an FM repeater, and whether the repeater is linked (§4).
-- **A level check:** send a short test frame and ask the other station whether it decoded it. Show Direwolf's received audio level where it's available, and point to the Radio Setup guide for setting deviation.
+Packet digipeaters relay AX.25 frames on the same frequency. They extend range where no repeater reaches, for example in an ARES net with one digipeater on a hill. They're common on packet frequencies, usually run as nodes such as BPQ32 or JNOS, or by Direwolf in digipeater mode.
 
-The port plate shows "FM packet", the modem, and the same channel and courtesy states as D-STAR ports.
+**How paths work**
+- Each AX.25 frame can name up to 8 digipeaters, in order [DOC: AX.25 v2.2].
+- A digipeater relays a frame only when it's the next unused entry, and marks its entry "repeated" (the H bit).
+- A receiver can see which digipeaters a frame passed through.
 
-## 6. Plan, if adopted
+**Design**
+- **Paths belong to destinations.** Each station in the Stations list can have a path: "W4XYZ via N4ABC-1". The port also has a default path (`path` in §3) for broadcasts and stations without one. Both are empty by default, meaning direct.
+- **Learning paths.** When a frame arrives through digipeaters (H bits set), Aether DV notes the reverse path for that sender and offers it: "W4XYZ was heard via N4ABC-1. Reply the same way?" One click stores it. Paths are never adopted silently, because a heard path can be one-way.
+- **Explicit call signs, not aliases.**
+  - Generic APRS aliases (`WIDE1-1`, `WIDE2-2`) are flooding paths meant for APRS. On APRS frequencies Aether DV doesn't send bulk data at all (§3).
+  - Elsewhere an alias in a path needs the reflector-style confirmation (`10` §4.6), and at most one hop.
+  - Aether DV never adds an alias on its own.
+- **Air time counts every hop.** With single-frequency digipeaters, every hop retransmits the whole frame on the same channel, so the channel is busy about (hops + 1) times as long. The scheduler uses this throughout:
+  - the air-time estimate, budget and maximum over all scale by (hops + 1);
+  - frames per over are smaller;
+  - the ARQ retry timer starts from (hops + 1) × air time + key-ups at each hop.
+
+  Compose and Transfers show it: "via N4ABC-1: about 2× air time".
+- **Duplicate suppression.** Digipeaters drop a frame identical to one relayed shortly before. Direwolf's default window is 30 s [DOC: Direwolf user guide, to check]; others differ [UNK]. A D-RATS retransmission is byte-identical, so a retry inside that window would be silently dropped. Over digipeaters the ARQ retry timer is therefore at least the dedupe window, 30 s by default and adjustable per port.
+- **Hidden stations.** Through a digipeater, stations often can't hear each other, so carrier sense helps less and collisions rise. The digipeater profile uses lower persistence, more jitter and smaller windows. Radio tests measure the retry rate (AN-9).
+- **Interop.**
+  - D-RATS stations receive digipeated frames fine, since they search the payload (§1).
+  - D-RATS's own path handling keeps only the last call (§1), so it can't send through more than one digipeater correctly.
+  - Its raw-KISS frames have no address field and can't be digipeated at all.
+- **Not a digipeater ourselves.** Relaying is the TNC's job: Direwolf's `DIGIPEAT` setting, or the node software. The setup guide says how; Aether DV doesn't relay.
+
+## 6. Easy setup: Soundmodem, Direwolf and radio TNCs
+
+Most packet setups fail on configuration, not protocol, so setup does the work:
+
+1. **Find running TNCs.** Setup looks for TNCs on this computer (localhost only) and lists what it finds, each with a "Use this" button:
+   - **Direwolf:** KISS on TCP 8001, AGWPE on TCP 8000.
+   - **Soundmodem / QtSoundModem:** AGWPE on TCP 8000, KISS server if enabled (8100 by default [UNK, to check]).
+
+   For AGWPE it asks the version (`R`) and the radio ports (`G`), so it can show "Soundmodem: port 1 AFSK 1200, port 2 …" and you pick the channel.
+2. **Pick the hardware:**
+   - **Digirig or another CAT+PTT interface:** PTT by RTS or CAT.
+   - **SignaLink:** VOX PTT.
+   - **A radio with built-in USB audio** (IC-9700, IC-705, IC-7100): PTT over CI-V.
+   - **The radio's own TNC** (TH-D74/D75 over Bluetooth or USB, or a BLE TNC): no sound modem needed. Setup shows how to put the radio in KISS mode, as Aether Term's manual does.
+
+   The choice fills in the TNC's PTT method and sensible KISS parameters: TXDELAY, persistence and slot time for simplex, or repeater values (§4).
+3. **Direwolf without editing files.** If Direwolf isn't running, setup can write a `direwolf.conf` for you. It contains:
+   - `MYCALL`;
+   - the sound device chosen from Direwolf's own device list;
+   - `MODEM 1200`, optionally with FX.25;
+   - the PTT line for the chosen hardware;
+   - `KISSPORT 8001` and `AGWPORT 8000`;
+   - for digipeater users, a commented `DIGIPEAT` example.
+
+   You confirm the file before it's written.
+4. **Start it from Aether DV (optional).** Like Aether Term's modem auto-launch, a `[port.modem]` setting with the program's path starts Direwolf or Soundmodem with the port and stops it on exit. Its console output goes to the engine log and into radio-test bundles, so a support bundle shows Direwolf's own messages.
+5. **Check audio levels.** Direwolf prints the audio level of every received packet; around 50 is right [DOC: Direwolf user guide]. When Aether DV starts Direwolf, it reads those lines and shows the level on the port plate: "audio 48, good" or "audio 140, too loud: turn down the receive level". For Soundmodem, which has no level interface [UNK], the guide shows where its own level bar is.
+6. **Test.** "Send a test packet" sends one short UI frame to `TEST`. The guide suggests checking it with a second receiver or another station. The radio test card (Diagnostics) records the rest.
+
+Port setup also shows **Where**: simplex, an FM repeater (and whether it's linked, §4), or through digipeaters (§5).
+
+The port plate shows "FM packet", the modem, the audio level (when known), the default path, and the same channel and courtesy states as D-STAR ports.
+
+The Radio Setup guides gain an "FM packet" section per radio and interface: Digirig, SignaLink, built-in USB audio, TH-D74/D75 TNC, Mobilinkd.
+
+## 7. Plan, if adopted
 
 | Step | Content | Test |
 |---|---|---|
-| A1 | `tnc` port: KISS over TCP to Direwolf; AX.25 UI framing and per-source reassembly; receive all D-RATS forms (§1); `afsk1200` profile; APRS-frequency guard | Unit (KISS and AX.25 vectors shared with Aether Term); two Direwolf instances connected by an audio loopback (null sink) on the bench; CI at the KISS level with a simulated TNC |
+| A1 | `tnc` port: KISS over TCP to Direwolf; AX.25 UI framing and per-source reassembly; receive all D-RATS forms (§1); `afsk1200` profile; APRS-frequency guard; finding running TNCs, Direwolf config generation and start, audio level display (§6) | Unit (KISS and AX.25 vectors shared with Aether Term); two Direwolf instances connected by an audio loopback (null sink) on the bench; CI at the KISS level with a simulated TNC |
 | A2 | Serial and Bluetooth Classic KISS (TH-D74/D75, hardware TNCs) | Bench with a TH-D75 |
-| A3 | AGWPE (Soundmodem, QtSoundModem) | Bench on Windows |
+| A3 | AGWPE (Soundmodem, QtSoundModem): version and port listing, channel choice, start from Aether DV | Bench on Windows |
 | A4 | Bluetooth LE KISS (`btleplug`) | Bench with a Mobilinkd or VR-N76. Untested in Aether Term too. |
 | A5 | CAT squelch and frequency through Hamlib `rigctld` for non-Icom radios | Bench |
 | A6 | FM repeater: TXDELAY per repeater, linked declaration, timing measured with radio tests | On air, with a trustee |
+| A7 | Digipeaters: per-station and default paths, learned reverse paths, hop-aware timing and budget, dedupe-safe retry timer, digipeater profile (§5) | Bench: Direwolf as a digipeater between two stations on separate sound cards; then on air through a packet node |
 
 Interop tests against D-RATS 0.4.x: its plain TNC port sends and receives; its TNC-AX25 and AGWPE ports, which may fail to transmit (§1), are checked for receive only.
 
-## 7. Validation register
+## 8. Validation register
 
 | ID | Question |
 |---|---|
@@ -186,10 +250,14 @@ Interop tests against D-RATS 0.4.x: its plain TNC port sends and receives; its T
 | AN-5 | AFSK 1200 data through AllStar and EchoLink links |
 | AN-6 | Squelch-based voice yield on FM (CI-V `15 01`, Hamlib) |
 | AN-7 | FX.25/IL2P gain on weak signals, and behaviour with a peer that lacks it |
+| AN-8 | Duplicate-suppression windows of Direwolf, BPQ32, JNOS and others; does the 30 s retry floor avoid dropped retries? |
+| AN-9 | Retry rate and throughput through one and two digipeaters with hidden stations |
+| AN-10 | Soundmodem / QtSoundModem KISS server port and AGWPE `G` port listing across versions |
 
-## 8. Decisions for later
+## 9. Decisions for later
 
 1. Adopt the analog mode, and when. Recommendation: after the D-STAR bench and on-air tests, so the shared scheduler values are measured.
 2. Name: keep "Aether DV" or move to "Aether" once it isn't D-STAR only.
 3. Direwolf (GPL-2.0-or-later, compatible with our GPL-3.0): require it as a separate install (recommended; as Aether Term does with its modems), or bundle it.
 4. Whether to also send legacy raw-KISS frames for very old D-RATS stations. Recommendation: receive them, send proper AX.25 only.
+5. Generic digipeater aliases (`WIDEn-N`) away from APRS frequencies: allow one hop with confirmation (recommended), or explicit call signs only.
