@@ -12,6 +12,7 @@ Owner decisions that close Phase A open questions. ADRs hold the detail.
 | D6 | 2026-10-29 | Launch screen | Chat | `06` §6 |
 | D7 | 2026-10-29 | Multi-port chat | Per-port channels + optional merged "All traffic" view | `06` §6 |
 | D9 | 2026-10-29 | Phase B execution | Owner asked to start Phase B and continue unattended; work happens on branch `phase-b` | `docs/phase-b/README.md` |
+| D10 | 2026-10-30 | Repeater operation | Default scope *this repeater*; reflector scope with safeguards; CI-V route writes only with `allow_set` on tested models; air-time budgets 25 % repeater / 10 % reflector per 10 min; radios without CI-V features per `10` §4.11 | ADR-0009 (Accepted), `10` |
 | D8 | 2026-10-29 | First-release forms | **ICS-213 only**; other templates and the form designer deferred | `01`, `08` |
 
 Still open:

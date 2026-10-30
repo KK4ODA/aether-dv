@@ -1,6 +1,6 @@
 # 10 — D-STAR repeater operation: findings and proposed design
 
-Date: 2026-10-30 · Status: **proposal, no code changed** · Decision record: [ADR-0009](adr/0009-repeater-path-scope-and-channel-sense.md) (Proposed)
+Date: 2026-10-30 · Status: **accepted design, not yet implemented** · Decision record: [ADR-0009](adr/0009-repeater-path-scope-and-channel-sense.md) (Accepted)
 
 Evidence tags are the ones used in `03`:
 - **[SRC]** read in source (repo@commit:file:line)
@@ -296,6 +296,51 @@ Receiving data inside other stations' voice (D-PRS positions and similar) alread
 
 None to DDT2 or the legacy sessions. The ALP (ADR-0004) needs nothing for this either, because pausing is local and symmetric. One optional Aether-to-Aether addition is left for later: a capability flag saying "I pause timers on busy". It would let an Aether DV sender use longer windows toward Aether DV peers.
 
+### 4.11 Radios without CI-V route and status support
+
+Most radios in the field can't report their call signs or receive status. They get the same features and the same safeguards. What changes is where the facts come from, and the UI says which source it is using: "Route: confirmed by you", "Busy detection: data only".
+
+Tiers depend on capability, not age, and are read from the model profile:
+
+| Tier | Radios, as known today | Route | Busy sensing |
+|---|---|---|---|
+| **A: full** | IC-9700 [DOC]. IC-705, IC-905 and the ID-52 family with a second channel (USB + Bluetooth), once HW-R2 confirms them. | Read over CI-V | Voice, signal and data |
+| **B: one port** | ID-50; ID-52/ID-52 PLUS on USB alone | As tier A, if data can go over the CI-V data path (`22 00`/`22 01`) on that single port (HW-R11). Otherwise tier C. | As tier A if so |
+| **C: data port only** | ID-51 and ID-31 (PLUS), ID-4100, ID-5100, ID-880, IC-2820, IC-80AD/92AD, IC-7100/9100, Kenwood TH-D74/75, TM-D750 (until shown otherwise) | Operator | Data, plus voice where it can be inferred |
+
+**Route on tier C**
+- Setup asks the operator to store a **dedicated memory channel** for data and use it only for Aether DV. For example, "DATA W4DOC" with UR `CQCQCQ`, R1 `W4DOC  B`, R2 blank (or the gateway, for reflector scope). On these radios a stored memory is the closest thing to a fixed route. Each model's guide shows how to store one.
+- The confirmation shows the exact UR/R1/R2 to check on the radio's screen, not just "I confirm".
+- Confirmation is asked again:
+  - at each port start
+  - after the port reconnects
+  - after 30 min without an Aether DV transmission, since the radio may have been used for voice in between (configurable)
+
+**Busy sensing on tier C**
+- **Data bytes**, as today.
+- **Voice, where it can be inferred.** Radios pass the slow data in other stations' voice transmissions to the data port: D-PRS/NMEA positions, and everything on a Kenwood with "Data Frame Output = All" [COMM, `03` §1]. Bytes outside DDT2 frames that look like `$GP…` or `$$CRC` are treated as Busy(Voice), and the voice gap applies. This catches only voice users who send GPS or slow data. Whether a given radio does this depends on its settings (HW-R12).
+- **An "unsensed" preset** so a voice user can always break in within one short over:
+  - max over 8 s
+  - at least 5 s between our overs
+  - jitter 0–3 s
+- **Pause sending** on the port plate and a keyboard shortcut, plus *Pause for…* (for example "net in progress, 30 min").
+- **Optional hardware, later, each needing its own decision:**
+  - a squelch/COS line wired to the serial adapter's DCD or CTS, which the port driver can read (whether it reflects DV activity is HW-R13)
+  - an SDR watching the repeater's output frequency as a radio-independent carrier sensor
+
+**What stays unavailable on tier C**
+- These are shown as "needs CI-V", never guessed:
+  - the repeater access check (ack, BER)
+  - reflector link detection
+  - setting the radio's route
+- Reflector scope stays available, with its confirmations, because the operator controls R2 either way.
+
+**Firmware and model notes in the guides**
+- Older radios often run old firmware. The guides flag the known data-loss fixes: ID-51/ID-31 PLUS and ID-4100 2019 updates, ID-5100 E2 or later (`03` §3).
+- The TH-D74 (and reportedly the TH-D75) cannot transmit slow data, only Fast Data [COMM]. On repeaters it is limited to repeater scope, Fast Data rules apply (R20), and its guide says so.
+
+**Mixed nets.** Tier A stations yield to everything they hear. Tier C stations on the same repeater still behave better than D-RATS today, because of the shorter overs, the gaps and the route confirmation.
+
 ## 5. User experience
 
 ### 5.1 Port setup: "How do you reach other stations?"
@@ -370,13 +415,17 @@ The simulator runs in CI. Bench and on-air results are recorded at level A in `0
 | HW-R8 | Fast Data through the target repeaters (MMDVMHost build date; Icom unknown), and its effect on voice users | Bench, then on air with permission (R20) |
 | HW-R9 | Kenwood TH-D74/75 and TM-D750: any way to read UR/R1/R2 or busy status | Manuals + bench |
 | HW-R10 | Final preset values (§4.4) from measured delivery and voice-interference figures | Simulation, tuned to bench and on-air data |
+| HW-R11 | ID-52 PLUS on one USB port: can data go over the CI-V data path (`22 00` TX, `22 01` RX) with call-sign and status commands on the same port? Throughput, buffering, flow control. | Bench (owner's ID-52 PLUS) |
+| HW-R12 | Which tier C radios put other stations' slow data (D-PRS, NMEA, text) on the data port during voice, and with which settings | Bench with a voice station sending GPS |
+| HW-R13 | Does an accessory-jack squelch/COS output follow DV activity, and can a USB-serial adapter's DCD or CTS read it reliably? | Bench, if the hardware option is pursued |
 
 ## 8. Implementation plan
 
 Each step is a reviewable PR with tests. Behaviour for direct ports does not change until step 3, and then only through the shared scheduler code paths.
 
 1. **R-1 Path, scope and route guard.**
-   - `[port.path]`, the `route` module, CI-V `1F 00`/`1F 01` read, operator confirmation without CI-V
+   - `[port.path]`, the `route` module, CI-V `1F 00`/`1F 01` read
+   - capability tiers in the model profiles; tier C confirmation with exact values and re-confirmation rules (§4.11)
    - auto-reply scope rules
    - port strip plate and the setup flow
    - API fields and events
@@ -385,6 +434,8 @@ Each step is a reviewable PR with tests. Behaviour for direct ports does not cha
    - `20 02` / `15 01` / `20 00` / `20 01`
    - `aether-link::channel`
    - scheduler `on_channel` and voice gap; ARQ pause
+   - tier C: voice inferred from slow-data bytes; "unsensed" preset
+   - spike: CI-V data path on a single port (HW-R11)
 3. **R-3 Courtesy.**
    - presets per path, minimum gap, max over, air-time budget, operator hold
    - air-time estimates and send-time confirmations in the UI
@@ -398,9 +449,13 @@ Each step is a reviewable PR with tests. Behaviour for direct ports does not cha
 
 Later, each needing its own decision: "send with my voice" mode, call-sign-routed scope, a repeater-bridge port for ircDDBGateway's D-RATS server, Fast Data on proven repeater paths.
 
-## 9. Decisions for the owner
+## 9. Owner decisions (2026-10-30)
 
-1. Default scope for new repeater ports: **this repeater only** (recommended).
-2. Reflector scope: allow with the double confirmation and file limits above (recommended), or don't offer it at all in v1.
-3. Writing UR/R1/R2 via CI-V: offer only with `allow_set` and after HW-R1 on that model (recommended), or never write and only guide.
-4. Default air-time budgets: 25 % repeater, 10 % reflector, per 10 min (proposed). Any local repeater norms to respect, for example W4DOC/WX4GPB trustee preferences?
+The owner accepted the recommendations:
+
+1. New repeater ports default to **this repeater only**.
+2. **Reflector scope is offered**, with the double confirmation, file limits and other safeguards in §4.6.
+3. UR/R1/R2 are **written via CI-V only with `allow_set`**, and only on a model that has passed HW-R1. Otherwise the app guides the operator.
+4. Air-time budgets: **25 % per 10 min on a repeater, 10 % on a reflector**. These change if a repeater trustee asks for something else.
+
+Radios without the CI-V features follow §4.11.

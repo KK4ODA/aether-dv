@@ -13,8 +13,8 @@ Date: 2026-10-29 · Status: **research deliverable, no production code** · Lice
 | [07-test-and-validation-plan.md](07-test-and-validation-plan.md) | Validation levels, simulator, first hardware tests, performance protocol, model predictions |
 | [08-risks-and-roadmap.md](08-risks-and-roadmap.md) | Risk register, phase plan with acceptance criteria |
 | [09-licensing.md](09-licensing.md) | Licence analysis and recommendation |
-| [10-repeater-operation.md](10-repeater-operation.md) | Repeater operation: routing and reflector containment, D-RATS comparison, channel sense, courtesy, UX, test plan (proposal) |
-| [adr/](adr/) | ADR-0001 … 0009 (0001, 0002, 0005, 0006, 0008 Accepted) |
+| [10-repeater-operation.md](10-repeater-operation.md) | Repeater operation: routing and reflector containment, D-RATS comparison, channel sense, courtesy, UX, test plan (accepted design) |
+| [adr/](adr/) | ADR-0001 … 0009 (0001, 0002, 0005, 0006, 0008, 0009 Accepted) |
 | [decisions.md](decisions.md) | Owner decision log |
 | [phase-b/](phase-b/README.md) | Phase B status report: state machines, model-checking findings, schemas, spikes, CI results |
 | [tools/](tools/) | `model_ddt2.py` (independent DDT2 model, matches upstream vectors); `arq_model.py` (throughput model) |
