@@ -255,6 +255,10 @@ pub struct Scheduler {
     busy: Option<Busy>,
     /// The last external busy period that ended: its kind and end time.
     cleared: Option<(Busy, Millis)>,
+    /// When sensed voice last ended. Kept apart from `cleared`: the
+    /// repeater's acknowledgement right after a voice over must not cut
+    /// the voice gap short.
+    voice_end: Option<Millis>,
     /// Last time voice was inferred from relayed slow data.
     voice_inferred: Option<Millis>,
     /// Whether some source senses the repeater/channel directly (then
@@ -283,6 +287,7 @@ impl Scheduler {
             rng: seed | 1,
             busy: None,
             cleared: None,
+            voice_end: None,
             voice_inferred: None,
             sensed: false,
             own_end: None,
@@ -347,6 +352,9 @@ impl Scheduler {
     pub fn on_channel(&mut self, now: Millis, busy: Option<Busy>) {
         if let (Some(was), None) = (self.busy, busy) {
             self.cleared = Some((was, now));
+        }
+        if self.busy == Some(Busy::Voice) && busy != Some(Busy::Voice) {
+            self.voice_end = Some(now);
         }
         self.busy = busy;
         if self.state == State::Idle || self.state == State::HoldOff || self.state == State::Held {
@@ -487,8 +495,10 @@ impl Scheduler {
             };
             waits.push((at + gap, why));
         }
-        if let Some(at) = self.voice_inferred {
-            waits.push((at + p.voice_gap_ms.max(p.holdoff_ms), Wait::VoiceGap));
+        for at in [self.voice_inferred, self.voice_end].into_iter().flatten() {
+            if p.voice_gap_ms > p.holdoff_ms {
+                waits.push((at + p.voice_gap_ms, Wait::VoiceGap));
+            }
         }
         let others = waits.iter().copied().max_by_key(|(t, _)| *t);
         match others {
@@ -835,6 +845,28 @@ mod tests {
         ));
         assert!(s.poll(29_999).is_none());
         assert!(s.poll(30_000).is_some());
+    }
+
+    #[test]
+    fn repeater_ack_after_voice_does_not_cut_the_voice_gap() {
+        let mut s = Scheduler::new(repeater(true), 1);
+        s.set_sensed(true);
+        s.on_channel(0, Some(Busy::Voice));
+        s.on_channel(10_000, None);
+        // MMDVMHost acknowledges the voice over 750 ms later.
+        s.on_channel(10_750, Some(Busy::Signal));
+        s.on_channel(11_250, None);
+        s.enqueue(Priority::Chat, item(1, 40));
+        assert!(s.poll(19_999).is_none(), "still inside the voice gap");
+        assert!(s.poll(20_000).is_some());
+        // Voice going straight to another signal also ends the voice.
+        let mut s = Scheduler::new(repeater(true), 1);
+        s.on_channel(0, Some(Busy::Voice));
+        s.on_channel(5_000, Some(Busy::Signal));
+        s.on_channel(5_500, None);
+        s.enqueue(Priority::Chat, item(1, 40));
+        assert!(s.poll(14_999).is_none());
+        assert!(s.poll(15_000).is_some());
     }
 
     #[test]
