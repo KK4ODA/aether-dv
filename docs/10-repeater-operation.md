@@ -15,6 +15,8 @@ Sources read for this document:
 - D-Rats `d0e7a39`
 - drats2 and macrats (local clones)
 - Icom *IC-9700 CI-V Reference Guide* (rigpix `ic9700_civ_v2.pdf`)
+- JARL *Digitalization Technology Standard for Amateur Radio* STD6.0, English edition (jarl.org `STD6_0_E.pdf`)
+- Icom RP2 repeater-system instruction manual, English (Icom France)
 
 Nothing here has been tested through a real repeater.
 
@@ -77,17 +79,17 @@ The ack text includes BER, and the **name of the linked reflector** when linked.
 | UR is another call sign | Call-sign routing via ircDDB to wherever that station was last heard |
 | UR `       E` / `I` / `V` | Echo, info and version services |
 
-**Icom controllers** (ID-RP2C, RS-RP3C, ID-RP4000):
-- Local and gateway behaviour should match the convention above ("Local CQ" versus "Gateway CQ" in DR mode) [COMM].
-- Whether local traffic ever reaches the gateway's incoming links is **[UNK]**.
-- Whether they send an ack Aether DV can read is **[UNK]**.
+**Icom controllers** (ID-RP2C with ID-RP2000V/ID-RP4000V/ID-RP2V modules; RS-RP3C or ircDDBGateway as gateway). Researched 2026-10-30 in §1.5; summary:
+- Routing follows the JARL standard: the controller compares RPT1 and RPT2. RPT2 = the repeater itself (or blank, which is what an Icom radio's DR "Local CQ" sends) stays local. RPT2 = another module at the site is routed to that module. RPT2 = `…G` goes to the gateway [DOC: JARL STD6.0 §2.2-2.4, §4.2.1; DOC: ID-51PLUS2 manual].
+- Local traffic reaches ircDDBGateway only as a short "heard" notice (user and repeater call), so not the gateway's incoming links or its D-RATS bridge [SRC: `IcomRepeaterProtocolHandler.cpp:247-258`, `RepeaterHandler.cpp:1035-1048`; inferred from the handler].
+- No acknowledgement after each over: replies are sent only when the controller cannot relay [DOC: JARL STD6.0 §4.2.2].
 
 ### 1.3 What this means for containment
 
 | Scope | Radio setting | Who receives it | Enforceable by us? |
 |---|---|---|---|
 | **Direct** | Simplex, R1/R2 blank | Stations in RF range of us | Yes. A repeater rejects non-repeater headers [SRC: MMDVMHost]. |
-| **This repeater** | R1 = repeater + module, R2 blank (not `G`), UR `CQCQCQ` | Everyone in range of the repeater | **Yes for MMDVMHost repeaters** [SRC]. Probably for Icom controllers [COMM, UNK]. The repeater's own config can still add listeners: incoming links if the controller forwards local traffic (Icom [UNK]), or a sysop's D-RATS bridge. |
+| **This repeater** | R1 = repeater + module, R2 blank or = R1 (not `G`), UR `CQCQCQ` | Everyone in range of the repeater | **Yes for MMDVMHost repeaters** [SRC]. **Yes for Icom controllers** per the JARL routing rules [DOC], with local traffic reaching the gateway only as a "heard" notice [SRC, inferred]. On MMDVMHost/ircDDBGateway stacks a sysop's D-RATS bridge or incoming links could still add listeners only for gateway traffic. |
 | **Linked reflector** | R2 = `xxxxxx G`, UR `CQCQCQ` | Everyone on every repeater, hotspot and dongle connected to whatever the repeater is linked to *at that moment* | We can only enforce that we *chose* this scope. The reach is set by the repeater's current link, which the sysop or any user can change at any time by voice command. It may be unlinked (local only) or linked to a module with dozens of repeaters. |
 | **Routed** (future) | R2 = `G`, UR = station call | That station's last-heard repeater, plus our gateway's incoming links | Not proposed for v1 |
 
@@ -113,6 +115,39 @@ For the other models:
 - The ID-52 family numbers its `22 xx` commands differently from the IC-9700 (`22 03` is Fast Data there), so none of the IC-9700 table carries over without the model's own guide. `1F`/`20` support on ID-52, ID-52 PLUS, ID-50, ID-5200, IC-705 and IC-905 is **[UNK]** until checked against each guide.
 - On ID-52-family radios, USB is CI-V *or* DV Data, never both (`03` §2). Route checks and channel sense there need Bluetooth for one of the two.
 - Kenwood TH-D74, TH-D75 and TM-D750 have no documented control path **[UNK]**.
+
+### 1.5 Icom-controller repeaters (research 2026-10-30)
+
+Many US D-STAR repeaters, probably including W4DOC and WX4GPB (to be confirmed with the trustees), use Icom's ID-RP2C controller. Sources:
+- the JARL *Digitalization Technology Standard for Amateur Radio* (STD6.0, English edition), which Icom repeaters implement;
+- Icom's RP2 repeater-system instruction manual;
+- ircDDBGateway's Icom protocol handler, the gateway many Icom stacks run.
+
+| Question | Finding | Evidence |
+|---|---|---|
+| What keeps traffic local? | The controller routes by comparing RPT1 and RPT2. The standard's local example sets RPT2 = RPT1. Icom's own DR mode "Local CQ" sets RPT2 to "NOT USE" (blank), and operator guides report blank works locally. | [DOC: JARL §2.2, §4.2.1; DOC: ID-51PLUS2 manual; COMM: W8RNL guide] |
+| Another module at the same site | RPT2 = another module (e.g. W4DOC C while on W4DOC B) is routed to that module's transmitter ("intra-zone"). The route guard's `cross_module` hold covers this. W4DOC is listed with modules on 1.2 GHz, 440 and 2 m. | [DOC: JARL §2.3; COMM: RepeaterBook] |
+| Does local traffic reach the gateway? | Only as a "heard" notice (user and repeater call, protocol type `0x73 0x21`), used for last-heard reports. Headers and voice/data frames are exchanged only for gateway traffic, so local data doesn't reach incoming links or a D-RATS bridge. | [SRC: ircDDBGateway `IcomRepeaterProtocolHandler.cpp:247-258`, `RepeaterHandler.cpp:1035-1048`; the "only" is inferred] |
+| Simplex header (repeater flag off) | The controller replies with the "cannot relay" flag. | [DOC: JARL §4.2.2 (2) a] |
+| Relay permission | The controller checks a relay permission table and replies "cannot relay" if the station isn't allowed; the radio shows "RPT?". How US stacks configure it is unknown; local use is normally open. | [DOC: JARL §4.2.2 (2) b; COMM: RadioReference] |
+| Acknowledgement after each over | None in the standard. Replies carry a flag only when relaying fails ("cannot relay", "no response"). The radio's own auto reply (`110`) is a separate, station-level feature. So the access check (§4.8) will report "no acknowledgement" on Icom repeaters even when all is well, and BER and link detection from the ack text aren't available there. | [DOC: JARL §4.1.1 flag table, §4.2.2] |
+| Ack for gateway traffic | ircDDBGateway sends the controller a reply header for every gateway-routed over: MY = gateway, UR = caller, flag "relay unavailable". Whether the controller transmits it to the caller is unknown. | [SRC: `IcomRepeaterProtocolHandler.cpp:281-296`, `551-625`; UNK] |
+| Gateway disabled | With gateway use switched off, the controller "automatically replies" with an un-connectable reply to gateway-bound traffic. | [DOC: RP2 system manual, "Use Gateway" setting] |
+| Time-out timer | Not documented in the RP2 system manual or the standard. Aether DV's overs (8-12 s on repeaters) should be far below any plausible setting. | [UNK] |
+| Fast Data | The ID-RP2000V/4000V modules handle the 4.8 kbps stream without an audio codec, so they probably pass Fast Data unchanged (unlike older MMDVMHost builds). Not confirmed. | [DOC: module descriptions; inferred; UNK] |
+| Repeater latency | Not documented. | [UNK] |
+
+**Effect on Aether DV.**
+- The design holds. "This repeater only" is, if anything, tighter on an Icom stack than on MMDVMHost/ircDDBGateway stacks.
+- The repeater tail assumption (1.5 s) is harmless there: there is simply no ack.
+- The access check's "no acknowledgement" text names Icom controllers. A better test on these repeaters is a second station reporting what it received.
+- Default R2 stays blank, matching Icom's Local CQ; R2 = R1 is accepted too.
+
+**Questions for the trustees:**
+1. Controller and gateway software.
+2. Whether local relay is open to all call signs.
+3. Modules per site and their usual reflector links.
+4. Permission for an off-peak test.
 
 ## 2. D-RATS and its forks on repeaters
 
@@ -410,7 +445,8 @@ The simulator runs in CI. Bench and on-air results are recorded at level A in `0
 | HW-R3 | Does an Icom radio with DV Data TX Auto key up while receiving, or wait? How long from first byte to RF header (carrier sense about 500 ms [DOC])? | Bench, scope on the hotspot RX |
 | HW-R4 | `20 02` latency: time from repeater carrier to status change; behaviour during our own TX and the repeater ack | Bench |
 | HW-R5 | Repeater latency (input to output) and ack timing on MMDVMHost and an Icom controller | Bench + on air |
-| HW-R6 | Icom controller: does local (R2 not `G`) traffic reach ircDDBGateway or incoming links? Does it send an ack, and what? | On air with a trustee, or the trustee's gateway log |
+| HW-R6 | Icom controller (§1.5): confirm local traffic reaches the gateway only as "heard" (gateway log); does the controller transmit the gateway's reply for R2 = `G` overs; does R2 blank and R2 = R1 both stay local; is local relay open to all call signs? | Trustee's gateway log and an off-peak on-air test |
+| HW-R14 | Icom controller time-out timer and repeat latency; Fast Data through ID-RP2000V/4000V modules | On air with a trustee |
 | HW-R7 | Radio buffer size and behaviour in DV Data TX = PTT ("send with my voice") | Bench |
 | HW-R8 | Fast Data through the target repeaters (MMDVMHost build date; Icom unknown), and its effect on voice users | Bench, then on air with permission (R20) |
 | HW-R9 | Kenwood TH-D74/75 and TM-D750: any way to read UR/R1/R2 or busy status | Manuals + bench |
