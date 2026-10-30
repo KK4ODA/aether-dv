@@ -390,6 +390,16 @@ mod tests {
             let c =
                 Config::parse(&with_pos).unwrap_or_else(|e| panic!("{name} with position: {e}"));
             assert_eq!(c.position.unwrap().symbol, "/-");
+            let with_route = text
+                .replace("# [port.route]", "[port.route]")
+                .replace("# via = ", "via = ")
+                .replace("# repeater = ", "repeater = ")
+                .replace("# scope = ", "scope = ");
+            let c = Config::parse(&with_route).unwrap_or_else(|e| panic!("{name} with route: {e}"));
+            assert!(
+                c.ports.iter().any(|p| matches!(p, PortConfig::Serial { route: Some(r), .. } if r.via == "repeater")),
+                "{name}: route attaches to the radio port"
+            );
         }
         let bad = "callsign = \"KK4ODA\"\n[position]\nlat = 95.0\nlon = 0.0\n";
         assert!(Config::parse(bad).is_err());
