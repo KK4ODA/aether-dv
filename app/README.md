@@ -1,16 +1,16 @@
 # Aether DV desktop app
 
-A Tauri 2 shell around a plain HTML/CSS/JS interface (`ui/`). The interface talks only to the engine, `aetherd`, over its local API (JSON-RPC over WebSocket, token required). It never opens radios, files or the database itself (ADR-0001).
+A Tauri 2 shell around a plain HTML/CSS/JS interface (`ui/`). The interface talks only to the engine, `aetherdv`, over its local API (JSON-RPC over WebSocket, token required). It never opens radios, files or the database itself (ADR-0001).
 
 ## Run it
 
-Installed builds include the engine (`aetherd`) and `aether-cli` next to the app. On the connect screen, enter the path of your configuration file (see `examples/`) and choose **Start the engine**.
+Installed builds include the engine (`aetherdv`) and `aetherdv-cli` next to the app. On the connect screen, enter the path of your configuration file (see `examples/`) and choose **Start the engine**.
 - **Token:** the engine's token goes to the app's data directory.
-- **Console output:** goes to `aetherd-console.log` there.
+- **Console output:** goes to `aetherdv-console.log` there.
 - **Relative paths** in the configuration are relative to the configuration file.
 - **When the app closes,** it stops the engine it started.
 
-To use an engine you started yourself (`aetherd --config my.toml`), enter its `aetherd.token` path and choose Connect. Only the path is remembered, never the token.
+To use an engine you started yourself (`aetherdv --config my.toml`), enter its `aetherdv.token` path and choose Connect. Only the path is remembered, never the token.
 
 ## Updates
 
@@ -34,7 +34,7 @@ Release process and key setup: `docs/releasing.md`. End-to-end test: `app/tools/
 | Sounds | Optional sound per event (chat to me, chat to everyone, message, file, failures, port lost/back, positions, update), each switchable, plus volume; saved on this computer |
 | Diagnostics | Version and update check, engine log, wire capture start/stop per port, support bundle |
 
-Not yet: the command palette, map, file picker for sending files (use `aether-cli send-file`), settings and port setup (edit the TOML).
+Not yet: the command palette, map, file picker for sending files (use `aetherdv-cli send-file`), settings and port setup (edit the TOML).
 
 ## Browser preview and smoke test
 
@@ -42,8 +42,8 @@ The same `ui/` runs in a browser for development: serve it and pass the engine a
 
 ```bash
 cd app/ui && python3 -m http.server 18080 --bind 127.0.0.1
-# open http://127.0.0.1:18080/index.html?api=127.0.0.1:7373&token=<contents of aetherd.token>
-node app/tools/ui-smoke.js 127.0.0.1:7373 /path/to/aetherd.token /tmp/shots
+# open http://127.0.0.1:18080/index.html?api=127.0.0.1:7373&token=<contents of aetherdv.token>
+node app/tools/ui-smoke.js 127.0.0.1:7373 /path/to/aetherdv.token /tmp/shots
 ```
 
 `ui-smoke.js` (Playwright) drives every view, sends a chat line, and fails on console errors or if any element was created from received text.

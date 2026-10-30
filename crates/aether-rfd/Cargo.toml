@@ -7,6 +7,12 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 
+# The installed program is aetherdv-rfd (distinct from Aether HF's tools);
+# the library crate keeps its internal name.
+[[bin]]
+name = "aetherdv-rfd"
+path = "src/main.rs"
+
 [dependencies]
 aether-ddt2 = { path = "../aether-ddt2" }
 tokio = { version = "1.53.3", features = ["rt-multi-thread", "net", "io-util", "macros", "sync", "time", "signal"] }

@@ -22,7 +22,7 @@ PORT=18090
 [ -f "$W/test.key" ] || cargo tauri signer generate -w "$W/test.key" -p e2e --ci -f >/dev/null
 export TAURI_SIGNING_PRIVATE_KEY="$(cat "$W/test.key")" TAURI_SIGNING_PRIVATE_KEY_PASSWORD=e2e
 TRIPLE=$(rustc -vV | sed -n 's/^host: //p')
-(cd "$ROOT" && cargo build -q --release -p aetherd)
+(cd "$ROOT" && cargo build -q --release -p aetherdv)
 build() { # version outdir
   python3 - "$CONF" "$1" <<'PY'
 import json,sys; p,v=sys.argv[1:]; d=json.load(open(p)); d['version']=v; open(p,'w').write(json.dumps(d,indent=2)+"\n")

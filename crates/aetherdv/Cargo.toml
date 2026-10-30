@@ -1,5 +1,5 @@
 [package]
-name = "aetherd"
+name = "aetherdv"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -7,13 +7,13 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-aether-civ = { version = "0.1.0", path = "../aether-civ" }
-aether-ddt2 = { version = "0.1.0", path = "../aether-ddt2" }
-aether-forms = { version = "0.1.0", path = "../aether-forms" }
-aether-geo = { version = "0.1.0", path = "../aether-geo" }
-aether-link = { version = "0.1.0", path = "../aether-link" }
-aether-rfl = { version = "0.1.0", path = "../aether-rfl" }
-aether-store = { version = "0.1.0", path = "../aether-store" }
+aether-civ = { version = "0.1.1", path = "../aether-civ" }
+aether-ddt2 = { version = "0.1.1", path = "../aether-ddt2" }
+aether-forms = { version = "0.1.1", path = "../aether-forms" }
+aether-geo = { version = "0.1.1", path = "../aether-geo" }
+aether-link = { version = "0.1.1", path = "../aether-link" }
+aether-rfl = { version = "0.1.1", path = "../aether-rfl" }
+aether-store = { version = "0.1.1", path = "../aether-store" }
 flate2 = { version = "1.1.10", default-features = false, features = ["rust_backend"] }
 futures-util = "0.3.34"
 getrandom = "0.3.4"

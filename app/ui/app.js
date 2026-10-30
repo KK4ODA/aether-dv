@@ -355,7 +355,7 @@ function renderConnect() {
     return;
   }
   const tauri = window.__TAURI__ && window.__TAURI__.core;
-  const tokenFile = h('input', { class: 'field', id: 'tokfile', value: localStorage.getItem('aether.tokenFile') || '', placeholder: 'aetherd.token next to your database' });
+  const tokenFile = h('input', { class: 'field', id: 'tokfile', value: localStorage.getItem('aether.tokenFile') || '', placeholder: 'aetherdv.token next to your database' });
   const api = h('input', { class: 'field', id: 'apiaddr', value: localStorage.getItem('aether.api') || '127.0.0.1:7373' });
   const config = h('input', { class: 'field', id: 'cfgfile', value: localStorage.getItem('aether.config') || '', placeholder: 'Full path of your aether.toml' });
   const startBtn = h('button', {
@@ -392,7 +392,7 @@ function renderConnect() {
       },
     },
       h('h1', { id: 'cx-title' }, 'Connect to the Aether engine'),
-      h('p', {}, 'The engine (aetherd) owns the radios and keeps running traffic. It needs your configuration file (see examples/ic9700.toml).'),
+      h('p', {}, 'The engine (aetherdv) owns the radios and keeps running traffic. It needs your configuration file (see examples/ic9700.toml).'),
       h('p', { class: 'error-text', role: 'alert', id: 'cx-error' }, S.lastError || ''),
       !tauri ? h('p', {}, 'In a browser preview, pass ?api=ADDRESS&token=TOKEN in the address.') : null,
       tauri && Shell.info && Shell.info.bundledEngine ? [
@@ -488,7 +488,7 @@ function renderUpdate() {
         h('div', { class: 'bar', role: 'progressbar', 'aria-valuenow': pct || 0, 'aria-valuemin': 0, 'aria-valuemax': 100, 'aria-label': 'Update download' }, h('span', { style: `width:${pct || 0}%` }))]
       : [h('p', { class: 'faint' }, Shell.info && Shell.info.engineStartedHere
           ? 'The engine started by this app stops during the update and does not restart by itself. Install between transfers.'
-          : 'Install between transfers. If you run aetherd from this installation yourself, stop it first.'),
+          : 'Install between transfers. If you run aetherdv from this installation yourself, stop it first.'),
         Shell.state === 'error' ? h('p', { class: 'error-text', role: 'alert' }, Shell.message) : null,
         h('div', { class: 'acts' },
           h('button', { class: 'btn primary', onclick: () => Shell.install() }, 'Install and restart'),
@@ -792,7 +792,7 @@ function renderTransfers(main) {
   const rows = [...S.transfers.values()].sort((a, b) => (a.id < b.id ? 1 : -1));
   main.replaceChildren(h('div', { class: 'xfer', style: 'grid-template-rows: 44px 1fr' },
     h('div', { class: 'pane-head' }, h('h1', {}, 'Transfers'),
-      h('span', { class: 'muted' }, 'Send files with: aether-cli send-file PORT CALL PATH')),
+      h('span', { class: 'muted' }, 'Send files with: aetherdv-cli send-file PORT CALL PATH')),
     h('div', { class: 'tablewrap' }, rows.length ? h('table', { class: 'grid' },
       h('thead', {}, h('tr', {}, ...['File', 'Direction', 'Station', 'Port', 'State', 'Progress', 'Retries', ''].map((c) => h('th', { scope: 'col' }, c)))),
       h('tbody', {}, ...rows.map((t) => {

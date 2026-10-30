@@ -69,7 +69,7 @@ Started because it needed no hardware and no further owner decisions. All of it 
 | `aether-ddt2` | Byte-exact DDT2 codec: CRC, yEnc, frames, bounded deframer with lost-marker recovery, session payloads | 27, including both upstream golden vectors byte-exact (compressed too) |
 | `aether-link` | ARQ-1 (legacy stateful ARQ, wire-compatible) and the SM-2 channel scheduler | 13. The simulation through the full codec **reproduces P19 in real code** (sender "done", receiver 2,816 bytes short) and the receiver flags it. |
 | `aether-rfl` | Ratflector client handshake and reconnect (SM-6) | 16, including real-TCP tests against a mock legacy server |
-| `aether-rfd` | Ratflector forwarding core with cross-link duplicate suppression | 9 loop simulations. The legacy triangle turns one line into 1,000 copies in 60 s; Aether delivers 1. RF bridge links need a ≥30 s window (spec 04 corrected). |
+| `aetherdv-rfd` | Ratflector forwarding core with cross-link duplicate suppression | 9 loop simulations. The legacy triangle turns one line into 1,000 copies in 60 s; Aether delivers 1. RF bridge links need a ≥30 s window (spec 04 corrected). |
 | `serial-spike` | Receive-only `list`/`listen` tool for HW-1; PTY behaviour tests | 5 (Linux) |
 
 70 Rust tests in total, all passing on Linux; the cross-platform matrix passes as well.

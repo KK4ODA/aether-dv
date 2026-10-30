@@ -1,7 +1,7 @@
-//! `aether-cli`: minimal terminal client for a running `aetherd`.
+//! `aetherdv-cli`: minimal terminal client for a running `aetherdv`.
 //!
 //! ```text
-//! aether-cli [--api 127.0.0.1:7373] [--token-file PATH] COMMAND
+//! aetherdv-cli [--api 127.0.0.1:7373] [--token-file PATH] COMMAND
 //!   ports                         list ports and their state
 //!   stations                      list heard stations
 //!   send PORT DST TEXT...         send chat (DST = CQCQCQ or a callsign)
@@ -23,7 +23,7 @@
 //!   radio-mode PORT fast|slow --confirm
 //!                                 change it (needs civ.allow_set = true)
 //!   capture-start PORT            start a wire capture (.aecap) on PORT
-//!   capture-stop PORT             stop it; prints the file (read it with `aecap show`)
+//!   capture-stop PORT             stop it; prints the file (read it with `aetherdv-cap show`)
 //!   log [N]                       the last N engine log entries (default 50)
 //!   bundle [captures]             write a support bundle (.tar), optionally with captures
 //!   tail                          print chat, port, station and transfer events live
@@ -31,7 +31,7 @@
 
 use std::time::Duration;
 
-use aetherd::client;
+use aetherdv::client;
 use serde_json::{json, Value};
 
 fn die(msg: &str) -> ! {
@@ -108,7 +108,7 @@ fn message(m: &Value) -> String {
 fn main() {
     let mut args: Vec<String> = std::env::args().skip(1).collect();
     let mut api = "127.0.0.1:7373".to_string();
-    let mut token_file = std::env::temp_dir().join("aetherd.token");
+    let mut token_file = std::env::temp_dir().join("aetherdv.token");
     while args.first().is_some_and(|a| a.starts_with("--")) {
         let flag = args.remove(0);
         let val = if args.is_empty() {
@@ -127,7 +127,7 @@ fn main() {
         .trim()
         .to_string();
     let mut c =
-        Client(client::Client::connect(&api, &token, "aether-cli").unwrap_or_else(|e| die(&e)));
+        Client(client::Client::connect(&api, &token, "aetherdv-cli").unwrap_or_else(|e| die(&e)));
     let hello = c.0.hello.clone();
     let cmd = args.first().cloned().unwrap_or_default();
     match cmd.as_str() {
@@ -289,7 +289,7 @@ fn main() {
         }
         "tail" => {
             c.call("events.subscribe", json!({ "topics": ["chat.line", "port.state", "station.heard", "transfer.progress", "message.state", "station.position", "engine.event"] }));
-            eprintln!("connected to aetherd {} as {}", hello["engineVersion"], hello["profile"]);
+            eprintln!("connected to aetherdv {} as {}", hello["engineVersion"], hello["profile"]);
             loop {
                 let Some(p) = c.0.next_event(Duration::from_secs(3600)).unwrap_or_else(|e| die(&e.to_string())) else {
                     continue;
@@ -304,6 +304,6 @@ fn main() {
                 }
             }
         }
-        _ => die("usage: aether-cli [--api ADDR] [--token-file PATH] ports|stations|send PORT DST TEXT|history [PORT] [N]|ping PORT CALL|version PORT CALL|send-file PORT CALL PATH|transfers [all]|cancel ID|ics213 CALL SUBJECT MESSAGE|msg-send ID [PORT]|messages [FOLDER]|msg ID|positions [CALL]|send-position PORT [dprs|nmea]|radio-mode PORT [fast|slow --confirm]|capture-start PORT|capture-stop PORT|log [N]|bundle [captures]|tail"),
+        _ => die("usage: aetherdv-cli [--api ADDR] [--token-file PATH] ports|stations|send PORT DST TEXT|history [PORT] [N]|ping PORT CALL|version PORT CALL|send-file PORT CALL PATH|transfers [all]|cancel ID|ics213 CALL SUBJECT MESSAGE|msg-send ID [PORT]|messages [FOLDER]|msg ID|positions [CALL]|send-position PORT [dprs|nmea]|radio-mode PORT [fast|slow --confirm]|capture-start PORT|capture-stop PORT|log [N]|bundle [captures]|tail"),
     }
 }

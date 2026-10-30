@@ -1,8 +1,8 @@
-//! `aecap`: read a wire capture (`.aecap`) written by `aetherd`.
+//! `aetherdv-cap`: read a wire capture (`.aecap`) written by `aetherdv`.
 //!
 //! ```text
-//! aecap show FILE [--hex]   every frame and stray byte run, decoded, in time order
-//! aecap stats FILE          counts per direction, session and frame type
+//! aetherdv-cap show FILE [--hex]   every frame and stray byte run, decoded, in time order
+//! aetherdv-cap stats FILE          counts per direction, session and frame type
 //! ```
 //!
 //! Each direction is run through its own deframer, exactly as the engine
@@ -12,7 +12,7 @@ use std::collections::BTreeMap;
 
 use aether_ddt2::session::{chat, control, id, stateful};
 use aether_ddt2::{Deframer, Event, Frame};
-use aetherd::capture::{self, Record};
+use aetherdv::capture::{self, Record};
 
 fn die(m: &str) -> ! {
     eprintln!("{m}");
@@ -97,7 +97,7 @@ fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let (cmd, file) = match args.as_slice() {
         [c, f, ..] => (c.as_str(), f.as_str()),
-        _ => die("usage: aecap show FILE [--hex] | aecap stats FILE"),
+        _ => die("usage: aetherdv-cap show FILE [--hex] | aetherdv-cap stats FILE"),
     };
     let show_hex = args.iter().any(|a| a == "--hex");
     let (header, records) = capture::read(std::path::Path::new(file)).unwrap_or_else(|e| die(&e));
@@ -179,6 +179,6 @@ fn main() {
                 println!("{k:<28} {v}");
             }
         }
-        _ => die("usage: aecap show FILE [--hex] | aecap stats FILE"),
+        _ => die("usage: aetherdv-cap show FILE [--hex] | aetherdv-cap stats FILE"),
     }
 }

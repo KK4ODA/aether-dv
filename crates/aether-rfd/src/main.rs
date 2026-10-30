@@ -1,7 +1,7 @@
-//! `aether-rfd`: standalone ratflector server.
+//! `aetherdv-rfd`: standalone ratflector server.
 //!
 //! ```text
-//! aether-rfd [--listen ADDR] [--users FILE] [--dedup-ms N] [--legacy]
+//! aetherdv-rfd [--listen ADDR] [--users FILE] [--dedup-ms N] [--legacy]
 //! ```
 //! Defaults: listen `0.0.0.0:9000`, open (no auth), Aether forwarding rules.
 //! `--users` takes a legacy `users.txt` (`user password` per line).
@@ -14,7 +14,7 @@ use aether_rfd::server::{parse_users, Server, ServerConfig};
 use aether_rfd::Config;
 
 fn usage() -> ! {
-    eprintln!("usage: aether-rfd [--listen ADDR] [--users FILE] [--dedup-ms N] [--legacy]");
+    eprintln!("usage: aetherdv-rfd [--listen ADDR] [--users FILE] [--dedup-ms N] [--legacy]");
     std::process::exit(2)
 }
 
@@ -58,7 +58,7 @@ async fn main() {
             std::process::exit(1)
         }
     };
-    tracing::info!("aether-rfd listening on {} ({auth})", server.local_addr);
+    tracing::info!("aetherdv-rfd listening on {} ({auth})", server.local_addr);
     let counters = server.counters.clone();
     let stats = tokio::spawn(async move {
         let mut t = tokio::time::interval(Duration::from_secs(60));

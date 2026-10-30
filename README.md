@@ -42,12 +42,12 @@ Passing through a virtual serial port is never described as RF-tested.
 crates/aether-ddt2    D-RATS DDT2 codec (frames, yEnc, envelopes, sessions), golden vectors
 crates/aether-link    ARQ-1 (legacy-compatible reliability) and the half-duplex channel scheduler
 crates/aether-rfl     ratflector client (sans-I/O)
-crates/aether-rfd     ratflector server (aether-rfd)
+crates/aether-rfd     ratflector server (aetherdv-rfd)
 crates/aether-store   SQLite storage with forward-only migrations
 crates/aether-forms   D-RATS form documents (ICS-213)
 crates/aether-geo     position reports (NMEA style, DPRS)
 crates/aether-civ     Icom CI-V codec, Fast Data commands
-crates/aetherd        the engine (aetherd) plus aether-cli, aether-bench, aecap
+crates/aetherdv        the engine (aetherdv) plus aetherdv-cli, aetherdv-bench, aetherdv-cap
 app/                  desktop app (Tauri 2 shell + UI on the engine API)
 spec/                 machine-checked specs: storage schema, API (OpenRPC), ARQ model
 design/               mockups and design tooling

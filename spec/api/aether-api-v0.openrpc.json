@@ -3,7 +3,7 @@
   "info": {
     "title": "Aether DV engine API",
     "version": "0.1.0",
-    "description": "Local API between aetherd (engine) and UIs. Transport: JSON-RPC 2.0 over WebSocket on 127.0.0.1 (token in a 0600 file) or a Unix socket / Windows named pipe. Events are JSON-RPC notifications with method 'event' and params {cursor, topic, data}. Phase B draft; additive changes bump minor, breaking changes bump major.",
+    "description": "Local API between aetherdv (engine) and UIs. Transport: JSON-RPC 2.0 over WebSocket on 127.0.0.1 (token in a 0600 file) or a Unix socket / Windows named pipe. Events are JSON-RPC notifications with method 'event' and params {cursor, topic, data}. Phase B draft; additive changes bump minor, breaking changes bump major.",
     "license": {
       "name": "GPL-3.0-or-later"
     }

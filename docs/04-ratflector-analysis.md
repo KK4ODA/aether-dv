@@ -62,7 +62,7 @@ When a ratflector owns a radio serial path (`timeout = 3` warm-up, `d-rats_repea
 
 ircDDBGateway's `DRATSServer` (`Common/DRATSServer.cpp`) is a second, independent RF↔TCP bridge inside the D-STAR gateway itself. It extracts slow-data blocks of type `0x3X` from repeater traffic, reassembles bytes until it sees `[EOB]`, and writes them to TCP. In the other direction it builds DV frames with silent AMBE and `0x3X` slow-data blocks. **It handles only slow-data type `0x3X`; Fast Data blocks (`0x8X/0x9X`) are not bridged.** Any repeater-gateway D-RATS service is therefore slow-data only.
 
-## 5. Requirements for the Aether ratflector server (`aether-rfd`)
+## 5. Requirements for the Aether ratflector server (`aetherdv-rfd`)
 
 ### 5.1 Compatibility mode (must)
 - Speak the exact §2 handshake, including the no-banner "old-school" client path, and a **configurable** banner: `100` (open), `101` (auth), or none.

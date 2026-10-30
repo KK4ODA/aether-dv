@@ -1,9 +1,9 @@
-//! `aether-bench`: scripted interop and performance runs against one peer,
-//! through a running `aetherd` (Phase C criteria C1 and C6, hardware tests
+//! `aetherdv-bench`: scripted interop and performance runs against one peer,
+//! through a running `aetherdv` (Phase C criteria C1 and C6, hardware tests
 //! HW-6/HW-7).
 //!
 //! ```text
-//! aether-bench [--api ADDR] [--token-file PATH] --port PORT --peer CALL
+//! aetherdv-bench [--api ADDR] [--token-file PATH] --port PORT --peer CALL
 //!              [--rounds N] [--suite ping,version,file1k,file10k,form]
 //!              [--gap SECONDS] [--out report.json]
 //! ```
@@ -21,7 +21,7 @@
 
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use aetherd::client::Client;
+use aetherdv::client::Client;
 use serde_json::{json, Value};
 
 fn die(m: &str) -> ! {
@@ -43,7 +43,7 @@ struct Opts {
 fn opts() -> Opts {
     let mut o = Opts {
         api: "127.0.0.1:7373".into(),
-        token_file: std::env::temp_dir().join("aetherd.token"),
+        token_file: std::env::temp_dir().join("aetherdv.token"),
         port: String::new(),
         peer: String::new(),
         rounds: 10,
@@ -68,7 +68,7 @@ fn opts() -> Opts {
             "--suite" => o.suite = v().split(',').map(|s| s.trim().to_string()).collect(),
             "--gap" => o.gap = Duration::from_secs_f64(v().parse().unwrap_or_else(|_| die("--gap SECONDS"))),
             "--out" => o.out = Some(v().into()),
-            _ => die("usage: aether-bench [--api ADDR] [--token-file PATH] --port PORT --peer CALL [--rounds N] [--suite ping,version,file1k,file10k,form] [--gap S] [--out FILE]"),
+            _ => die("usage: aetherdv-bench [--api ADDR] [--token-file PATH] --port PORT --peer CALL [--rounds N] [--suite ping,version,file1k,file10k,form] [--gap S] [--out FILE]"),
         }
     }
     if o.port.is_empty() || o.peer.is_empty() {
@@ -163,7 +163,7 @@ fn run_test(c: &mut Client, o: &Opts, path_kind: &str, test: &str, round: u32) -
                 "file10k" => 10 * 1024,
                 _ => 50 * 1024,
             };
-            let dir = std::env::temp_dir().join(format!("aether-bench-{}", std::process::id()));
+            let dir = std::env::temp_dir().join(format!("aetherdv-bench-{}", std::process::id()));
             let _ = std::fs::create_dir_all(&dir);
             let path = dir.join(format!("bench-{f}-r{round}.bin"));
             if let Err(e) = std::fs::write(&path, noise(n, round as u64 * 7919 + n as u64)) {
@@ -214,7 +214,7 @@ fn run_test(c: &mut Client, o: &Opts, path_kind: &str, test: &str, round: u32) -
                     "formId": "ICS213_US_OS", "dst": peer,
                     "fields": {
                         "incident": "Aether bench", "subject": format!("bench round {round}"),
-                        "message": "Automated interop test message from aether-bench. Please disregard.",
+                        "message": "Automated interop test message from aetherdv-bench. Please disregard.",
                     },
                 }),
             );
@@ -266,7 +266,7 @@ fn main() {
     let o = opts();
     let token = std::fs::read_to_string(&o.token_file)
         .unwrap_or_else(|e| die(&format!("token {}: {e}", o.token_file.display())));
-    let mut c = Client::connect(&o.api, token.trim(), "aether-bench").unwrap_or_else(|e| die(&e));
+    let mut c = Client::connect(&o.api, token.trim(), "aetherdv-bench").unwrap_or_else(|e| die(&e));
     let ports = c
         .call("ports.list", json!({}))
         .unwrap_or_else(|e| die(&e.to_string()));
@@ -281,7 +281,7 @@ fn main() {
     )
     .unwrap_or_else(|e| die(&e.to_string()));
     eprintln!(
-        "aether-bench: {} rounds of {} against {} on {} ({path_kind}), engine {}",
+        "aetherdv-bench: {} rounds of {} against {} on {} ({path_kind}), engine {}",
         o.rounds,
         o.suite.join(","),
         o.peer,
@@ -339,7 +339,7 @@ fn main() {
         }));
     }
     let report = json!({
-        "tool": "aether-bench", "engine": c.hello["engineVersion"], "startedAt": started,
+        "tool": "aetherdv-bench", "engine": c.hello["engineVersion"], "startedAt": started,
         "port": o.port, "pathKind": path_kind, "peer": o.peer, "rounds": o.rounds,
         "gapSecs": o.gap.as_secs_f64(), "results": summary,
         "validationLevel": if path_kind == "internet" { "Interoperability (via ratflector)" } else { "Hardware/Over-the-air: record the rig and path with this report" },

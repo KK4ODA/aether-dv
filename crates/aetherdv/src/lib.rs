@@ -1,4 +1,4 @@
-//! `aetherd`: the Aether DV engine (Phase C vertical slice).
+//! `aetherdv`: the Aether DV engine (Phase C vertical slice).
 //!
 //! * [`station`]: legacy chat/ping/echo/status/version behaviour (pure)
 //! * [`config`]: TOML configuration
