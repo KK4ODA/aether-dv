@@ -344,8 +344,15 @@ async fn session(
                 }
                 Err(e) => Err(e),
             },
-            "diag.captureStart" | "diag.captureStop" | "diag.events" | "diag.supportBundle" => {
+            "diag.captureStart" | "diag.captureStop" | "diag.events" | "diag.supportBundle"
+            | "diag.testStart" | "diag.testMark" | "diag.testFinish" | "diag.testStatus" => {
                 let c = match method.as_str() {
+                    "diag.testStart" => Ok(DiagCmd::TestStart {
+                        description: opt_s(&params, "description").unwrap_or_default(),
+                    }),
+                    "diag.testMark" => s(&params, "text").map(|text| DiagCmd::TestMark { text }),
+                    "diag.testFinish" => Ok(DiagCmd::TestFinish),
+                    "diag.testStatus" => Ok(DiagCmd::TestStatus),
                     "diag.captureStart" => {
                         s(&params, "portId").map(|port| DiagCmd::CaptureStart { port })
                     }

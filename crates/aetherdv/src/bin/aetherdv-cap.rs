@@ -5,8 +5,8 @@
 //!                                  every frame, stray byte run, CI-V frame and
 //!                                  timeline event, decoded, in time order
 //! aetherdv-cap stats FILE          counts per direction, session and frame type
-//! aetherdv-cap timing FILE         per burst: key-up delay and real air time
-//!                                  (needs a radio port with CI-V), and channel waits
+//! aetherdv-cap timing FILE         the test-summary report: per burst key-up delay
+//!                                  and real air time (needs CI-V), waits, timeline
 //! ```
 //!
 //! Each direction is run through its own deframer, exactly as the engine
@@ -63,104 +63,6 @@ fn civ_line(tx: bool, bytes: &[u8]) -> String {
         hexs(&f.body, 48),
         civ_name(&f.body)
     )
-}
-
-/// Per burst: when it went to the radio, when the radio keyed and
-/// unkeyed (CI-V `1C 00`), against the estimate.
-fn timing(records: &[Record]) {
-    println!(
-        "{:>10}  {:>6} {:>8} {:>9} {:>9} {:>8}",
-        "burst at", "bytes", "est s", "key-up s", "on-air s", "diff s"
-    );
-    let mut i = 0;
-    let (mut n, mut keyups, mut diffs) = (0, Vec::new(), Vec::new());
-    while i < records.len() {
-        if let Record::Event { t, kind, data } = &records[i] {
-            if kind == "burst" {
-                let est = data["airEstMs"].as_u64().unwrap_or(0);
-                let bytes = data["bytes"].as_u64().unwrap_or(0);
-                let mut on = None;
-                let mut off = None;
-                for r in &records[i + 1..] {
-                    match r {
-                        Record::Event { kind, .. } if kind == "burst" => break,
-                        Record::Event { t: tt, kind, data } if kind == "tx" => {
-                            if data["on"] == true && on.is_none() {
-                                on = Some(*tt);
-                            } else if data["on"] == false && on.is_some() {
-                                off = Some(*tt);
-                                break;
-                            }
-                        }
-                        _ => {}
-                    }
-                }
-                n += 1;
-                let f = |x: Option<u64>| {
-                    x.map_or("-".to_string(), |v| format!("{:.2}", v as f64 / 1000.0))
-                };
-                let keyup = on.map(|o| o - t);
-                let air = on.zip(off).map(|(a, b)| b - a);
-                if let Some(k) = keyup {
-                    keyups.push(k);
-                }
-                if let Some(a) = air {
-                    diffs.push(a as i64 - est as i64);
-                }
-                println!(
-                    "{:>10.3}  {:>6} {:>8.2} {:>9} {:>9} {:>8}",
-                    *t as f64 / 1000.0,
-                    bytes,
-                    est as f64 / 1000.0,
-                    f(keyup),
-                    f(air),
-                    air.map_or("-".to_string(), |a| format!(
-                        "{:+.2}",
-                        (a as i64 - est as i64) as f64 / 1000.0
-                    ))
-                );
-            }
-        }
-        i += 1;
-    }
-    let avg = |v: &[i64]| {
-        if v.is_empty() {
-            0.0
-        } else {
-            v.iter().sum::<i64>() as f64 / v.len() as f64 / 1000.0
-        }
-    };
-    let keyups: Vec<i64> = keyups.iter().map(|&k| k as i64).collect();
-    println!(
-        "\n{n} bursts; {} with TX state ({} key-up, {} air time). Mean key-up {:.2} s; mean (real - estimated) air time {:+.2} s.",
-        keyups.len().max(diffs.len()),
-        keyups.len(),
-        diffs.len(),
-        avg(&keyups),
-        avg(&diffs)
-    );
-    println!("TX state comes from CI-V 1C 00 polled every 100 ms, so each figure is good to about +/- 0.1 s.");
-    // Time spent waiting, by reason.
-    let mut waits: BTreeMap<String, u64> = BTreeMap::new();
-    let mut cur: Option<(String, u64)> = None;
-    for r in records {
-        if let Record::Event { t, kind, data } = r {
-            if kind == "sched" {
-                if let Some((why, since)) = cur.take() {
-                    *waits.entry(why).or_default() += t - since;
-                }
-                if data["state"] == "waiting" {
-                    cur = Some((data["why"].as_str().unwrap_or("?").to_string(), *t));
-                }
-            }
-        }
-    }
-    if !waits.is_empty() {
-        println!("\nTime spent waiting with traffic queued or timers held, by reason:");
-        for (k, v) in waits {
-            println!("  {k:<12} {:>8.1} s", v as f64 / 1000.0);
-        }
-    }
 }
 
 fn printable(b: &[u8], max: usize) -> String {
@@ -247,7 +149,7 @@ fn main() {
     let no_civ = args.iter().any(|a| a == "--no-civ");
     let (header, records) = capture::read(std::path::Path::new(file)).unwrap_or_else(|e| die(&e));
     if cmd == "timing" {
-        timing(&records);
+        print!("{}", capture::report(&header, &records));
         return;
     }
     let (mut rx, mut tx) = (Deframer::default(), Deframer::default());

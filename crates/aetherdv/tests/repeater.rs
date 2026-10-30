@@ -628,3 +628,74 @@ async fn capture_records_civ_frames_timeline_and_key_up() {
         "burst {burst} up {up} down {down}"
     );
 }
+
+#[tokio::test]
+async fn radio_test_session_writes_one_bundle_with_a_summary() {
+    let dir = tempfile::tempdir().unwrap();
+    let r = radio("CQCQCQ", "W4DOC  B", "");
+    let mut b = bench_with(REPEATER, Some(r), Some(dir.path())).await;
+    wait_for(&mut b.ev, "route open", |e| {
+        e.topic == "port.route" && e.data["route"]["gate"] == "open"
+    })
+    .await;
+    let diag = |c| move |reply| Cmd::Diag(c, reply);
+    use aetherdv::engine::DiagCmd;
+    let st = ask(
+        &b.h,
+        diag(DiagCmd::TestStart {
+            description: "bench chat".into(),
+        }),
+    )
+    .await
+    .unwrap();
+    assert_eq!(st["running"], true);
+    assert!(ask(
+        &b.h,
+        diag(DiagCmd::TestStart {
+            description: "again".into()
+        })
+    )
+    .await
+    .is_err());
+    ask(
+        &b.h,
+        diag(DiagCmd::TestMark {
+            text: "keyed voice".into(),
+        }),
+    )
+    .await
+    .unwrap();
+    chat(&b, "during the test").await.unwrap();
+    b.data
+        .wait_frame("chat", |f| has_text(f, "during the test"))
+        .await;
+    let done = ask(&b.h, diag(DiagCmd::TestFinish)).await.unwrap();
+    let summary = done["summary"].as_str().unwrap();
+    for want in [
+        "Test: bench chat",
+        "keyed voice",
+        "Transmissions (1)",
+        "W4DOC  B",
+    ] {
+        assert!(summary.contains(want), "summary lacks {want:?}:\n{summary}");
+    }
+    let path = std::path::PathBuf::from(done["path"].as_str().unwrap());
+    assert!(path
+        .file_name()
+        .unwrap()
+        .to_string_lossy()
+        .ends_with(".tar.gz"));
+    assert!(std::fs::metadata(&path).unwrap().len() > 100);
+    assert_eq!(
+        ask(&b.h, diag(DiagCmd::TestStatus)).await.unwrap()["running"],
+        false
+    );
+    assert!(ask(
+        &b.h,
+        diag(DiagCmd::TestMark {
+            text: "late".into()
+        })
+    )
+    .await
+    .is_err());
+}

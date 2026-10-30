@@ -188,3 +188,19 @@ textarea.field { height: auto; min-height: 120px; padding: var(--s3); resize: ve
 .calls td.differs { color: var(--pending); }
 .meter { display: grid; gap: var(--s2); margin-bottom: var(--s3); }
 .meter .bar > span { background: var(--slow); }
+
+/* ---- radio test (Diagnostics) ---- */
+.testcard { padding: var(--s4) var(--s5); border-bottom: 1px solid var(--line-hair); display: grid; gap: var(--s3); max-width: 900px; }
+.testcard h2 { margin: 0; font-size: var(--fs-lg); font-weight: 600; display: flex; align-items: center; gap: var(--s3); }
+.testcard p { margin: 0; }
+.test-row { display: flex; flex-wrap: wrap; gap: var(--s3); align-items: center; }
+.test-row input { flex: 1; min-width: 240px; height: 30px; background: var(--bg-sunken); color: var(--text-1);
+  border: 1px solid var(--line-control); border-radius: var(--r-md); padding: 0 var(--s3); font: inherit; }
+.testcard .rec { width: 10px; height: 10px; border-radius: 50%; background: var(--fail); }
+@media (prefers-reduced-motion: no-preference) { .testcard .rec { animation: rec 1.6s ease-in-out infinite; } }
+@keyframes rec { 50% { opacity: .35; } }
+.marks { margin: 0; padding-left: var(--s5); color: var(--text-2); font-size: var(--fs-sm); max-height: 140px; overflow: auto; }
+.marks time { color: var(--text-3); }
+.steps { margin: 0; padding-left: var(--s5); display: grid; gap: var(--s3); }
+.summary { width: 100%; font: var(--fs-sm)/1.4 var(--font-wire); background: var(--bg-sunken); color: var(--text-1);
+  border: 1px solid var(--line-control); border-radius: var(--r-md); padding: var(--s3); resize: vertical; }

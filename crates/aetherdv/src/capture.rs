@@ -217,6 +217,217 @@ pub fn read(path: &Path) -> Result<(Value, Vec<Record>), String> {
     Ok((header, recs))
 }
 
+/// Plain-text report of one capture for a test summary: what the port
+/// did, transmission timing (key-up and real air time from CI-V), time
+/// spent waiting by reason, and the timeline events worth reading first.
+pub fn report(header: &Value, records: &[Record]) -> String {
+    use std::fmt::Write as _;
+    let mut o = String::new();
+    let secs = |t: u64| t as f64 / 1000.0;
+    let _ = writeln!(
+        o,
+        "Port {} ({}, {}), engine {}",
+        header["port"].as_str().unwrap_or("?"),
+        header["kind"].as_str().unwrap_or("?"),
+        header["pathKind"].as_str().unwrap_or("?"),
+        header["engine"].as_str().unwrap_or("?")
+    );
+    let end = records.iter().map(Record::t).max().unwrap_or(0);
+    let count = |f: &dyn Fn(&Record) -> bool| records.iter().filter(|r| f(r)).count();
+    let bytes = |rx: bool| -> usize {
+        records
+            .iter()
+            .map(|r| match r {
+                Record::Rx { bytes, .. } if rx => bytes.len(),
+                Record::Tx { bytes, .. } if !rx => bytes.len(),
+                _ => 0,
+            })
+            .sum()
+    };
+    let _ = writeln!(
+        o,
+        "Recorded {:.0} s: {} B received, {} B sent, {} CI-V frames, {} timeline events",
+        secs(end),
+        bytes(true),
+        bytes(false),
+        count(&|r| matches!(r, Record::Civ { .. })),
+        count(&|r| matches!(r, Record::Event { .. }))
+    );
+    // Transmission timing.
+    let mut rows = Vec::new();
+    for (i, r) in records.iter().enumerate() {
+        let Record::Event { t, kind, data } = r else {
+            continue;
+        };
+        if kind != "burst" {
+            continue;
+        }
+        let (mut on, mut off) = (None, None);
+        for r2 in &records[i + 1..] {
+            match r2 {
+                Record::Event { kind, .. } if kind == "burst" => break,
+                Record::Event { t: tt, kind, data } if kind == "tx" => {
+                    if data["on"] == true && on.is_none() {
+                        on = Some(*tt);
+                    } else if data["on"] == false && on.is_some() {
+                        off = Some(*tt);
+                        break;
+                    }
+                }
+                _ => {}
+            }
+        }
+        rows.push((
+            *t,
+            data["bytes"].as_u64().unwrap_or(0),
+            data["airEstMs"].as_u64().unwrap_or(0),
+            on.map(|o| o - t),
+            on.zip(off).map(|(a, b)| b - a),
+        ));
+    }
+    if rows.is_empty() {
+        let _ = writeln!(o, "No transmissions.");
+    } else {
+        let _ = writeln!(o, "\nTransmissions ({}):", rows.len());
+        let _ = writeln!(
+            o,
+            "  {:>9} {:>6} {:>7} {:>8} {:>8} {:>7}",
+            "at s", "bytes", "est s", "keyup s", "air s", "diff s"
+        );
+        let f = |x: Option<u64>| x.map_or("-".into(), |v| format!("{:.2}", secs(v)));
+        for (t, b, est, k, a) in rows.iter().take(40) {
+            let diff = a.map_or("-".into(), |a| {
+                format!("{:+.2}", (a as f64 - *est as f64) / 1000.0)
+            });
+            let _ = writeln!(
+                o,
+                "  {:>9.1} {:>6} {:>7.2} {:>8} {:>8} {:>7}",
+                secs(*t),
+                b,
+                secs(*est),
+                f(*k),
+                f(*a),
+                diff
+            );
+        }
+        if rows.len() > 40 {
+            let _ = writeln!(o, "  … {} more", rows.len() - 40);
+        }
+        let ks: Vec<u64> = rows.iter().filter_map(|r| r.3).collect();
+        let ds: Vec<f64> = rows
+            .iter()
+            .filter_map(|r| r.4.map(|a| a as f64 - r.2 as f64))
+            .collect();
+        if ks.is_empty() {
+            let _ = writeln!(
+                o,
+                "  No TX/RX state recorded (no CI-V, or the radio didn't answer 1C 00)."
+            );
+        } else {
+            let _ = writeln!(
+                o,
+                "  Key-up: mean {:.2} s, max {:.2} s. Real minus estimated air time: mean {:+.2} s. (+/- 0.1 s: TX state is polled every 100 ms.)",
+                ks.iter().sum::<u64>() as f64 / ks.len() as f64 / 1000.0,
+                secs(*ks.iter().max().unwrap_or(&0)),
+                if ds.is_empty() { 0.0 } else { ds.iter().sum::<f64>() / ds.len() as f64 / 1000.0 }
+            );
+        }
+    }
+    // Waiting by reason.
+    let mut waits: Vec<(String, u64)> = Vec::new();
+    let mut cur: Option<(String, u64)> = None;
+    for r in records {
+        if let Record::Event { t, kind, data } = r {
+            if kind == "sched" {
+                if let Some((why, since)) = cur.take() {
+                    match waits.iter_mut().find(|(w, _)| *w == why) {
+                        Some((_, v)) => *v += t - since,
+                        None => waits.push((why, t - since)),
+                    }
+                }
+                if data["state"] == "waiting" {
+                    cur = Some((data["why"].as_str().unwrap_or("?").to_string(), *t));
+                }
+            }
+        }
+    }
+    if !waits.is_empty() {
+        let _ = writeln!(
+            o,
+            "\nWaiting, by reason: {}",
+            waits
+                .iter()
+                .map(|(w, v)| format!("{w} {:.1} s", secs(*v)))
+                .collect::<Vec<_>>()
+                .join(", ")
+        );
+    }
+    // Timeline highlights.
+    let interesting = [
+        "marker",
+        "state",
+        "gate",
+        "route",
+        "route_error",
+        "civ_open",
+        "my_call",
+        "sources",
+        "radio_changed",
+        "voice_inference_off",
+        "access_check",
+        "pause",
+        "resume",
+        "rx_calls",
+        "rx_message",
+    ];
+    let mut lines = Vec::new();
+    let mut last_route = String::new();
+    for r in records {
+        match r {
+            Record::Event { t, kind, data } if interesting.contains(&kind.as_str()) => {
+                // Route readings repeat every minute: show changes only.
+                if kind == "route" {
+                    let s = data.to_string();
+                    if s == last_route {
+                        continue;
+                    }
+                    last_route = s;
+                }
+                if kind == "civ_open" && data["error"].is_null() {
+                    continue;
+                }
+                lines.push(format!("  {:>9.1}  {kind} {data}", secs(*t)));
+            }
+            Record::Note { t, text } => lines.push(format!("  {:>9.1}  note {text}", secs(*t))),
+            _ => {}
+        }
+    }
+    if !lines.is_empty() {
+        let _ = writeln!(
+            o,
+            "\nTimeline ({} entries{}):",
+            lines.len(),
+            if lines.len() > 80 { ", last 80" } else { "" }
+        );
+        for l in lines.iter().skip(lines.len().saturating_sub(80)) {
+            let _ = writeln!(o, "{l}");
+        }
+    }
+    o
+}
+
+impl Record {
+    pub fn t(&self) -> u64 {
+        match self {
+            Record::Rx { t, .. }
+            | Record::Tx { t, .. }
+            | Record::Note { t, .. }
+            | Record::Civ { t, .. }
+            | Record::Event { t, .. } => *t,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

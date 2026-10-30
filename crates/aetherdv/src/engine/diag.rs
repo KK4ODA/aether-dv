@@ -19,6 +19,26 @@ pub enum DiagCmd {
     SupportBundle {
         include_captures: bool,
     },
+    /// Radio test session: start captures everywhere, take markers, then
+    /// write one compressed bundle with a plain-text summary.
+    TestStart {
+        description: String,
+    },
+    TestMark {
+        text: String,
+    },
+    TestFinish,
+    TestStatus,
+}
+
+/// A radio test in progress.
+#[derive(Debug, Clone)]
+pub struct TestSession {
+    pub description: String,
+    pub started_at: i64,
+    pub markers: Vec<(i64, String)>,
+    /// Captures this test started (port, file).
+    pub captures: Vec<(String, std::path::PathBuf)>,
 }
 
 fn stamp() -> String {
@@ -108,10 +128,266 @@ impl Engine {
                 })
                 .map_err(|e| ApiError::new(E_INTERNAL, e.to_string())),
             DiagCmd::SupportBundle { include_captures } => self.support_bundle(include_captures),
+            DiagCmd::TestStart { description } => self.test_start(description),
+            DiagCmd::TestMark { text } => self.test_mark(text),
+            DiagCmd::TestFinish => self.test_finish(),
+            DiagCmd::TestStatus => Ok(self.test_status()),
         }
     }
 
+    fn test_status(&self) -> Value {
+        match &self.test {
+            None => json!({ "running": false }),
+            Some(t) => json!({
+                "running": true, "description": t.description, "startedAt": t.started_at,
+                "markers": t.markers.iter().map(|(at, m)| json!({ "at": at, "text": m })).collect::<Vec<_>>(),
+                "ports": t.captures.iter().map(|(p, _)| p).collect::<Vec<_>>(),
+            }),
+        }
+    }
+
+    fn test_start(&mut self, description: String) -> Result<Value, ApiError> {
+        if self.test.is_some() {
+            return Err(ApiError::new(
+                E_INVALID,
+                "a test is already running; finish it first",
+            ));
+        }
+        let description = description.trim().chars().take(500).collect::<String>();
+        let names: Vec<String> = self.ports.keys().cloned().collect();
+        let mut captures = Vec::new();
+        for n in names {
+            match self.ports[&n].tap.active() {
+                // Already capturing (capture = true): use that file.
+                Some(path) => captures.push((n, path)),
+                None => {
+                    let v = self.start_capture(&n)?;
+                    if let Some(p) = v["path"].as_str() {
+                        captures.push((n, std::path::PathBuf::from(p)));
+                    }
+                }
+            }
+        }
+        let started_at = unix_ms();
+        self.test = Some(TestSession {
+            description: description.clone(),
+            started_at,
+            markers: Vec::new(),
+            captures,
+        });
+        let names: Vec<String> = self.ports.keys().cloned().collect();
+        for n in names {
+            let state = json!({ "route": self.route_json(&n), "channel": self.channel_json(&n) });
+            let p = &self.ports[&n];
+            p.tap.event(
+                "marker",
+                json!({ "text": format!("test started: {description}") }),
+            );
+            // Where things stood when the test began.
+            p.tap.event("state", state);
+        }
+        self.log("info", None, &format!("radio test started: {description}"));
+        Ok(self.test_status())
+    }
+
+    fn test_mark(&mut self, text: String) -> Result<Value, ApiError> {
+        let text = text.trim().chars().take(300).collect::<String>();
+        if text.is_empty() {
+            return Err(ApiError::new(E_INVALID, "the marker needs some text"));
+        }
+        let Some(t) = self.test.as_mut() else {
+            return Err(ApiError::new(
+                E_INVALID,
+                "no test is running; start one first",
+            ));
+        };
+        let at = unix_ms();
+        t.markers.push((at, text.clone()));
+        for p in self.ports.values() {
+            p.tap.event("marker", json!({ "text": text }));
+        }
+        self.log("info", None, &format!("test marker: {text}"));
+        Ok(json!({ "at": at, "text": text }))
+    }
+
+    fn test_finish(&mut self) -> Result<Value, ApiError> {
+        let Some(t) = self.test.take() else {
+            return Err(ApiError::new(E_INVALID, "no test is running"));
+        };
+        let finished_at = unix_ms();
+        for p in self.ports.values() {
+            p.tap.event("marker", json!({ "text": "test finished" }));
+        }
+        for (port, path) in &t.captures {
+            if self.ports.get(port).and_then(|p| p.tap.active()).as_ref() == Some(path) {
+                let _ = self.ports[port].tap.stop();
+            }
+        }
+        let summary = self.test_summary(&t, finished_at);
+        let mut files = self.bundle_files()?;
+        files.insert(0, ("summary.txt".into(), summary.clone().into_bytes()));
+        files.push((
+            "test.json".into(),
+            serde_json::to_vec_pretty(&json!({
+                "description": t.description, "startedAt": t.started_at, "finishedAt": finished_at,
+                "markers": t.markers.iter().map(|(at, m)| json!({ "at": at, "text": m })).collect::<Vec<_>>(),
+            }))
+            .unwrap_or_default(),
+        ));
+        for (_, path) in &t.captures {
+            if let (Some(name), Ok(data)) = (path.file_name(), std::fs::read(path)) {
+                files.push((format!("captures/{}", name.to_string_lossy()), data));
+            }
+        }
+        let path = self
+            .capture_dir
+            .join(format!("aether-test-{}.tar.gz", stamp()));
+        crate::bundle::write_tar_gz(&path, &files, (finished_at / 1000) as u64)
+            .map_err(|e| ApiError::new(E_INTERNAL, format!("{}: {e}", path.display())))?;
+        let bytes = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
+        self.log(
+            "info",
+            None,
+            &format!("radio test finished; bundle written: {}", path.display()),
+        );
+        Ok(json!({ "path": path, "bytes": bytes, "summary": summary }))
+    }
+
+    /// The plain-text summary: short enough to paste into a chat.
+    fn test_summary(&self, t: &TestSession, finished_at: i64) -> String {
+        use std::fmt::Write as _;
+        let mut o = String::new();
+        let at = |ms: i64| format!("+{:.1} s", (ms - t.started_at) as f64 / 1000.0);
+        let _ = writeln!(o, "Aether DV radio test summary");
+        let _ = writeln!(
+            o,
+            "Test: {}",
+            if t.description.is_empty() {
+                "(no description)"
+            } else {
+                &t.description
+            }
+        );
+        let _ = writeln!(
+            o,
+            "Engine {} on {} {}; station {}; {:.0} s from {} (unix ms)",
+            crate::station::VERSION,
+            std::env::consts::OS,
+            std::env::consts::ARCH,
+            self.station.callsign,
+            (finished_at - t.started_at) as f64 / 1000.0,
+            t.started_at
+        );
+        if !t.markers.is_empty() {
+            let _ = writeln!(o, "\nYour markers:");
+            for (m_at, m) in &t.markers {
+                let _ = writeln!(o, "  {:>9}  {m}", at(*m_at));
+            }
+        }
+        let mut names: Vec<&String> = self.ports.keys().collect();
+        names.sort();
+        let _ = writeln!(o, "\nPorts now:");
+        for n in names {
+            let p = &self.ports[n];
+            let _ = writeln!(o, "  {n}: {} {}", p.kind, p.state);
+            let r = self.route_json(n);
+            if !r.is_null() {
+                let _ = writeln!(
+                    o,
+                    "    route: {} {}, gate {}{}, known from {}; radio {}",
+                    r["scope"].as_str().unwrap_or("?"),
+                    r["repeater"].as_str().unwrap_or(""),
+                    r["gate"].as_str().unwrap_or("?"),
+                    r["code"]
+                        .as_str()
+                        .map(|c| format!(" ({c})"))
+                        .unwrap_or_default(),
+                    r["source"].as_str().unwrap_or("nothing"),
+                    r["observed"]["calls"]
+                );
+            }
+            let c = self.channel_json(n);
+            if !c.is_null() {
+                let _ = writeln!(
+                    o,
+                    "    channel: {} {}; sensing {}; air {} of {} ms",
+                    c["state"].as_str().unwrap_or("?"),
+                    c["why"].as_str().unwrap_or(""),
+                    c["sources"],
+                    c["airUsedMs"],
+                    c["airBudgetMs"]
+                );
+            }
+        }
+        // Warnings and errors from the engine log during the test.
+        if let Ok(evs) = self.store.events(None, 5_000) {
+            let bad: Vec<_> = evs
+                .iter()
+                .rev()
+                .filter(|(_, at, level, ..)| {
+                    *at >= t.started_at && matches!(level.as_str(), "warn" | "error")
+                })
+                .collect();
+            if !bad.is_empty() {
+                let _ = writeln!(o, "\nWarnings and errors ({}):", bad.len());
+                for (_, ev_at, level, _, port, msg) in bad.iter().take(40) {
+                    let _ = writeln!(
+                        o,
+                        "  {:>9}  {level} {}{msg}",
+                        at(*ev_at),
+                        port.as_deref()
+                            .map(|p| format!("[{p}] "))
+                            .unwrap_or_default()
+                    );
+                }
+            }
+        }
+        for (_, path) in &t.captures {
+            match crate::capture::read(path) {
+                Ok((h, recs)) => {
+                    let _ = writeln!(o, "\n----------------------------------------");
+                    o.push_str(&crate::capture::report(&h, &recs));
+                }
+                Err(e) => {
+                    let _ = writeln!(o, "\ncapture {}: {e}", path.display());
+                }
+            }
+        }
+        o
+    }
+
     fn support_bundle(&mut self, include_captures: bool) -> Result<Value, ApiError> {
+        let mut files = self.bundle_files()?;
+        if include_captures {
+            if let Ok(rd) = std::fs::read_dir(&self.capture_dir) {
+                let mut caps: Vec<_> = rd
+                    .flatten()
+                    .map(|e| e.path())
+                    .filter(|p| p.extension().is_some_and(|x| x == "aecap"))
+                    .collect();
+                caps.sort();
+                for c in caps {
+                    if let (Some(name), Ok(data)) = (c.file_name(), std::fs::read(&c)) {
+                        files.push((format!("captures/{}", name.to_string_lossy()), data));
+                    }
+                }
+            }
+        }
+        let path = self
+            .capture_dir
+            .join(format!("aether-support-{}.tar", stamp()));
+        crate::bundle::write_tar(&path, &files, (unix_ms() / 1000) as u64)
+            .map_err(|e| ApiError::new(E_INTERNAL, format!("{}: {e}", path.display())))?;
+        self.log(
+            "info",
+            None,
+            &format!("support bundle written: {}", path.display()),
+        );
+        Ok(json!({ "path": path, "files": files.iter().map(|f| &f.0).collect::<Vec<_>>() }))
+    }
+
+    /// Everything a bundle holds except captures.
+    fn bundle_files(&mut self) -> Result<Vec<(String, Vec<u8>)>, ApiError> {
         let internal = |e: aether_store::Error| ApiError::new(E_INTERNAL, e.to_string());
         let mut files: Vec<(String, Vec<u8>)> =
             vec![("README.txt".into(), crate::bundle::README.into())];
@@ -178,31 +454,6 @@ impl Engine {
             "messages.json".into(),
             serde_json::to_vec_pretty(&msgs).unwrap_or_default(),
         ));
-        if include_captures {
-            if let Ok(rd) = std::fs::read_dir(&self.capture_dir) {
-                let mut caps: Vec<_> = rd
-                    .flatten()
-                    .map(|e| e.path())
-                    .filter(|p| p.extension().is_some_and(|x| x == "aecap"))
-                    .collect();
-                caps.sort();
-                for c in caps {
-                    if let (Some(name), Ok(data)) = (c.file_name(), std::fs::read(&c)) {
-                        files.push((format!("captures/{}", name.to_string_lossy()), data));
-                    }
-                }
-            }
-        }
-        let path = self
-            .capture_dir
-            .join(format!("aether-support-{}.tar", stamp()));
-        crate::bundle::write_tar(&path, &files, (unix_ms() / 1000) as u64)
-            .map_err(|e| ApiError::new(E_INTERNAL, format!("{}: {e}", path.display())))?;
-        self.log(
-            "info",
-            None,
-            &format!("support bundle written: {}", path.display()),
-        );
-        Ok(json!({ "path": path, "files": files.iter().map(|f| &f.0).collect::<Vec<_>>() }))
+        Ok(files)
     }
 }

@@ -217,6 +217,22 @@ fn open_link(app: tauri::AppHandle, url: String) -> Result<(), String> {
         .map_err(|e| format!("Could not open the link: {e}"))
 }
 
+/// Show a test or support bundle the engine wrote, in the system file
+/// manager. Only those file names, only existing files.
+#[tauri::command]
+fn reveal_bundle(app: tauri::AppHandle, path: String) -> Result<(), String> {
+    let p = std::path::PathBuf::from(&path);
+    let name = p.file_name().and_then(|n| n.to_str()).unwrap_or("");
+    let ours = (name.starts_with("aether-test-") && name.ends_with(".tar.gz"))
+        || (name.starts_with("aether-support-") && name.ends_with(".tar"));
+    if !p.is_absolute() || !ours || !p.is_file() {
+        return Err("Not a bundle written by Aether DV.".into());
+    }
+    app.opener()
+        .reveal_item_in_dir(&p)
+        .map_err(|e| format!("Could not show the file: {e}"))
+}
+
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 struct AppInfo {
@@ -377,6 +393,7 @@ fn main() {
             engine_endpoint,
             engine_start,
             open_link,
+            reveal_bundle,
             app_info,
             update_check,
             update_install

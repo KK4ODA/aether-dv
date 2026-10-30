@@ -102,6 +102,9 @@ struct Radio {
     tap: Tap,
     /// Last recorded answer to each quiet poll.
     last_poll: Vec<(&'static [u8], Vec<u8>)>,
+    /// A capture was running at the last transaction (a new one starts
+    /// with every poll answer recorded again).
+    was_recording: bool,
 }
 
 impl Radio {
@@ -111,6 +114,10 @@ impl Radio {
             .and_then(|_| self.port.flush())
             .map_err(|e| format!("CI-V write failed: {e}"))?;
         let recording = self.tap.on();
+        if recording && !self.was_recording {
+            self.last_poll.clear();
+        }
+        self.was_recording = recording;
         let mut seen: Vec<Vec<u8>> = Vec::new();
         let deadline = Instant::now() + REPLY_TIMEOUT;
         let mut buf = [0u8; 128];
@@ -270,6 +277,7 @@ fn run(
             pushes: Vec::new(),
             tap: p.tap.clone(),
             last_poll: Vec::new(),
+            was_recording: false,
         };
         let unknown = if dstar_ok { None } else { Some(false) };
         let mut st = State {

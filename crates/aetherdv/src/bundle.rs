@@ -73,12 +73,44 @@ pub fn write_tar(path: &Path, files: &[(String, Vec<u8>)], mtime: u64) -> std::i
     f.get_ref().sync_all()
 }
 
+/// Write a gzip-compressed tar (`.tar.gz`) of `files` to `path`: what a
+/// radio test produces, small enough to upload or attach.
+pub fn write_tar_gz(path: &Path, files: &[(String, Vec<u8>)], mtime: u64) -> std::io::Result<()> {
+    if let Some(d) = path.parent() {
+        std::fs::create_dir_all(d)?;
+    }
+    let f = std::io::BufWriter::new(std::fs::File::create(path)?);
+    let mut gz = flate2::write::GzEncoder::new(f, flate2::Compression::default());
+    for (name, data) in files {
+        tar_file(&mut gz, name, data, mtime)?;
+    }
+    gz.write_all(&[0u8; 1024])?;
+    let mut f = gz.finish()?;
+    f.flush()?;
+    f.get_ref().sync_all()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     /// Parse our own output the way `tar` does: header fields, checksum,
     /// padding and the end-of-archive marker.
+    #[test]
+    fn gzip_bundle_decompresses_to_the_same_tar() {
+        use std::io::Read;
+        let d = tempfile::tempdir().unwrap();
+        let files = vec![("summary.txt".to_string(), b"hello".to_vec())];
+        let (t, g) = (d.path().join("a.tar"), d.path().join("a.tar.gz"));
+        write_tar(&t, &files, 1).unwrap();
+        write_tar_gz(&g, &files, 1).unwrap();
+        let mut out = Vec::new();
+        flate2::read::GzDecoder::new(std::fs::File::open(&g).unwrap())
+            .read_to_end(&mut out)
+            .unwrap();
+        assert_eq!(out, std::fs::read(&t).unwrap());
+    }
+
     #[test]
     fn tar_is_well_formed() {
         let d = tempfile::tempdir().unwrap();
