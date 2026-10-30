@@ -12,7 +12,7 @@ use tokio::net::TcpListener;
 use tokio::sync::{mpsc, oneshot};
 use tokio_tungstenite::tungstenite::Message;
 
-use crate::engine::{ApiError, Cmd, DiagCmd, EngineHandle, MsgCmd, PosCmd, E_INVALID};
+use crate::engine::{ApiError, Cmd, DiagCmd, EngineHandle, MsgCmd, PosCmd, RouteCmd, E_INVALID};
 
 pub const API_VERSION: &str = "0.1.0";
 const E_METHOD: i64 = -32601;
@@ -238,10 +238,15 @@ async fn session(
             "transfers.sendFile" => {
                 match (s(&params, "portId"), s(&params, "peer"), s(&params, "path")) {
                     (Ok(port), Ok(peer), Ok(path)) => {
+                        let confirm_reflector = params
+                            .get("confirmReflector")
+                            .and_then(Value::as_bool)
+                            .unwrap_or(false);
                         ask(&engine, |reply| Cmd::SendFile {
                             port,
                             peer,
                             path: path.into(),
+                            confirm_reflector,
                             reply,
                         })
                         .await
@@ -262,6 +267,29 @@ async fn session(
             }
             "transfers.cancel" => match s(&params, "id") {
                 Ok(id) => ask(&engine, |reply| Cmd::CancelTransfer { id, reply }).await,
+                Err(e) => Err(e),
+            },
+            "ports.confirmRoute" | "ports.verifyRoute" | "ports.applyRoute" | "ports.pause"
+            | "ports.resume" | "diag.repeaterCheck" => match s(&params, "id") {
+                Ok(port) => {
+                    let confirm = params
+                        .get("confirm")
+                        .and_then(Value::as_bool)
+                        .unwrap_or(false);
+                    let minutes = params
+                        .get("minutes")
+                        .and_then(Value::as_u64)
+                        .map(|m| m.clamp(1, 24 * 60) as u32);
+                    let c = match method.as_str() {
+                        "ports.confirmRoute" => RouteCmd::Confirm { port },
+                        "ports.verifyRoute" => RouteCmd::Verify { port },
+                        "ports.applyRoute" => RouteCmd::Apply { port, confirm },
+                        "ports.pause" => RouteCmd::Pause { port, minutes },
+                        "ports.resume" => RouteCmd::Resume { port },
+                        _ => RouteCmd::AccessCheck { port },
+                    };
+                    ask(&engine, |reply| Cmd::Route(c, reply)).await
+                }
                 Err(e) => Err(e),
             },
             "ports.readRadioMode" | "ports.setRadioMode" => match s(&params, "id") {

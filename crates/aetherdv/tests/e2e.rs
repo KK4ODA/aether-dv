@@ -282,7 +282,12 @@ mod serial {
                 }
                 for fr in d.feed(&buf[..n]) {
                     let _ = f.write_all(&aether_civ::frame(fr.to, fr.from, &fr.body)); // echo
-                    if fr.to != 0xA2 || !fr.body.starts_with(&[0x1A, 0x05, 0x00, 0x77]) {
+                    if fr.to != 0xA2 {
+                        continue;
+                    }
+                    if !fr.body.starts_with(&[0x1A, 0x05, 0x00, 0x77]) {
+                        // Like a real radio: NG for commands it doesn't take.
+                        let _ = f.write_all(&aether_civ::frame(0xE0, 0xA2, &[0xFA]));
                         continue;
                     }
                     let reply = match &fr.body[4..] {
@@ -584,6 +589,7 @@ async fn file_and_form_transfer_through_aether_rfd() {
     let src = da.path().join("sitrep 0900.txt");
     std::fs::write(&src, &content).unwrap();
     let t = ask(&a, |reply| Cmd::SendFile {
+        confirm_reflector: false,
         port: "net".into(),
         peer: "w4drs".into(),
         path: src.clone(),
@@ -746,6 +752,7 @@ async fn transfer_to_an_absent_station_can_be_cancelled_and_bad_requests_fail() 
         let a = a.clone();
         async move {
             ask(&a, |reply| Cmd::SendFile {
+                confirm_reflector: false,
                 port: "net".into(),
                 peer,
                 path,

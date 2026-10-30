@@ -7,7 +7,8 @@ use std::io::{Read, Write};
 use std::time::{Duration, Instant};
 
 use aether_ddt2::{Deframer, Event, Frame};
-use aether_link::scheduler::{Item, ModeProfile, Priority, Scheduler};
+use aether_link::channel::{Busy, ChannelSense, Source, VoiceInference};
+use aether_link::scheduler::{Item, ModeProfile, PathPreset, Priority, Scheduler, Status};
 
 use crate::capture::Tap;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -15,7 +16,7 @@ use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
 use tokio::net::TcpStream;
 use tokio::sync::mpsc;
 
-/// Commands from the engine to a port.
+/// Commands to a port (from the engine, and from the radio's CI-V session).
 #[derive(Debug)]
 pub enum PortCmd {
     /// Send one enveloped DDT2 frame. `token` identifies it in later events.
@@ -24,6 +25,42 @@ pub enum PortCmd {
         priority: Priority,
         token: Option<i64>,
     },
+    /// A channel-sense source reports the channel (`None` = clear).
+    Channel {
+        source: Source,
+        busy: Option<Busy>,
+    },
+    /// The channel-sense sources that work on this radio now.
+    Sources(Vec<Source>),
+    /// Route guard: hold (`true`) or release the port.
+    RouteHold(bool),
+    /// Operator pause: indefinitely (`None`) or for a number of ms.
+    Pause(Option<u64>),
+    Resume,
+}
+
+/// What a radio port's scheduler is doing (sent when it changes).
+#[derive(Debug, Clone, PartialEq)]
+pub struct SchedReport {
+    /// `idle`, `sending`, `waiting` or `down`.
+    pub state: &'static str,
+    /// Why it waits (`voice`, `voice_gap`, `courtesy`, `paused`, `route`…).
+    pub why: Option<&'static str>,
+    /// Until when (unix ms), if known.
+    pub until: Option<i64>,
+    /// The channel is held by others or deliberately: transfer timers
+    /// on this port should be paused.
+    pub holds_timers: bool,
+    pub queued: usize,
+    /// Channel-sense sources in use (`data` is always there).
+    pub sources: Vec<&'static str>,
+    /// Voice is sensed directly (CI-V), not only inferred.
+    pub senses_voice: bool,
+    /// Voice inference switched off (radio streams its own GPS).
+    pub inference_off: bool,
+    pub air_used_ms: u64,
+    pub air_budget_ms: u64,
+    pub max_over_ms: u64,
 }
 
 /// Events from a port to the engine.
@@ -58,6 +95,17 @@ pub enum PortEvt {
         port: String,
         action: &'static str,
         result: Result<bool, String>,
+    },
+    /// The scheduler's state changed.
+    Sched {
+        port: String,
+        report: SchedReport,
+    },
+    /// A burst was handed to the radio (estimated air time follows).
+    Burst {
+        port: String,
+        bytes: usize,
+        air_ms: u64,
     },
 }
 
@@ -297,6 +345,8 @@ pub async fn run_ratflector(
                         if !emit(&evt, vec![PortEvt::NotTransmitted { port: p.name.clone(), token: t, reason: "not connected; queue full".into() }]).await { return; }
                     }
                 }
+                // Channel sense and holds are for radio ports.
+                Some(_) => {}
             },
             _ = sleep_until_opt(deadline) => actions.extend(client.on_timeout(now())),
         }
@@ -313,12 +363,177 @@ pub struct SerialParams {
     pub baud: u32,
     pub mode: String,
     pub software_flow: bool,
+    /// Courtesy preset for the configured route.
+    pub preset: PathPreset,
+    /// Operator overrides of the preset (`[port.route]` advanced fields).
+    pub tuning: Tuning,
+    /// Infer voice from relayed D-PRS/NMEA slow data (docs/10 §4.11).
+    pub infer_voice: bool,
+}
+
+/// Optional overrides of a path preset.
+#[derive(Debug, Clone, Default)]
+pub struct Tuning {
+    pub holdoff_ms: Option<u64>,
+    pub jitter_ms: Option<u64>,
+    pub voice_gap_ms: Option<u64>,
+    pub min_gap_ms: Option<u64>,
+    pub max_over_ms: Option<u64>,
+    pub duty_percent: Option<u32>,
+    pub duty_window_s: Option<u64>,
+}
+
+/// The scheduler profile for a mode, route preset and sensing.
+pub fn profile_for(mode: &str, preset: PathPreset, senses_voice: bool, t: &Tuning) -> ModeProfile {
+    let base = if mode == "fast" {
+        ModeProfile::dv_fast_placeholder()
+    } else {
+        ModeProfile::dv_slow_placeholder()
+    };
+    let mut p = base.for_path(preset, senses_voice);
+    if let Some(v) = t.holdoff_ms {
+        p.holdoff_ms = v;
+    }
+    if let Some(v) = t.jitter_ms {
+        p.jitter_ms = v;
+    }
+    if let Some(v) = t.voice_gap_ms {
+        p.voice_gap_ms = v;
+    }
+    if let Some(v) = t.min_gap_ms {
+        p.min_gap_ms = v;
+    }
+    if let Some(v) = t.max_over_ms {
+        p.max_burst_ms = v;
+    }
+    if let Some(v) = t.duty_percent {
+        p.duty_permille = v * 10;
+    }
+    if let Some(v) = t.duty_window_s {
+        p.duty_window_ms = v * 1000;
+    }
+    p
 }
 
 enum Io {
     Rx(Vec<u8>),
     Lost(String),
     Accepted(Vec<u64>, usize),
+}
+
+/// Holds and channel sense that outlive a reconnect.
+struct Persist {
+    route_hold: bool,
+    /// `Some(None)` = paused until resumed; `Some(Some(t))` = until t.
+    pause: Option<Option<u64>>,
+    sense: ChannelSense,
+    infer: VoiceInference,
+}
+
+impl Persist {
+    /// Apply a non-send command. Returns true if the profile must change.
+    fn apply(&mut self, c: &PortCmd, now: u64, sched: Option<&mut Scheduler>) -> bool {
+        match c {
+            PortCmd::Send { .. } => false,
+            PortCmd::Channel { source, busy } => {
+                if let Some(agg) = self.sense.report(*source, *busy) {
+                    if let Some(s) = sched {
+                        s.on_channel(now, agg);
+                    }
+                }
+                false
+            }
+            PortCmd::Sources(list) => {
+                let had = self.sense.senses_voice();
+                for s in self.sense.sources() {
+                    if !list.contains(&s) {
+                        self.sense.remove(s);
+                    }
+                }
+                for s in list {
+                    if !self.sense.sources().contains(s) {
+                        self.sense.report(*s, None);
+                    }
+                }
+                if let Some(s) = sched {
+                    s.on_channel(now, self.sense.current());
+                    s.set_sensed(!self.sense.sources().is_empty());
+                }
+                had != self.sense.senses_voice()
+            }
+            PortCmd::RouteHold(h) => {
+                self.route_hold = *h;
+                if let Some(s) = sched {
+                    s.set_route_held(*h, now);
+                }
+                false
+            }
+            PortCmd::Pause(ms) => {
+                let until = ms.map(|m| now + m);
+                self.pause = Some(until);
+                if let Some(s) = sched {
+                    s.pause(until, now);
+                }
+                false
+            }
+            PortCmd::Resume => {
+                self.pause = None;
+                if let Some(s) = sched {
+                    s.resume(now);
+                }
+                false
+            }
+        }
+    }
+
+    fn restore(&self, s: &mut Scheduler, now: u64) {
+        s.set_route_held(self.route_hold, now);
+        if let Some(until) = self.pause {
+            s.pause(until, now);
+        }
+        s.set_sensed(!self.sense.sources().is_empty());
+        s.on_channel(now, self.sense.current());
+    }
+}
+
+fn report(s: &mut Scheduler, now: u64, unix_now: i64, p: &Persist) -> SchedReport {
+    let status = s.status(now);
+    let (state, why, until, holds) = match status {
+        Status::Idle => ("idle", None, None, false),
+        Status::Sending => ("sending", None, None, false),
+        Status::Down => ("down", None, None, false),
+        Status::Waiting { why, until } => (
+            "waiting",
+            Some(why.as_str()),
+            until.map(|u| unix_now + u.saturating_sub(now) as i64),
+            why.holds_timers(),
+        ),
+    };
+    let mut sources = vec!["data"];
+    sources.extend(p.sense.sources().iter().map(|s| s.as_str()));
+    if !p.infer.disabled() {
+        sources.push("inferred_voice");
+    }
+    SchedReport {
+        state,
+        why,
+        until,
+        holds_timers: holds,
+        queued: s.queued(),
+        sources,
+        senses_voice: p.sense.senses_voice(),
+        inference_off: p.infer.disabled(),
+        air_used_ms: s.air_used(now),
+        air_budget_ms: s.air_budget(),
+        max_over_ms: s.profile().max_burst_ms,
+    }
+}
+
+fn unix_ms() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as i64)
+        .unwrap_or(0)
 }
 
 pub async fn run_serial(
@@ -328,13 +543,17 @@ pub async fn run_serial(
 ) {
     let epoch = Instant::now();
     let now = || epoch.elapsed().as_millis() as u64;
-    let profile = if p.mode == "fast" {
-        ModeProfile::dv_fast_placeholder()
-    } else {
-        ModeProfile::dv_slow_placeholder()
+    let mut persist = Persist {
+        route_hold: false,
+        pause: None,
+        sense: ChannelSense::default(),
+        infer: VoiceInference::default(),
     };
+    let make_profile =
+        |sense: &ChannelSense| profile_for(&p.mode, p.preset, sense.senses_voice(), &p.tuning);
     let mut next_item = 1u64;
     let mut tokens: std::collections::HashMap<u64, i64> = std::collections::HashMap::new();
+    let mut last_report: Option<SchedReport> = None;
     loop {
         // SM-1: Opening. Exclusive open; nothing is written on open.
         let path = p.path.clone();
@@ -361,15 +580,23 @@ pub async fn run_serial(
                         detail: Some(e.to_string()),
                     })
                     .await;
-                // Fail queued sends honestly while the radio is absent.
-                while let Ok(PortCmd::Send { token: Some(t), .. }) = cmd.try_recv() {
-                    let _ = evt
-                        .send(PortEvt::NotTransmitted {
-                            port: p.name.clone(),
-                            token: t,
-                            reason: "radio not connected".into(),
-                        })
-                        .await;
+                // Fail queued sends honestly while the radio is absent;
+                // keep holds and channel reports for when it returns.
+                while let Ok(c) = cmd.try_recv() {
+                    match c {
+                        PortCmd::Send { token: Some(t), .. } => {
+                            let _ = evt
+                                .send(PortEvt::NotTransmitted {
+                                    port: p.name.clone(),
+                                    token: t,
+                                    reason: "radio not connected".into(),
+                                })
+                                .await;
+                        }
+                        other => {
+                            persist.apply(&other, now(), None);
+                        }
+                    }
                 }
                 tokio::time::sleep(Duration::from_secs(2)).await;
                 continue;
@@ -438,34 +665,69 @@ pub async fn run_serial(
             }
         });
         drop(io_tx);
-        let mut sched = Scheduler::new(profile.clone(), epoch.elapsed().as_nanos() as u64);
+        let mut sched = Scheduler::new(
+            make_profile(&persist.sense),
+            epoch.elapsed().as_nanos() as u64,
+        );
+        persist.restore(&mut sched, now());
         let mut deframer = Deframer::default();
         let lost_reason = loop {
             if let Some(burst) = sched.poll(now()) {
                 let ids = burst.items.iter().map(|i| i.id).collect();
                 p.tap.tx(&burst.bytes);
+                let (bytes, air_ms) =
+                    (burst.bytes.len(), sched.profile().air_ms(burst.bytes.len()));
                 if wr_tx.send((ids, burst.bytes)).is_err() {
                     break "writer stopped".to_string();
+                }
+                let _ = evt
+                    .send(PortEvt::Burst {
+                        port: p.name.clone(),
+                        bytes,
+                        air_ms,
+                    })
+                    .await;
+            }
+            let r = report(&mut sched, now(), unix_ms(), &persist);
+            if last_report.as_ref() != Some(&r) {
+                last_report = Some(r.clone());
+                if evt
+                    .send(PortEvt::Sched {
+                        port: p.name.clone(),
+                        report: r,
+                    })
+                    .await
+                    .is_err()
+                {
+                    return;
                 }
             }
             let wake = sched
                 .next_deadline()
                 .map(|ms| epoch + Duration::from_millis(ms))
-                .unwrap_or_else(|| Instant::now() + Duration::from_millis(250));
+                .unwrap_or_else(|| Instant::now() + Duration::from_millis(250))
+                .min(Instant::now() + Duration::from_secs(1));
             tokio::select! {
                 io = io_rx.recv() => match io {
                     None => break "port threads stopped".to_string(),
                     Some(Io::Lost(e)) => break e,
                     Some(Io::Rx(b)) => {
                         p.tap.rx(&b);
-                        sched.on_rx(now());
+                        let t = now();
+                        sched.on_rx(t);
                         let mut out = Vec::new();
                         deliver(&p.name, &mut deframer, &b, &mut out);
+                        if p.infer_voice {
+                            let voice = out.iter().any(|e| matches!(e, PortEvt::Outside { bytes, .. } if persist.infer.feed(t, bytes)));
+                            if voice {
+                                sched.on_voice_inferred(t);
+                            }
+                        }
                         if !emit(&evt, out).await { return; }
                     }
                     Some(Io::Accepted(ids, len)) => {
                         sched.on_port_accepted(now());
-                        let air = Duration::from_millis(profile.air_ms(len));
+                        let air = Duration::from_millis(sched.profile().air_ms(len));
                         for id in ids {
                             if let Some(t) = tokens.remove(&id) {
                                 let (evt, name) = (evt.clone(), p.name.clone());
@@ -484,6 +746,11 @@ pub async fn run_serial(
                         next_item += 1;
                         if let Some(t) = token { tokens.insert(id, t); }
                         sched.enqueue(priority, Item { id, bytes });
+                    }
+                    Some(other) => {
+                        if persist.apply(&other, now(), Some(&mut sched)) {
+                            sched.set_profile(make_profile(&persist.sense));
+                        }
                     }
                 },
                 _ = tokio::time::sleep_until(wake.into()) => {}
