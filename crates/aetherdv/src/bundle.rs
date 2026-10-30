@@ -9,14 +9,17 @@ use std::path::Path;
 
 pub const README: &str = "Aether DV support bundle
 
-about.json      engine version, OS, ports and their state, configuration
-                (passwords removed)
+about.json      engine version, OS, ports and their state (including each
+                radio port's route and channel), configuration (passwords
+                removed)
 events.jsonl    the engine log (newest last)
 transfers.json  file and form transfers (names, sizes, states)
 messages.json   message delivery states (ids, addresses, states; no content)
 captures/       wire captures (.aecap), only if you chose to include them.
                 Captures contain the traffic itself: chat text, files and
-                forms as they went over the air or the ratflector.
+                forms as they went over the air or the ratflector. On radio
+                ports with CI-V they also hold the CI-V traffic and a
+                timeline; read them with `aetherdv-cap show` or `timing`.
 
 Never included: message bodies or subjects, received files, ratflector
 passwords, the API token.

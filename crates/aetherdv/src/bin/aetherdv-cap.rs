@@ -1,8 +1,12 @@
 //! `aetherdv-cap`: read a wire capture (`.aecap`) written by `aetherdv`.
 //!
 //! ```text
-//! aetherdv-cap show FILE [--hex]   every frame and stray byte run, decoded, in time order
+//! aetherdv-cap show FILE [--hex] [--no-civ]
+//!                                  every frame, stray byte run, CI-V frame and
+//!                                  timeline event, decoded, in time order
 //! aetherdv-cap stats FILE          counts per direction, session and frame type
+//! aetherdv-cap timing FILE         per burst: key-up delay and real air time
+//!                                  (needs a radio port with CI-V), and channel waits
 //! ```
 //!
 //! Each direction is run through its own deframer, exactly as the engine
@@ -17,6 +21,146 @@ use aetherdv::capture::{self, Record};
 fn die(m: &str) -> ! {
     eprintln!("{m}");
     std::process::exit(1)
+}
+
+/// A short name for a CI-V command (D-STAR and Fast Data commands we use).
+fn civ_name(body: &[u8]) -> &'static str {
+    match body {
+        [0x1F, 0x00, ..] => "MY call",
+        [0x1F, 0x01, ..] => "UR/R1/R2",
+        [0x20, 0x00, ..] => "RX call signs",
+        [0x20, 0x01, ..] => "RX message",
+        [0x20, 0x02, ..] => "RX status",
+        [0x15, 0x01, ..] => "squelch",
+        [0x1C, 0x00, ..] => "TX/RX",
+        [0x0F, ..] => "duplex",
+        [0x00, ..] => "frequency (transceive)",
+        [0x01, ..] => "mode (transceive)",
+        [0x1A, 0x05, 0x00, 0x77, ..] | [0x22, 0x03, ..] => "Fast Data",
+        [0xFB] => "OK",
+        [0xFA] => "NG",
+        _ => "",
+    }
+}
+
+fn civ_line(tx: bool, bytes: &[u8]) -> String {
+    let mut d = aether_civ::Deframer::default();
+    let frames = d.feed(bytes);
+    let Some(f) = frames.first() else {
+        return format!("civ {} {}", if tx { ">" } else { "<" }, hexs(bytes, 48));
+    };
+    let who = if tx {
+        ">"
+    } else if f.from == 0xE0 {
+        "< (echo)"
+    } else {
+        "<"
+    };
+    format!(
+        "civ {who} {:02X}->{:02X} {} {}",
+        f.from,
+        f.to,
+        hexs(&f.body, 48),
+        civ_name(&f.body)
+    )
+}
+
+/// Per burst: when it went to the radio, when the radio keyed and
+/// unkeyed (CI-V `1C 00`), against the estimate.
+fn timing(records: &[Record]) {
+    println!(
+        "{:>10}  {:>6} {:>8} {:>9} {:>9} {:>8}",
+        "burst at", "bytes", "est s", "key-up s", "on-air s", "diff s"
+    );
+    let mut i = 0;
+    let (mut n, mut keyups, mut diffs) = (0, Vec::new(), Vec::new());
+    while i < records.len() {
+        if let Record::Event { t, kind, data } = &records[i] {
+            if kind == "burst" {
+                let est = data["airEstMs"].as_u64().unwrap_or(0);
+                let bytes = data["bytes"].as_u64().unwrap_or(0);
+                let mut on = None;
+                let mut off = None;
+                for r in &records[i + 1..] {
+                    match r {
+                        Record::Event { kind, .. } if kind == "burst" => break,
+                        Record::Event { t: tt, kind, data } if kind == "tx" => {
+                            if data["on"] == true && on.is_none() {
+                                on = Some(*tt);
+                            } else if data["on"] == false && on.is_some() {
+                                off = Some(*tt);
+                                break;
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+                n += 1;
+                let f = |x: Option<u64>| {
+                    x.map_or("-".to_string(), |v| format!("{:.2}", v as f64 / 1000.0))
+                };
+                let keyup = on.map(|o| o - t);
+                let air = on.zip(off).map(|(a, b)| b - a);
+                if let Some(k) = keyup {
+                    keyups.push(k);
+                }
+                if let Some(a) = air {
+                    diffs.push(a as i64 - est as i64);
+                }
+                println!(
+                    "{:>10.3}  {:>6} {:>8.2} {:>9} {:>9} {:>8}",
+                    *t as f64 / 1000.0,
+                    bytes,
+                    est as f64 / 1000.0,
+                    f(keyup),
+                    f(air),
+                    air.map_or("-".to_string(), |a| format!(
+                        "{:+.2}",
+                        (a as i64 - est as i64) as f64 / 1000.0
+                    ))
+                );
+            }
+        }
+        i += 1;
+    }
+    let avg = |v: &[i64]| {
+        if v.is_empty() {
+            0.0
+        } else {
+            v.iter().sum::<i64>() as f64 / v.len() as f64 / 1000.0
+        }
+    };
+    let keyups: Vec<i64> = keyups.iter().map(|&k| k as i64).collect();
+    println!(
+        "\n{n} bursts; {} with TX state ({} key-up, {} air time). Mean key-up {:.2} s; mean (real - estimated) air time {:+.2} s.",
+        keyups.len().max(diffs.len()),
+        keyups.len(),
+        diffs.len(),
+        avg(&keyups),
+        avg(&diffs)
+    );
+    println!("TX state comes from CI-V 1C 00 polled every 100 ms, so each figure is good to about +/- 0.1 s.");
+    // Time spent waiting, by reason.
+    let mut waits: BTreeMap<String, u64> = BTreeMap::new();
+    let mut cur: Option<(String, u64)> = None;
+    for r in records {
+        if let Record::Event { t, kind, data } = r {
+            if kind == "sched" {
+                if let Some((why, since)) = cur.take() {
+                    *waits.entry(why).or_default() += t - since;
+                }
+                if data["state"] == "waiting" {
+                    cur = Some((data["why"].as_str().unwrap_or("?").to_string(), *t));
+                }
+            }
+        }
+    }
+    if !waits.is_empty() {
+        println!("\nTime spent waiting with traffic queued or timers held, by reason:");
+        for (k, v) in waits {
+            println!("  {k:<12} {:>8.1} s", v as f64 / 1000.0);
+        }
+    }
 }
 
 fn printable(b: &[u8], max: usize) -> String {
@@ -97,10 +241,15 @@ fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let (cmd, file) = match args.as_slice() {
         [c, f, ..] => (c.as_str(), f.as_str()),
-        _ => die("usage: aetherdv-cap show FILE [--hex] | aetherdv-cap stats FILE"),
+        _ => die(USAGE),
     };
     let show_hex = args.iter().any(|a| a == "--hex");
+    let no_civ = args.iter().any(|a| a == "--no-civ");
     let (header, records) = capture::read(std::path::Path::new(file)).unwrap_or_else(|e| die(&e));
+    if cmd == "timing" {
+        timing(&records);
+        return;
+    }
     let (mut rx, mut tx) = (Deframer::default(), Deframer::default());
     let mut stats: BTreeMap<String, u64> = BTreeMap::new();
     if cmd == "show" {
@@ -120,6 +269,24 @@ fn main() {
             Record::Note { t, text } => {
                 if cmd == "show" {
                     println!("{:>10.3}  --  {text}", *t as f64 / 1000.0);
+                }
+                continue;
+            }
+            Record::Civ { t, tx, bytes } => {
+                inc(
+                    &mut stats,
+                    format!("civ {} frames", if *tx { "sent" } else { "received" }),
+                    1,
+                );
+                if cmd == "show" && !no_civ {
+                    println!("{:>10.3}  {}", *t as f64 / 1000.0, civ_line(*tx, bytes));
+                }
+                continue;
+            }
+            Record::Event { t, kind, data } => {
+                inc(&mut stats, format!("event {kind}"), 1);
+                if cmd == "show" {
+                    println!("{:>10.3}  ev  {kind} {data}", *t as f64 / 1000.0);
                 }
                 continue;
             }
@@ -179,6 +346,9 @@ fn main() {
                 println!("{k:<28} {v}");
             }
         }
-        _ => die("usage: aetherdv-cap show FILE [--hex] | aetherdv-cap stats FILE"),
+        _ => die(USAGE),
     }
 }
+
+const USAGE: &str =
+    "usage: aetherdv-cap show FILE [--hex] [--no-civ] | aetherdv-cap stats FILE | aetherdv-cap timing FILE";

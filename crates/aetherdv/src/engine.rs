@@ -1066,6 +1066,7 @@ pub fn start(cfg: &Config) -> Result<EngineHandle, String> {
                             baud: c.baud,
                             model,
                             addr: c.addr_byte().unwrap_or(model.default_addr),
+                            tap: tap.clone(),
                         },
                         tx.clone(),
                         civ_evt_tx.clone(),

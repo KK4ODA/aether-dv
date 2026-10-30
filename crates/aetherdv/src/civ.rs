@@ -12,6 +12,11 @@
 //!
 //! It only *reads* radio settings unless a request asks to set one; it
 //! does not switch on the radio's own automatic outputs.
+//!
+//! With a capture running on the port, every CI-V frame is recorded
+//! (repeated identical polls once per change), and after each burst the
+//! radio's TX/RX state (`1C 00`) is read ten times a second so key-up delay
+//! and real air time can be measured (docs/10 §7).
 
 use std::sync::mpsc as std_mpsc;
 use std::time::{Duration, Instant};
@@ -21,6 +26,7 @@ use aether_civ::{fast_data_state, Deframer, Frame, Model, Reply, Support};
 use aether_link::channel::{Busy, Source};
 use tokio::sync::{mpsc, oneshot};
 
+use crate::capture::Tap;
 use crate::ports::PortCmd;
 use crate::route::Observed;
 
@@ -41,6 +47,8 @@ pub enum CivReq {
     },
     /// Read the last received call signs and message now.
     ReadRx,
+    /// A burst went to the radio: watch its TX/RX state for this long.
+    WatchTx { ms: u64 },
 }
 
 /// Events to the engine.
@@ -68,11 +76,16 @@ pub struct SessionParams {
     pub baud: u32,
     pub model: &'static Model,
     pub addr: u8,
+    /// The port's capture: CI-V frames and TX/RX state are recorded here.
+    pub tap: Tap,
 }
 
 const REPLY_TIMEOUT: Duration = Duration::from_millis(400);
 const POLL_EVERY: Duration = Duration::from_millis(250);
 const ROUTE_EVERY: Duration = Duration::from_secs(60);
+const TX_POLL_EVERY: Duration = Duration::from_millis(100);
+/// Polls whose unchanged answers are not recorded again.
+const QUIET_POLLS: [&[u8]; 3] = [dstar::RX_STATUS_READ, dstar::SQUELCH, dstar::TX_STATE];
 
 #[derive(Debug, PartialEq)]
 enum Answer {
@@ -86,6 +99,9 @@ struct Radio {
     addr: u8,
     /// Unsolicited frames seen while waiting for replies.
     pushes: Vec<Frame>,
+    tap: Tap,
+    /// Last recorded answer to each quiet poll.
+    last_poll: Vec<(&'static [u8], Vec<u8>)>,
 }
 
 impl Radio {
@@ -94,14 +110,21 @@ impl Radio {
             .write_all(req)
             .and_then(|_| self.port.flush())
             .map_err(|e| format!("CI-V write failed: {e}"))?;
+        let recording = self.tap.on();
+        let mut seen: Vec<Vec<u8>> = Vec::new();
         let deadline = Instant::now() + REPLY_TIMEOUT;
         let mut buf = [0u8; 128];
-        while Instant::now() < deadline {
+        let mut answer = Answer::Timeout;
+        'read: while Instant::now() < deadline {
             match self.port.read(&mut buf) {
                 Ok(n) => {
                     for f in self.d.feed(&buf[..n]) {
+                        if recording {
+                            seen.push(aether_civ::frame(f.to, f.from, &f.body));
+                        }
                         if let Some(r) = f.reply_to(cmd, self.addr) {
-                            return Ok(Answer::Reply(r));
+                            answer = Answer::Reply(r);
+                            break 'read;
                         }
                         if f.from == self.addr {
                             self.pushes.push(f);
@@ -112,7 +135,36 @@ impl Radio {
                 Err(e) => return Err(format!("CI-V read failed: {e}")),
             }
         }
-        Ok(Answer::Timeout)
+        if recording {
+            self.record(req, cmd, &answer, &seen);
+        }
+        Ok(answer)
+    }
+
+    /// Record a transaction, skipping a quiet poll whose answer hasn't
+    /// changed since it was last recorded.
+    fn record(&mut self, req: &[u8], cmd: &[u8], answer: &Answer, seen: &[Vec<u8>]) {
+        let is_poll = req.len() == cmd.len() + 5;
+        if let Some(q) = QUIET_POLLS.iter().find(|q| **q == cmd && is_poll) {
+            let key = match answer {
+                Answer::Reply(Reply::Data(d)) => d.clone(),
+                Answer::Reply(Reply::Ok) => vec![0xFB],
+                Answer::Reply(Reply::Ng) => vec![0xFA],
+                Answer::Timeout => vec![],
+            };
+            match self.last_poll.iter_mut().find(|(c, _)| c == q) {
+                Some((_, last)) if *last == key => return,
+                Some((_, last)) => *last = key,
+                None => self.last_poll.push((q, key)),
+            }
+        }
+        self.tap.civ(true, req);
+        for f in seen {
+            self.tap.civ(false, f);
+        }
+        if *answer == Answer::Timeout {
+            self.tap.note("CI-V: no answer");
+        }
     }
 
     fn read(&mut self, cmd: &[u8]) -> Result<Answer, String> {
@@ -129,6 +181,8 @@ impl Radio {
                 Ok(n) => {
                     for f in self.d.feed(&buf[..n]) {
                         if f.from == self.addr {
+                            self.tap
+                                .civ(false, &aether_civ::frame(f.to, f.from, &f.body));
                             self.pushes.push(f);
                         }
                     }
@@ -163,6 +217,10 @@ struct State {
     status: Option<bool>,
     squelch: Option<bool>,
     route: Option<bool>,
+    /// `1C 00` answers (None until tried).
+    tx_state: Option<bool>,
+    tx_on: Option<bool>,
+    tx_watch_until: Option<Instant>,
     last_busy: Option<Busy>,
     last_route: Option<Instant>,
     route_due: bool,
@@ -210,12 +268,17 @@ fn run(
             d: Deframer::default(),
             addr: p.addr,
             pushes: Vec::new(),
+            tap: p.tap.clone(),
+            last_poll: Vec::new(),
         };
         let unknown = if dstar_ok { None } else { Some(false) };
         let mut st = State {
             status: unknown,
             squelch: unknown,
             route: unknown,
+            tx_state: unknown,
+            tx_on: None,
+            tx_watch_until: None,
             last_busy: None,
             last_route: None,
             route_due: dstar_ok,
@@ -244,7 +307,7 @@ fn refuse(r: CivReq, msg: &str) {
         CivReq::SetRoute { reply, .. } => {
             let _ = reply.send(Err(msg.to_string()));
         }
-        CivReq::ReadRoute | CivReq::ReadRx => {}
+        CivReq::ReadRoute | CivReq::ReadRx | CivReq::WatchTx { .. } => {}
     }
 }
 
@@ -368,9 +431,31 @@ fn session(
                 return Some(e);
             }
         }
+        // TX/RX state while one of our bursts may be on the air.
+        let watching = st.tx_watch_until.is_some_and(|u| Instant::now() < u);
+        if watching && st.tx_state != Some(false) {
+            match r.read(dstar::TX_STATE) {
+                Ok(Answer::Reply(Reply::Data(d))) => match dstar::parse_tx_state(&d) {
+                    Some(on) => {
+                        st.tx_state = Some(true);
+                        if st.tx_on != Some(on) {
+                            st.tx_on = Some(on);
+                            r.tap
+                                .event("tx", serde_json::json!({ "on": on, "via": "civ" }));
+                        }
+                    }
+                    None => st.tx_state = Some(false),
+                },
+                Ok(Answer::Reply(_)) => st.tx_state = Some(false),
+                Ok(Answer::Timeout) => {}
+                Err(e) => return Some(e),
+            }
+        }
         let slow = st.timeouts >= 3;
         let period = if slow {
             Duration::from_secs(2)
+        } else if watching {
+            TX_POLL_EVERY
         } else {
             POLL_EVERY
         };
@@ -503,6 +588,9 @@ fn handle(
             }
         }
         CivReq::ReadRx => read_rx(r, send)?,
+        CivReq::WatchTx { ms } => {
+            st.tx_watch_until = Some(Instant::now() + Duration::from_millis(ms + 3_000));
+        }
         CivReq::SetRoute { calls, reply } => {
             let res = match calls.set_request(p.addr) {
                 Err(e) => Err(e),

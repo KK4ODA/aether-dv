@@ -17,6 +17,19 @@
 //! handed to the link (for a serial port, when the scheduler releases a
 //! burst to the writer). Ratflector ports record only traffic after the
 //! login, so the ratflector password never appears in a capture.
+//!
+//! Radio ports also record, on the same clock (docs/10 §7 tests):
+//!
+//! ```text
+//! {"t":1800,"d":"civ_tx","x":"fefea2e0200202fd"}      CI-V frame sent
+//! {"t":1812,"d":"civ_rx","x":"fefee0a220020240fd"}    CI-V frame received
+//! {"t":1813,"d":"ev","k":"channel","v":{"source":"civ_status","busy":"voice"}}
+//! ```
+//!
+//! `ev` records are the engine's timeline: channel reports, scheduler
+//! waits, bursts, the radio's TX/RX state, route readings, received call
+//! signs, transfer pauses. Repeated identical CI-V polls are recorded once
+//! per change to keep files small.
 
 use std::fs::File;
 use std::io::{BufRead, BufReader, BufWriter, Write};
@@ -124,6 +137,22 @@ impl Tap {
     pub fn note(&self, m: &str) {
         self.record(|t| json!({ "t": t, "d": "note", "m": m }));
     }
+
+    /// A CI-V frame sent to (`tx = true`) or received from the radio.
+    pub fn civ(&self, tx: bool, b: &[u8]) {
+        let d = if tx { "civ_tx" } else { "civ_rx" };
+        self.record(|t| json!({ "t": t, "d": d, "x": hex(b) }));
+    }
+
+    /// A timeline event of kind `k`.
+    pub fn event(&self, k: &str, v: Value) {
+        self.record(|t| json!({ "t": t, "d": "ev", "k": k, "v": v }));
+    }
+
+    /// Whether a capture is running (to skip building event payloads).
+    pub fn on(&self) -> bool {
+        self.0.lock().expect("tap lock").is_some()
+    }
 }
 
 /// One record of a capture file.
@@ -132,6 +161,8 @@ pub enum Record {
     Rx { t: u64, bytes: Vec<u8> },
     Tx { t: u64, bytes: Vec<u8> },
     Note { t: u64, text: String },
+    Civ { t: u64, tx: bool, bytes: Vec<u8> },
+    Event { t: u64, kind: String, data: Value },
 }
 
 /// Read a capture: (header, records). Malformed lines are errors with
@@ -170,6 +201,16 @@ pub fn read(path: &Path) -> Result<(Value, Vec<Record>), String> {
                 t,
                 text: v["m"].as_str().unwrap_or("").to_string(),
             },
+            Some(d @ ("civ_tx" | "civ_rx")) => Record::Civ {
+                t,
+                tx: d == "civ_tx",
+                bytes: bytes()?,
+            },
+            Some("ev") => Record::Event {
+                t,
+                kind: v["k"].as_str().unwrap_or("").to_string(),
+                data: v["v"].clone(),
+            },
             _ => return Err(format!("line {}: unknown record", i + 1)),
         });
     }
@@ -191,6 +232,9 @@ mod tests {
         tap.rx(b"[SOB]abc[EOB]");
         tap.tx(&[0, 0xff, 0x11]);
         tap.note("lost");
+        tap.civ(true, &[0xFE, 0xFE, 0xA2, 0xE0, 0x1C, 0x00, 0xFD]);
+        tap.event("tx", json!({ "on": true }));
+        assert!(tap.on());
         assert_eq!(tap.active().as_deref(), Some(p.as_path()));
         assert_eq!(tap.stop().as_deref(), Some(p.as_path()));
         tap.tx(b"after stop");
@@ -199,7 +243,12 @@ mod tests {
             (h["aecap"].as_u64(), h["port"].as_str()),
             (Some(1), Some("net"))
         );
-        assert_eq!(r.len(), 3);
+        assert_eq!(r.len(), 5);
+        assert!(matches!(&r[3], Record::Civ { tx: true, bytes, .. } if bytes[4] == 0x1C));
+        assert!(
+            matches!(&r[4], Record::Event { kind, data, .. } if kind == "tx" && data["on"] == true)
+        );
+        assert!(!tap.on());
         assert!(matches!(&r[0], Record::Rx { bytes, .. } if bytes == b"[SOB]abc[EOB]"));
         assert!(matches!(&r[1], Record::Tx { bytes, .. } if bytes == &[0, 0xff, 0x11]));
         assert!(matches!(&r[2], Record::Note { text, .. } if text == "lost"));

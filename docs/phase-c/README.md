@@ -97,6 +97,24 @@ Add a `[port.route]` section to a radio port (see the examples and `docs/10-repe
 
 Validation level: **Simulated** (simulated IC-9700 and a simulated repeater). The bench and on-air tests in `docs/10` §7 come next.
 
+## Collecting evidence for radio tests
+
+For every bench or on-air test (`docs/10` §7):
+
+1. **Start capturing before the test.** Put `capture = true` at the top of the config, or start a capture from Diagnostics. Each port writes a `.aecap` file. On a radio port with `[port.civ]`, the file records on one clock:
+   - every byte to and from the DV Data port;
+   - every CI-V frame (unchanged status polls only when they change);
+   - the engine's timeline: route readings and verdicts, gate changes, channel reports by source, scheduler waits and their reason, each burst with its estimated air time, transfer pauses, and received call signs and messages;
+   - the radio's own TX/RX state, read ten times a second for a few seconds after each burst.
+2. **Note what you did and when**, by clock time: keyed voice, changed R2, switched to DR mode.
+3. **Afterwards**, write a support bundle (`aetherdv-cli bundle captures`, or Diagnostics → Write support bundle). It holds the config without secrets, the port route and channel state, the engine log and the captures.
+4. **To read a capture:**
+   - `aetherdv-cap show FILE`: everything in time order (`--no-civ` hides CI-V frames).
+   - `aetherdv-cap timing FILE`: per burst, the delay from data to key-up and the real air time against the estimate, plus time spent waiting by reason. This answers HW-R3 and HW-R10 directly.
+   - `aetherdv-cap stats FILE`: counts.
+
+Without CI-V (older radios), the capture still has the data-port bytes and the timeline, but no radio TX/RX state or call signs. Note key-up times by hand or from a second receiver.
+
 ## Positions
 
 Received position reports appear in `aetherdv-cli positions` (latest per station) and `positions CALL` (history), and as `station.position` events. Both D-RATS formats are understood:
