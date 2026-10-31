@@ -17,6 +17,7 @@ Date: 2026-10-29 · Status: **research deliverable, no production code** · Lice
 | [11-analog-fm-mode.md](11-analog-fm-mode.md) | Analog FM mode (design note): packet TNC port (KISS/AGWPE over TCP, serial, Bluetooth, BLE), D-RATS TNC framing and defects, FM repeater containment, plan |
 | [12-fast-ip-paths.md](12-fast-ip-paths.md) | Fast IP paths (design note): tiered internet and amateur-IP paths (tuned legacy, unicast relay, direct peer links, AREDN/HamWAN), streaming ALP, path choice with RF failover, plan |
 | [13-resilient-servers-and-relays.md](13-resilient-servers-and-relays.md) | Resilient servers and store-and-forward relays (design note): ratflector cluster across sites, client failover, presence; message relays that move traffic to RF when a site loses internet, with receipts and RF protection |
+| [bench-tests.md](bench-tests.md) | Step-by-step bench tests for the IC-9700 and ID-52 PLUS (setup, five recorded tests, troubleshooting) |
 | [adr/](adr/) | ADR-0001 … 0009 (0001, 0002, 0005, 0006, 0008, 0009 Accepted) |
 | [decisions.md](decisions.md) | Owner decision log |
 | [phase-b/](phase-b/README.md) | Phase B status report: state machines, model-checking findings, schemas, spikes, CI results |
