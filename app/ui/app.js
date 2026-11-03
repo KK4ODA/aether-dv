@@ -400,28 +400,52 @@ function renderDrawer() {
   $('#drawer').replaceChildren(...last.map((e) => h('span', {}, h('time', {}, hms(e.at)), e.message)));
 }
 
+// A path as typed or pasted: Windows' "Copy as path" adds quotation marks.
+function cleanPath(v) {
+  return v.trim().replace(/^"(.*)"$/, '$1').trim();
+}
+
+// The error line on the connect screen. Not finding a token is the normal
+// first-run state when the app can start the engine, so say that instead.
+function connectMessage(bundled) {
+  const e = S.lastError || '';
+  if (!e.startsWith('No engine token found')) return e;
+  const typed = cleanPath(localStorage.getItem('aether.tokenFile') || '');
+  if (typed && !typed.toLowerCase().endsWith('.token')) {
+    return `${typed} is not a token file. A token file is named aetherdv.token.` +
+      (bundled ? ' To start the engine, put your configuration file in Configuration file above and click Start the engine.' : '');
+  }
+  if (bundled && !typed) return 'No engine is running yet. Enter your configuration file and click Start the engine.';
+  return e;
+}
+
 function renderConnect() {
   $('#strip').replaceChildren(h('li', { class: 'plate-empty' }, 'Not connected to the engine'));
+  const tauri = window.__TAURI__ && window.__TAURI__.core;
+  const bundled = !!(tauri && Shell.info && Shell.info.bundledEngine);
   const existing = $('#main .connect');
-  if (existing) {
-    // Keep what the operator typed; only refresh the error line.
-    $('#cx-error').textContent = S.lastError || '';
+  // Keep what the operator typed and only refresh the message, unless the app
+  // information arrived since the form was drawn (it adds Start the engine).
+  if (existing && existing.dataset.bundled === String(bundled)) {
+    $('#cx-error').textContent = connectMessage(bundled);
     return;
   }
-  const tauri = window.__TAURI__ && window.__TAURI__.core;
-  const tokenFile = h('input', { class: 'field', id: 'tokfile', value: localStorage.getItem('aether.tokenFile') || '', placeholder: 'aetherdv.token next to your database' });
-  const api = h('input', { class: 'field', id: 'apiaddr', value: localStorage.getItem('aether.api') || '127.0.0.1:7373' });
-  const config = h('input', { class: 'field', id: 'cfgfile', value: localStorage.getItem('aether.config') || '', placeholder: 'Full path of your aether.toml' });
+  const typed = (id, key) => (existing && $('#' + id) ? $('#' + id).value : localStorage.getItem(key) || '');
+  const tokenFile = h('input', { class: 'field', id: 'tokfile', value: typed('tokfile', 'aether.tokenFile'), placeholder: 'aetherdv.token next to your database' });
+  const api = h('input', { class: 'field', id: 'apiaddr', value: typed('apiaddr', 'aether.api') || '127.0.0.1:7373' });
+  const config = h('input', { class: 'field', id: 'cfgfile', value: typed('cfgfile', 'aether.config'), placeholder: 'Full path of your .toml file, e.g. C:\\AetherTest\\ic9700\\ic9700.toml' });
   const startBtn = h('button', {
     class: 'btn primary', type: 'button',
     onclick: async () => {
       $('#cx-error').textContent = '';
-      localStorage.setItem('aether.config', config.value.trim());
+      const path = cleanPath(config.value);
+      config.value = path;
+      localStorage.setItem('aether.config', path);
       localStorage.setItem('aether.api', api.value.trim());
       startBtn.disabled = true;
       startBtn.textContent = 'Starting…';
       try {
-        await tauri.invoke('engine_start', { config: config.value.trim(), api: api.value.trim() || null });
+        await tauri.invoke('engine_start', { config: path, api: api.value.trim() || null });
         Engine.retry = 1000;
         if (Engine.ws) Engine.ws.close();
         else Engine.connect();
@@ -435,10 +459,11 @@ function renderConnect() {
   }, 'Start the engine');
   $('#main').replaceChildren(
     h('form', {
-      class: 'connect', 'aria-labelledby': 'cx-title',
+      class: 'connect', 'aria-labelledby': 'cx-title', 'data-bundled': String(bundled),
       onsubmit: (ev) => {
         ev.preventDefault();
-        localStorage.setItem('aether.tokenFile', tokenFile.value.trim());
+        tokenFile.value = cleanPath(tokenFile.value);
+        localStorage.setItem('aether.tokenFile', tokenFile.value);
         localStorage.setItem('aether.api', api.value.trim());
         Engine.retry = 1000;
         if (Engine.ws) Engine.ws.close();
@@ -446,17 +471,17 @@ function renderConnect() {
       },
     },
       h('h1', { id: 'cx-title' }, 'Connect to the Aether engine'),
-      h('p', {}, 'The engine (aetherdv) owns the radios and keeps running traffic. It needs your configuration file (see examples/ic9700.toml).'),
-      h('p', { class: 'error-text', role: 'alert', id: 'cx-error' }, S.lastError || ''),
+      h('p', {}, 'The engine (aetherdv) owns the radios and keeps running traffic. It needs your configuration file: see Radio Setup for your radio, or docs/bench-tests.md.'),
+      h('p', { class: 'error-text', role: 'alert', id: 'cx-error' }, connectMessage(bundled)),
       !tauri ? h('p', {}, 'In a browser preview, pass ?api=ADDRESS&token=TOKEN in the address.') : null,
-      tauri && Shell.info && Shell.info.bundledEngine ? [
+      bundled ? [
         h('label', {}, 'Configuration file', config),
         h('div', {}, startBtn),
         h('p', { class: 'faint' }, 'Or connect to an engine you started yourself:'),
-      ] : null,
+      ] : tauri && Shell.info ? h('p', { class: 'faint' }, 'This installation has no bundled engine: start aetherdv yourself, then connect to it below.') : null,
       tauri ? h('label', {}, 'Token file', tokenFile) : null,
       tauri ? h('label', {}, 'Engine address', api) : null,
-      h('div', {}, h('button', { class: tauri && Shell.info && Shell.info.bundledEngine ? 'btn' : 'btn primary', type: 'submit' }, 'Connect'))));
+      h('div', {}, h('button', { class: bundled ? 'btn' : 'btn primary', type: 'submit' }, 'Connect'))));
 }
 
 // ---------------------------------------------------------------- app shell: version and updates
@@ -1420,5 +1445,6 @@ function route() {
 window.addEventListener('hashchange', route);
 setInterval(() => { if (S.connected && S.view === 'chat') render(); }, 10000); // refresh "ago"
 route();
-Shell.init();
-Engine.connect();
+// The connect screen needs the app information (bundled engine or not), so
+// fetch it before the first connection attempt.
+Shell.init().finally(() => Engine.connect());
