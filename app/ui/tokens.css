@@ -29,6 +29,7 @@
   --tx:           #f0c45a;
   --rx:           #66c6d6;
   --focus:        #9cc0ff;
+  --own:          #f2837c;  /* our own call sign in the chat log (with italics) */
 
   --font-ui:    "IBM Plex Sans", system-ui, sans-serif;
   --font-call:  "IBM Plex Sans Condensed", "IBM Plex Sans", sans-serif;
