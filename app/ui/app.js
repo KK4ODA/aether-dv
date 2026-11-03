@@ -611,7 +611,13 @@ function renderChat(main) {
 
 function buildChat() {
   const input = h('input', { id: 'msg', placeholder: 'Type a message', autocomplete: 'off' });
-  const to = h('select', { 'aria-label': 'Recipient', id: 'to' });
+  // Any call sign can be typed; heard stations are suggested. Empty means
+  // everyone (CQCQCQ).
+  const to = h('input', {
+    'aria-label': 'Recipient: a call sign, or empty for everyone', id: 'to', list: 'to-calls',
+    placeholder: 'Everyone', autocomplete: 'off', spellcheck: 'false', maxlength: '8', size: '10',
+  });
+  const toCalls = h('datalist', { id: 'to-calls' });
   const via = h('select', { 'aria-label': 'Send via', id: 'via' });
   const estimate = h('span', { class: 'estimate', id: 'estimate' });
   const err = h('span', { class: 'error-text', id: 'send-err', role: 'alert' });
@@ -620,7 +626,7 @@ function buildChat() {
     if (!body.trim()) return;
     err.textContent = '';
     try {
-      const line = await Engine.call('chat.send', { portId: via.value, dst: to.value, body });
+      const line = await Engine.call('chat.send', { portId: via.value, dst: recipient(), body });
       S.lines.set(line.id, line);
       input.value = '';
       render();
@@ -636,7 +642,12 @@ function buildChat() {
   });
   input.addEventListener('input', () => updateEstimate());
   via.addEventListener('change', () => updateEstimate());
-  to.addEventListener('change', () => updateEstimate());
+  to.addEventListener('input', () => {
+    const pos = to.selectionStart;
+    to.value = to.value.toUpperCase();
+    to.setSelectionRange(pos, pos);
+    updateEstimate();
+  });
   return h('div', { class: 'chat' },
     h('section', { class: 'convo', 'aria-labelledby': 'chan-title' },
       h('div', { class: 'pane-head' }, h('h1', { id: 'chan-title' }), h('span', { id: 'chan-tag' })),
@@ -644,13 +655,19 @@ function buildChat() {
       h('ol', { class: 'log', id: 'log', role: 'log', 'aria-live': 'polite', 'aria-label': 'Chat' }),
       h('form', { class: 'compose', 'aria-label': 'Write a chat message', onsubmit: (e) => { e.preventDefault(); send(); } },
         h('div', { class: 'compose-row' },
-          h('label', {}, 'To ', to), h('label', {}, 'Send via ', via), err, estimate),
+          h('label', {}, 'To ', to, toCalls), h('label', {}, 'Send via ', via), err, estimate),
         h('div', { class: 'compose-input' },
           h('label', { class: 'sr', for: 'msg' }, 'Message'), input,
           h('button', { class: 'btn primary', type: 'submit' }, 'Send')))),
     h('aside', { class: 'context', 'aria-label': 'Channel context' },
       h('h2', {}, 'Heard'), h('ul', { class: 'stations', id: 'heard' }),
       h('h2', {}, 'Waiting to send'), h('ul', { class: 'queue', id: 'queue' })));
+}
+
+// The chat recipient as the engine expects it.
+function recipient() {
+  const v = ($('#to') ? $('#to').value : '').trim().toUpperCase();
+  return v === '' || v === 'EVERYONE' ? 'CQCQCQ' : v;
 }
 
 function updateEstimate() {
@@ -660,7 +677,7 @@ function updateEstimate() {
   const port = S.ports.find((p) => p.id === via.value);
   const m = modeOf(port);
   const bytes = ($('#msg').value.length || 0) + 61;
-  const bcast = $('#to').value === 'CQCQCQ' ? ' Broadcasts can’t be confirmed.' : '';
+  const bcast = recipient() === 'CQCQCQ' ? ' Broadcasts can’t be confirmed.' : '';
   est.textContent = m.rate ? `About ${(1.1 + bytes / m.rate).toFixed(1)} s on air.${bcast}` : `Internet: sent at once.${bcast}`;
   if (port && routeHeld(port)) {
     est.replaceChildren(h('span', { class: 'st pending' }, `${GATE_WORDS[port.route.gate]}: messages wait.`), ' ',
@@ -720,12 +737,9 @@ function updateChat(view) {
   }) : [h('li', { class: 'empty' }, 'Nothing heard yet. Messages on this channel appear here as they arrive.')]));
   if (atBottom) log.scrollTop = log.scrollHeight;
 
-  // compose selects (keep the user's choice)
-  const to = $('#to', view);
-  const keepTo = to.value || 'CQCQCQ';
+  // compose: suggest heard stations for To (the typed value is kept)
   const calls = [...S.stations.values()].filter((s) => s.callsign !== S.me).sort((a, b) => (b.lastHeard || 0) - (a.lastHeard || 0));
-  to.replaceChildren(h('option', { value: 'CQCQCQ' }, 'Everyone (CQCQCQ)'), ...calls.map((s) => h('option', { value: s.callsign }, s.callsign)));
-  to.value = calls.some((s) => s.callsign === keepTo) ? keepTo : 'CQCQCQ';
+  $('#to-calls', view).replaceChildren(...calls.map((s) => h('option', { value: s.callsign })));
   const via = $('#via', view);
   const keepVia = via.value;
   via.replaceChildren(...channelPorts().map((p) => h('option', { value: p.id }, `${p.name}, ${modeOf(p).words}`)));

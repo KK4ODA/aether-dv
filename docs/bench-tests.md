@@ -148,6 +148,8 @@ For the ID-52 PLUS: `a52 ports` should show `"state":"ready"` (or check the app 
 ### A7. First contact (do this before any test)
 
 1. From the IC-9700 (app → **Chat**): To = `KK4ODA-1` (or *Everyone*), Send via = IC-9700, type "hello from 9700", press Enter.
+
+   Up to 0.2.2, **To** is a list of stations already heard, so KK4ODA-1 isn't in it yet. Leave it on **Everyone (CQCQCQ)** for this first contact. After it, each side has heard the other and the call signs appear in the list. From 0.2.3 you can type any call sign in **To**; leave it empty for everyone.
 2. The ID-52 PLUS keys up for a second or two. On the ID-52 side, `a52 history` (or the app's Chat on the second computer) shows the line.
 3. Reply from the ID-52 PLUS: `a52 send ID-52PLUS KK4ODA hello from 52`. It appears in the IC-9700's Chat.
 

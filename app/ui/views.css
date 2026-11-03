@@ -20,7 +20,7 @@
 .daybreak { padding: var(--s3) var(--s5); color: var(--text-3); font-size: var(--fs-sm); }
 .compose { border-top: 1px solid var(--line-hair); padding: var(--s4) var(--s5); display: grid; gap: var(--s3); background: var(--bg-raised); }
 .compose-row { display: flex; gap: var(--s4); align-items: center; font-size: var(--fs-sm); color: var(--text-2); }
-.compose-row select { background: var(--bg-sunken); color: var(--text-1); border: 1px solid var(--line-control); border-radius: var(--r-md); height: 26px; font: inherit; padding: 0 6px; }
+.compose-row select, .compose-row input { background: var(--bg-sunken); color: var(--text-1); border: 1px solid var(--line-control); border-radius: var(--r-md); height: 26px; font: inherit; padding: 0 6px; }
 .compose-input { display: flex; gap: var(--s3); }
 .compose-input input { flex: 1; height: 34px; background: var(--bg-sunken); border: 1px solid var(--line-control); border-radius: var(--r-md);
   color: var(--text-1); font: inherit; font-size: var(--fs-md); padding: 0 var(--s4); }
