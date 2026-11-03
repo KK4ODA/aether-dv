@@ -246,13 +246,41 @@ pub fn report(header: &Value, records: &[Record]) -> String {
     };
     let _ = writeln!(
         o,
-        "Recorded {:.0} s: {} B received, {} B sent, {} CI-V frames, {} timeline events",
+        "Recorded {:.0} s: {} B received, {} B sent, {} CI-V frames, {} events",
         secs(end),
         bytes(true),
         bytes(false),
         count(&|r| matches!(r, Record::Civ { .. })),
         count(&|r| matches!(r, Record::Event { .. }))
     );
+    // Received data, grouped into bursts (gaps over a second).
+    let mut bursts: Vec<(u64, u64, usize)> = Vec::new(); // (first, last, bytes)
+    for r in records {
+        if let Record::Rx { t, bytes } = r {
+            match bursts.last_mut() {
+                Some(b) if *t <= b.1 + 1000 => {
+                    b.1 = *t;
+                    b.2 += bytes.len();
+                }
+                _ => bursts.push((*t, *t, bytes.len())),
+            }
+        }
+    }
+    if !bursts.is_empty() {
+        let n = bursts.len();
+        let _ = writeln!(
+            o,
+            "\nReceived ({n} burst{}):",
+            if n == 1 { "" } else { "s" }
+        );
+        let _ = writeln!(o, "  {:>9} {:>9} {:>6}", "from s", "to s", "bytes");
+        for (a, b, n) in bursts.iter().take(40) {
+            let _ = writeln!(o, "  {:>9.1} {:>9.1} {:>6}", secs(*a), secs(*b), n);
+        }
+        if bursts.len() > 40 {
+            let _ = writeln!(o, "  … {} more", bursts.len() - 40);
+        }
+    }
     // Transmission timing.
     let mut rows = Vec::new();
     for (i, r) in records.iter().enumerate() {
@@ -379,6 +407,7 @@ pub fn report(header: &Value, records: &[Record]) -> String {
         "resume",
         "rx_calls",
         "rx_message",
+        "channel",
     ];
     let mut lines = Vec::new();
     let mut last_route = String::new();
