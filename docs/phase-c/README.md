@@ -105,7 +105,7 @@ In the app, open **Diagnostics → Radio test**:
 2. While testing, click a marker when you do something by hand: **Keyed voice**, **Voice ended**, **Changed a radio setting**, **Something went wrong**. You can also type your own marker and press Enter. Markers carry the exact time, so I can line them up with the recording.
 3. Click **Finish test**. Then:
    - **Copy summary** and paste it into the chat. That is usually all I need.
-   - Only if I ask for the full bundle: **Upload for the developer** opens GitHub's upload page for the `test-results` branch. **Show file** opens the folder with the bundle. Drag the file onto the page and click **Commit changes**.
+   - Only if I ask for the full recording: click **Send to the developer**. It opens the folder with the file highlighted and GitHub's upload page for the `test-results` branch, and copies the file's location. Drag the file onto the page (or click **choose your files**, press Ctrl+V, then Enter), then click **Commit changes**. The same button appears after **Write support bundle**.
 
 From a terminal it's the same:
 - `aetherdv-cli test start WHAT YOU ARE TESTING`
