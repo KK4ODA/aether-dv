@@ -29,10 +29,10 @@
           "connection": "USB (B) for DV data, USB (A) for CI-V. 9600 baud. Use the port the programming software is not using.",
           "steps": [
             { "title": "Radio menus", "items": [
-              "SET > Connectors > USB (B) Function = DV Data (USB A stays CI-V)",
+              "SET > Connectors > USB (B)/DATA Function > USB (B) Function = DV Data (USB A stays CI-V)",
               "SET > DV/DD Set > DV Data TX = Auto",
               "SET > DV/DD Set > DV Fast Data > Fast Data = OFF (slow data, for shared nets)",
-              "GPS TX Mode = OFF"
+              "MENU > GPS > GPS TX Mode = OFF"
             ]},
             { "title": "Aether DV", "items": [
               "Start from examples/ic9700.toml: profile = \"icom-ic9700\", baud = 9600, mode = \"slow\".",

@@ -91,12 +91,12 @@ Replace the COM numbers with yours (A4). Keep the files exactly in this form: on
 ### A4. Radio settings and finding the COM ports
 
 **IC-9700** (menu names from Icom's manuals; your firmware may word them slightly differently):
-- `SET > Connectors > USB (B) Function` = **DV Data**
-- `SET > Connectors > DV Data/GPS Out Baud Rate` (if shown) = **9600**
-- `SET > Connectors > CI-V > CI-V USB Baud Rate` = **19200**, `CI-V Address` = **A2h**
+- `SET > Connectors > USB (B)/DATA Function`: `USB (B) Function` = **DV Data**, `DV Data/GPS Out Baud Rate` = **9600**, `GPS Out` = **OFF**
+- `SET > Connectors > CI-V`: `CI-V Address` = **A2h**, `CI-V Transceive` = **ON**, `CI-V USB Port` = **Unlink from [REMOTE]**, `CI-V USB Baud Rate` = **19200**, `CI-V USB Echo Back` = **OFF**
 - `SET > DV/DD Set > DV Data TX` = **Auto**
 - `SET > DV/DD Set > DV Fast Data > Fast Data` = **OFF**
-- GPS TX mode **OFF**
+- `MENU > GPS > GPS TX Mode` = **OFF** (GPS is its own icon on the MENU screen, not inside SET)
+- Turn the radio off and on once after changing the USB settings.
 - DV mode, **VFO**, your simplex frequency, **duplex OFF**, lowest power
 
 The IC-9700 creates **two COM ports** in Windows Device Manager → Ports (both "Silicon Labs CP210x…"). One is USB (A), for CI-V; the other is USB (B), for DV data. You don't need to know which is which in advance: A6 shows whether you guessed right.
@@ -113,6 +113,8 @@ Plug in the ID-52 PLUS. The new COM port in Device Manager → Ports is its data
 ### A5. Starting the two engines
 
 **Two computers (simpler).** On each computer, open Aether DV. The connect screen shows **Configuration file**: enter the full path of that radio's `.toml` file, then click **Start the engine**. Everything below then happens in the app on each computer.
+
+In 0.2.1 the connect screen sometimes shows only **Token file** and **Engine address**, without **Configuration file** and **Start the engine**. Close the app and open it again; if they're still missing, start the engine from PowerShell as for the ID-52 PLUS below (in `C:\AetherTest\ic9700`, with `ic9700.toml`), then enter `C:\AetherTest\ic9700\aetherdv.token` as **Token file** and click **Connect**.
 
 **One computer.**
 - **IC-9700, in the app:** open Aether DV, enter `C:\AetherTest\ic9700\ic9700.toml` as **Configuration file**, then **Start the engine**.
