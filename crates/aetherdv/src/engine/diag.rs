@@ -292,30 +292,59 @@ impl Engine {
             let _ = writeln!(o, "  {n}: {} {}", p.kind, p.state);
             let r = self.route_json(n);
             if !r.is_null() {
+                let calls = &r["observed"]["calls"];
+                let radio = if calls.is_null() {
+                    "radio's call signs unknown (no CI-V reading)".to_string()
+                } else {
+                    let c = |k: &str| calls[k].as_str().unwrap_or("").trim_end().to_string();
+                    format!(
+                        "radio UR \"{}\" R1 \"{}\" R2 \"{}\" (read over CI-V)",
+                        c("ur"),
+                        c("r1"),
+                        c("r2")
+                    )
+                };
                 let _ = writeln!(
                     o,
-                    "    route: {} {}, gate {}{}, known from {}; radio {}",
+                    "    route: {}{}, sending {}{}; {radio}",
                     r["scope"].as_str().unwrap_or("?"),
-                    r["repeater"].as_str().unwrap_or(""),
+                    r["repeater"]
+                        .as_str()
+                        .map(|x| format!(" via {x}"))
+                        .unwrap_or_default(),
                     r["gate"].as_str().unwrap_or("?"),
                     r["code"]
                         .as_str()
                         .map(|c| format!(" ({c})"))
                         .unwrap_or_default(),
-                    r["source"].as_str().unwrap_or("nothing"),
-                    r["observed"]["calls"]
                 );
             }
             let c = self.channel_json(n);
             if !c.is_null() {
+                let used = c["airUsedMs"].as_u64().unwrap_or(0) as f64 / 1000.0;
+                let air = match c["airBudgetMs"].as_u64() {
+                    Some(b) if b > 0 => {
+                        format!("air {used:.1} s of {:.0} s allowed", b as f64 / 1000.0)
+                    }
+                    _ => format!("air {used:.1} s (no air-time limit on this path)"),
+                };
+                let sources: Vec<&str> = c["sources"]
+                    .as_array()
+                    .map(|a| a.iter().filter_map(Value::as_str).collect())
+                    .unwrap_or_default();
                 let _ = writeln!(
                     o,
-                    "    channel: {} {}; sensing {}; air {} of {} ms",
+                    "    channel: {}{}; sensing {}; {air}",
                     c["state"].as_str().unwrap_or("?"),
-                    c["why"].as_str().unwrap_or(""),
-                    c["sources"],
-                    c["airUsedMs"],
-                    c["airBudgetMs"]
+                    c["why"]
+                        .as_str()
+                        .map(|w| format!(" ({w})"))
+                        .unwrap_or_default(),
+                    if sources.is_empty() {
+                        "nothing".into()
+                    } else {
+                        sources.join(", ")
+                    },
                 );
             }
         }

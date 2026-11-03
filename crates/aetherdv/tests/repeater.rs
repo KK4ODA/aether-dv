@@ -633,7 +633,7 @@ async fn capture_records_civ_frames_timeline_and_key_up() {
 async fn radio_test_session_writes_one_bundle_with_a_summary() {
     let dir = tempfile::tempdir().unwrap();
     let r = radio("CQCQCQ", "W4DOC  B", "");
-    let mut b = bench_with(REPEATER, Some(r), Some(dir.path())).await;
+    let mut b = bench_with(REPEATER, Some(r.clone()), Some(dir.path())).await;
     wait_for(&mut b.ev, "route open", |e| {
         e.topic == "port.route" && e.data["route"]["gate"] == "open"
     })
@@ -669,13 +669,31 @@ async fn radio_test_session_writes_one_bundle_with_a_summary() {
     b.data
         .wait_frame("chat", |f| has_text(f, "during the test"))
         .await;
+    // Voice on the channel, then data from another station.
+    r.lock().unwrap().status = 0x50;
+    wait_for(&mut b.ev, "voice sensed", |e| {
+        e.topic == "port.channel" && e.data["channel"]["why"] == "voice"
+    })
+    .await;
+    r.lock().unwrap().status = 0x00;
+    b.data.receive(&Frame::new(
+        0,
+        1,
+        1,
+        "W4DRS",
+        "CQCQCQ",
+        b"Ping Request".to_vec(),
+    ));
+    tokio::time::sleep(Duration::from_millis(500)).await;
     let done = ask(&b.h, diag(DiagCmd::TestFinish)).await.unwrap();
     let summary = done["summary"].as_str().unwrap();
     for want in [
         "Test: bench chat",
         "keyed voice",
         "Transmissions (1)",
-        "W4DOC  B",
+        "R1 \"W4DOC  B\" R2 \"\" (read over CI-V)",
+        "Received (1 burst)",
+        "channel {\"busy\":\"voice\"",
     ] {
         assert!(summary.contains(want), "summary lacks {want:?}:\n{summary}");
     }
