@@ -307,7 +307,7 @@ That decides whether the ID-52 PLUS gets voice sensing and route checking like t
 | Received text is garbled | One radio has Fast Data on | Fast Data OFF on both |
 | `a52` says it can't read the token | The engine isn't running, or it was started from another folder | Start it from `C:\AetherTest\id52` as in A5 |
 
-Anything else: click **Something went wrong** on the test card, type what you saw, finish the test and paste the summary. If I ask for more, use **Upload for the developer** on the finished test.
+Anything else: click **Something went wrong** on the test card, type what you saw, finish the test and paste the summary. If I ask for more, click **Send to the developer** on the finished test and follow the one line it shows.
 
 ## Part E — Checklist of what to send
 

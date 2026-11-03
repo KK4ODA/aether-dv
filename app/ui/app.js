@@ -1088,6 +1088,30 @@ async function testCall(method, params) {
   }
 }
 
+// Hand a bundle to the developer in one click: show the file (highlighted)
+// in the file manager, put its full path on the clipboard for the browser's
+// file picker, and open the upload page. Returns what to tell the operator.
+async function sendToDeveloper(path) {
+  const tauri = window.__TAURI__ && window.__TAURI__.core;
+  let shown = false;
+  if (tauri) {
+    try {
+      await tauri.invoke('reveal_bundle', { path });
+      shown = true;
+    } catch {
+      // still open the upload page; the path is shown on the card
+    }
+  }
+  const copied = await copyText(path);
+  openLink(UPLOAD_URL);
+  const pick = copied
+    ? 'click "choose your files", press Ctrl+V, then Enter'
+    : `click "choose your files" and pick ${path}`;
+  return shown
+    ? `Your file is highlighted in the folder that opened. Drag it onto the upload page in your browser (or ${pick}), then click Commit changes.`
+    : `On the upload page in your browser, ${pick}, then click Commit changes.`;
+}
+
 async function copyText(text, area) {
   try {
     await navigator.clipboard.writeText(text);
@@ -1151,7 +1175,7 @@ function testCard(state) {
   const area = h('textarea', { class: 'summary', readonly: '', rows: 8, 'aria-label': 'Test summary' });
   area.value = r.summary;
   const copied = h('span', { class: 'muted', role: 'status' });
-  const tauri = window.__TAURI__ && window.__TAURI__.core;
+  const sent = h('p', { class: 'muted', role: 'status' });
   return h('section', { class: 'testcard done', 'aria-labelledby': 'test-h' },
     h('h2', { id: 'test-h' }, 'Test saved'),
     h('ol', { class: 'steps' },
@@ -1160,10 +1184,9 @@ function testCard(state) {
           copied.textContent = (await copyText(r.summary, area)) ? ' Copied. Paste it into the chat with Claude.' : ' Select the text below and copy it.';
         },
       }, 'Copy summary'), copied),
-      h('li', {}, 'Only if asked for the full bundle: ',
-        tauri ? h('button', { class: 'btn', onclick: () => tauri.invoke('reveal_bundle', { path: r.path }).catch((e) => { Test.error = String(e); render(); }) }, 'Show file') : null,
-        ' ', h('button', { class: 'btn', onclick: () => openLink(UPLOAD_URL) }, 'Upload for the developer'),
-        h('span', { class: 'muted' }, ' then drag the file onto the page and click Commit changes.'))),
+      h('li', {}, 'Only if asked for the full recording: ',
+        h('button', { class: 'btn', onclick: async () => { sent.textContent = await sendToDeveloper(r.path); } }, 'Send to the developer'),
+        sent)),
     h('p', { class: 'muted' }, `${r.path} (${Math.max(1, Math.round(r.bytes / 1024))} kB)`),
     area,
     h('div', { class: 'test-row' }, h('button', { class: 'btn quiet', onclick: () => { Test.result = null; render(); } }, 'Start another test')),
@@ -1201,6 +1224,12 @@ function renderDiagnostics(main) {
     class: 'btn', onclick: async () => {
       try {
         const r = await Engine.call(method, params);
+        if (r.path && method === 'diag.supportBundle') {
+          const how = h('span', {});
+          out.replaceChildren(`${label}: ${r.path} `,
+            h('button', { class: 'btn', onclick: async () => { how.textContent = ` ${await sendToDeveloper(r.path)}`; } }, 'Send to the developer'), how);
+          return;
+        }
         out.textContent = r.path ? `${label}: ${r.path}` : `${label}: done`;
       } catch (e) {
         out.textContent = e.message;
