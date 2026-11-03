@@ -10,18 +10,18 @@ checksum = "320119579fcad9c21884f5c4861d16174d0e06250625266f50fe6898340abefa"
 
 [[package]]
 name = "aether-civ"
-version = "0.2.2"
+version = "0.2.3"
 
 [[package]]
 name = "aether-ddt2"
-version = "0.2.2"
+version = "0.2.3"
 dependencies = [
  "flate2",
 ]
 
 [[package]]
 name = "aether-desktop"
-version = "0.2.2"
+version = "0.2.3"
 dependencies = [
  "serde",
  "serde_json",
@@ -33,25 +33,25 @@ dependencies = [
 
 [[package]]
 name = "aether-forms"
-version = "0.2.2"
+version = "0.2.3"
 dependencies = [
  "roxmltree",
 ]
 
 [[package]]
 name = "aether-geo"
-version = "0.2.2"
+version = "0.2.3"
 
 [[package]]
 name = "aether-link"
-version = "0.2.2"
+version = "0.2.3"
 dependencies = [
  "aether-ddt2",
 ]
 
 [[package]]
 name = "aether-rfd"
-version = "0.2.2"
+version = "0.2.3"
 dependencies = [
  "aether-ddt2",
  "aether-rfl",
@@ -62,11 +62,11 @@ dependencies = [
 
 [[package]]
 name = "aether-rfl"
-version = "0.2.2"
+version = "0.2.3"
 
 [[package]]
 name = "aether-store"
-version = "0.2.2"
+version = "0.2.3"
 dependencies = [
  "rusqlite",
  "tempfile",
@@ -74,7 +74,7 @@ dependencies = [
 
 [[package]]
 name = "aetherdv"
-version = "0.2.2"
+version = "0.2.3"
 dependencies = [
  "aether-civ",
  "aether-ddt2",
@@ -3553,7 +3553,7 @@ dependencies = [
 
 [[package]]
 name = "serial-spike"
-version = "0.2.2"
+version = "0.2.3"
 dependencies = [
  "nix 0.31.3",
  "serialport",
