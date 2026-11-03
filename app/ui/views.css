@@ -14,7 +14,7 @@
 .line .who { font-size: var(--fs-md); }
 .line .body { max-width: 72ch; }
 .line .meta { display: flex; gap: var(--s3); align-items: center; font-size: var(--fs-sm); }
-.line.mine .who { color: var(--text-2); }
+.line.mine .who { color: var(--own); font-style: italic; }
 .line.sys .body { color: var(--text-2); }
 .line.sys .who { color: var(--text-3); font-family: var(--font-ui); font-weight: 400; letter-spacing: 0; }
 .daybreak { padding: var(--s3) var(--s5); color: var(--text-3); font-size: var(--fs-sm); }
