@@ -362,7 +362,12 @@ pub struct SerialParams {
     pub path: String,
     pub baud: u32,
     pub mode: String,
+    /// The OS driver's XON/XOFF (legacy `flow = "software"`).
     pub software_flow: bool,
+    /// The engine honours the radio's XOFF/XON itself: writes go out in
+    /// small pieces and pause on XOFF; the two bytes are removed from
+    /// received data (yEnc escapes them, so they are never payload).
+    pub xonxoff: bool,
     /// Courtesy preset for the configured route.
     pub preset: PathPreset,
     /// Operator overrides of the preset (`[port.route]` advanced fields).
@@ -422,7 +427,17 @@ enum Io {
     Rx(Vec<u8>),
     Lost(String),
     Accepted(Vec<u64>, usize),
+    /// XOFF held longer than [`XOFF_LIMIT`]; writing resumed anyway.
+    XoffTimeout,
 }
+
+const XON: u8 = 0x11;
+const XOFF: u8 = 0x13;
+/// Bytes written between XOFF checks: 33 ms at 9600 baud. The ID-52 PLUS
+/// sent XOFF about 50 ms into a 120-byte write.
+const WRITE_CHUNK: usize = 32;
+/// Longest XOFF honoured before writing resumes (D-RATS waits 15 s).
+const XOFF_LIMIT: Duration = Duration::from_secs(20);
 
 /// Holds and channel sense that outlive a reconnect.
 struct Persist {
@@ -643,12 +658,22 @@ pub async fn run_serial(
             }
         };
         let rx_tx = io_tx.clone();
+        let xoff = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let (xoff_r, xoff_w, xonxoff) = (xoff.clone(), xoff.clone(), p.xonxoff);
         std::thread::spawn(move || {
             let mut b = [0u8; 1024];
             loop {
                 match reader.read(&mut b) {
                     Ok(0) => {}
                     Ok(n) => {
+                        // Flow control is acted on here, before the bytes
+                        // queue behind anything, so the writer stops fast.
+                        if xonxoff {
+                            if let Some(&c) = b[..n].iter().rev().find(|&&c| c == XON || c == XOFF)
+                            {
+                                xoff_r.store(c == XOFF, std::sync::atomic::Ordering::SeqCst);
+                            }
+                        }
                         if rx_tx.blocking_send(Io::Rx(b[..n].to_vec())).is_err() {
                             return;
                         }
@@ -664,14 +689,31 @@ pub async fn run_serial(
         let mut writer = port;
         let acc_tx = io_tx.clone();
         std::thread::spawn(move || {
+            use std::sync::atomic::Ordering::SeqCst;
             while let Ok((ids, bytes)) = wr_rx.recv() {
-                if writer
-                    .write_all(&bytes)
-                    .and_then(|_| writer.flush())
-                    .is_err()
-                {
-                    let _ = acc_tx.blocking_send(Io::Lost("write failed".into()));
-                    return;
+                let chunk = if xonxoff {
+                    WRITE_CHUNK
+                } else {
+                    bytes.len().max(1)
+                };
+                for piece in bytes.chunks(chunk) {
+                    let since = Instant::now();
+                    while xoff_w.load(SeqCst) {
+                        if since.elapsed() > XOFF_LIMIT {
+                            xoff_w.store(false, SeqCst);
+                            let _ = acc_tx.blocking_send(Io::XoffTimeout);
+                            break;
+                        }
+                        std::thread::sleep(Duration::from_millis(5));
+                    }
+                    if writer
+                        .write_all(piece)
+                        .and_then(|_| writer.flush())
+                        .is_err()
+                    {
+                        let _ = acc_tx.blocking_send(Io::Lost("write failed".into()));
+                        return;
+                    }
                 }
                 if acc_tx
                     .blocking_send(Io::Accepted(ids, bytes.len()))
@@ -695,7 +737,7 @@ pub async fn run_serial(
                     (burst.bytes.len(), sched.profile().air_ms(burst.bytes.len()));
                 p.tap.event(
                     "burst",
-                    serde_json::json!({ "bytes": bytes, "frames": burst.items.len(), "airEstMs": air_ms }),
+                    serde_json::json!({ "bytes": bytes, "frames": burst.items.len(), "airEstMs": air_ms, "keyupEstMs": sched.profile().keyup_ms }),
                 );
                 p.tap.tx(&burst.bytes);
                 if wr_tx.send((ids, burst.bytes)).is_err() {
@@ -741,12 +783,27 @@ pub async fn run_serial(
                 io = io_rx.recv() => match io {
                     None => break "port threads stopped".to_string(),
                     Some(Io::Lost(e)) => break e,
-                    Some(Io::Rx(b)) => {
+                    Some(Io::XoffTimeout) => {
+                        p.tap.note(&format!("XOFF held over {} s; writing resumed", XOFF_LIMIT.as_secs()));
+                    }
+                    Some(Io::Rx(mut b)) => {
                         p.tap.rx(&b);
+                        if p.xonxoff {
+                            for &c in b.iter().filter(|&&c| c == XON || c == XOFF) {
+                                p.tap.event("flow", serde_json::json!({ "xoff": c == XOFF }));
+                            }
+                            b.retain(|&c| c != XON && c != XOFF);
+                            if b.is_empty() {
+                                continue;
+                            }
+                        }
                         let t = now();
                         sched.on_rx(t);
                         let mut out = Vec::new();
                         deliver(&p.name, &mut deframer, &b, &mut out);
+                        if out.iter().any(|e| matches!(e, PortEvt::Frame { .. })) {
+                            sched.on_frame(t);
+                        }
                         if p.infer_voice {
                             let was_off = persist.infer.disabled();
                             let voice = out.iter().any(|e| matches!(e, PortEvt::Outside { bytes, .. } if persist.infer.feed(t, bytes)));

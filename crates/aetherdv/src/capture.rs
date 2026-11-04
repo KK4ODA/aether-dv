@@ -305,10 +305,15 @@ pub fn report(header: &Value, records: &[Record]) -> String {
                 _ => {}
             }
         }
+        // Compare like with like: the estimate on air, without key-up.
+        let est = data["airEstMs"]
+            .as_u64()
+            .unwrap_or(0)
+            .saturating_sub(data["keyupEstMs"].as_u64().unwrap_or(0));
         rows.push((
             *t,
             data["bytes"].as_u64().unwrap_or(0),
-            data["airEstMs"].as_u64().unwrap_or(0),
+            est,
             on.map(|o| o - t),
             on.zip(off).map(|(a, b)| b - a),
         ));
@@ -409,6 +414,7 @@ pub fn report(header: &Value, records: &[Record]) -> String {
         "rx_calls",
         "rx_message",
         "channel",
+        "flow",
     ];
     let mut lines = Vec::new();
     let mut last_route = String::new();

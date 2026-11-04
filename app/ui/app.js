@@ -48,7 +48,7 @@ function kb(n) {
 }
 
 const MODES = {
-  rf_slow: { mode: 'slow', label: '◇ Slow', words: 'DV slow data', rate: 119 },
+  rf_slow: { mode: 'slow', label: '◇ Slow', words: 'DV slow data', rate: 122 },
   rf_fast: { mode: 'fast', label: '◆ Fast', words: 'DV fast data', rate: 350 },
   internet: { mode: 'net', label: '⌁ Internet', words: 'internet', rate: 0 },
 };
@@ -684,7 +684,7 @@ function updateEstimate() {
   const m = modeOf(port);
   const bytes = ($('#msg').value.length || 0) + 61;
   const bcast = recipient() === 'CQCQCQ' ? ' Broadcasts can’t be confirmed.' : '';
-  est.textContent = m.rate ? `About ${(1.1 + bytes / m.rate).toFixed(1)} s on air.${bcast}` : `Internet: sent at once.${bcast}`;
+  est.textContent = m.rate ? `About ${(0.7 + bytes / m.rate).toFixed(1)} s on air.${bcast}` : `Internet: sent at once.${bcast}`;
   if (port && routeHeld(port)) {
     est.replaceChildren(h('span', { class: 'st pending' }, `${GATE_WORDS[port.route.gate]}: messages wait.`), ' ',
       h('button', { class: 'btn quiet', type: 'button', onclick: () => openPort(port.id) }, 'Review route'));

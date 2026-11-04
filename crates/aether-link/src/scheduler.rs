@@ -65,13 +65,16 @@ pub enum PathPreset {
 }
 
 impl ModeProfile {
-    /// DV slow data. UNVALIDATED placeholders (see docs/07 §4.1 assumptions).
+    /// DV slow data. Air time measured on an IC-9700 and ID-52 PLUS
+    /// (bench Test 5, 2026-11): 0.67 s + 1 s per 122 bytes from TX on to
+    /// TX off. Key-up (hand-off to TX on) is radio-specific: about 0.3 s on
+    /// the ID-52 PLUS, 0.1–3.4 s on the IC-9700; 600 ms is a typical value.
     pub fn dv_slow_placeholder() -> Self {
         ModeProfile {
             name: "dv-slow",
-            payload_rate_bps: 119,
+            payload_rate_bps: 122,
             keyup_ms: 600,
-            tail_ms: 500,
+            tail_ms: 670,
             max_burst_bytes: 2_400,
             max_burst_ms: 25_000,
             holdoff_ms: 1_000,
@@ -259,6 +262,10 @@ pub struct Scheduler {
     /// repeater's acknowledgement right after a voice over must not cut
     /// the voice gap short.
     voice_end: Option<Millis>,
+    /// When the current sensed voice period began.
+    voice_start: Option<Millis>,
+    /// When a complete data frame last arrived.
+    last_frame: Option<Millis>,
     /// Last time voice was inferred from relayed slow data.
     voice_inferred: Option<Millis>,
     /// Whether some source senses the repeater/channel directly (then
@@ -275,6 +282,13 @@ pub struct Scheduler {
     history: VecDeque<(Millis, Millis)>,
 }
 
+/// How long before the radio's voice report a frame may complete and still
+/// mark the period as data: covers the 250 ms CI-V status poll. Kept short
+/// so a voice user keying up right after someone's data still gets the gap.
+const FRAME_BEFORE_VOICE_MS: Millis = 300;
+/// How long after the radio's clear report a frame may complete.
+const FRAME_AFTER_VOICE_MS: Millis = 1_500;
+
 impl Scheduler {
     pub fn new(profile: ModeProfile, seed: u64) -> Self {
         Scheduler {
@@ -288,6 +302,8 @@ impl Scheduler {
             busy: None,
             cleared: None,
             voice_end: None,
+            voice_start: None,
+            last_frame: None,
             voice_inferred: None,
             sensed: false,
             own_end: None,
@@ -350,16 +366,52 @@ impl Scheduler {
     /// that arrives during our own over is kept and acted on once the
     /// over ends.
     pub fn on_channel(&mut self, now: Millis, busy: Option<Busy>) {
+        if busy == Some(Busy::Voice) && self.busy != Some(Busy::Voice) {
+            self.voice_start = Some(now);
+        }
         if let (Some(was), None) = (self.busy, busy) {
             self.cleared = Some((was, now));
         }
         if self.busy == Some(Busy::Voice) && busy != Some(Busy::Voice) {
-            self.voice_end = Some(now);
+            if self.frames_since(self.voice_start.unwrap_or(now)) {
+                // Another station's data: Icom radios report it as voice
+                // (bench Test 5). No voice gap after it.
+                if let Some((Busy::Voice, at)) = self.cleared {
+                    self.cleared = Some((Busy::Signal, at));
+                }
+            } else {
+                self.voice_end = Some(now);
+            }
         }
         self.busy = busy;
         if self.state == State::Idle || self.state == State::HoldOff || self.state == State::Held {
             self.deadline = Some(now);
         }
+    }
+
+    /// A complete data frame arrived. If the radio called the transmission
+    /// voice and it ended moments ago, it was data after all: drop the
+    /// voice gap (the frame's end can follow the radio's clear report).
+    pub fn on_frame(&mut self, now: Millis) {
+        self.last_frame = Some(now);
+        if let Some(end) = self.voice_end {
+            if now <= end + FRAME_AFTER_VOICE_MS {
+                self.voice_end = None;
+                if self.cleared == Some((Busy::Voice, end)) {
+                    self.cleared = Some((Busy::Signal, end));
+                }
+                if matches!(self.state, State::Idle | State::HoldOff | State::Held) {
+                    self.deadline = Some(now);
+                }
+            }
+        }
+    }
+
+    /// A frame arrived since shortly before `since` (data bytes can reach
+    /// the PC before the radio's status report says busy).
+    fn frames_since(&self, since: Millis) -> bool {
+        self.last_frame
+            .is_some_and(|f| f + FRAME_BEFORE_VOICE_MS >= since)
     }
 
     /// Whether a source senses the channel directly (CI-V status/squelch).
@@ -867,6 +919,42 @@ mod tests {
         s.enqueue(Priority::Chat, item(1, 40));
         assert!(s.poll(14_999).is_none());
         assert!(s.poll(15_000).is_some());
+    }
+
+    #[test]
+    fn data_reported_as_voice_gets_no_voice_gap() {
+        // Icom radios report another station's data as voice (bench Test 5).
+        let mut s = Scheduler::new(repeater(true), 1);
+        s.set_sensed(true);
+        s.on_channel(0, Some(Busy::Voice));
+        s.on_frame(1_200);
+        s.on_channel(1_500, None);
+        s.enqueue(Priority::Chat, item(1, 40));
+        assert!(s.poll(2_999).is_none(), "holdoff still applies");
+        assert!(s.poll(3_000).is_some(), "no 10 s voice gap after data");
+        // The frame can complete just after the radio's clear report.
+        let mut s = Scheduler::new(repeater(true), 1);
+        s.set_sensed(true);
+        s.on_channel(0, Some(Busy::Voice));
+        s.on_channel(1_000, None);
+        s.enqueue(Priority::Chat, item(1, 40));
+        assert!(s.poll(1_200).is_none());
+        s.on_frame(1_400);
+        assert!(s.poll(2_499).is_none());
+        assert!(s.poll(2_500).is_some());
+    }
+
+    #[test]
+    fn voice_right_after_data_keeps_the_voice_gap() {
+        let mut s = Scheduler::new(repeater(true), 1);
+        s.set_sensed(true);
+        s.on_frame(0); // the end of someone's data
+        s.on_channel(1_000, Some(Busy::Voice)); // a voice user keys up
+        s.on_channel(6_000, None);
+        s.on_frame(9_000); // later data doesn't rewrite that voice
+        s.enqueue(Priority::Chat, item(1, 40));
+        assert!(s.poll(15_999).is_none(), "voice gap");
+        assert!(s.poll(16_000).is_some());
     }
 
     #[test]

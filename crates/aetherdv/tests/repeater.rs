@@ -717,3 +717,26 @@ async fn radio_test_session_writes_one_bundle_with_a_summary() {
     .await
     .is_err());
 }
+
+/// Icom radios send XOFF/XON around larger blocks (bench Test 5). The
+/// engine stops writing on XOFF and doesn't treat the two bytes as data.
+#[tokio::test(flavor = "multi_thread")]
+async fn radio_xoff_holds_writing_until_xon() {
+    let mut b = bench("via = \"direct\"\n", None).await;
+    b.data.writer.write_all(&[0x13]).unwrap(); // XOFF
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    chat(&b, "held by XOFF").await.unwrap();
+    // The direct path sends within holdoff + jitter (at most 2 s).
+    tokio::time::sleep(Duration::from_millis(3_000)).await;
+    assert!(b.data.sent().is_empty(), "nothing written while XOFF");
+    b.data.writer.write_all(&[0x11]).unwrap(); // XON
+    b.data
+        .wait_frame("chat after XON", |f| has_text(f, "held by XOFF"))
+        .await;
+    // Flow-control bytes are not received data: the channel stays clear.
+    b.data.writer.write_all(&[0x13, 0x11]).unwrap();
+    chat(&b, "after a stray XOFF/XON").await.unwrap();
+    b.data
+        .wait_frame("second chat", |f| has_text(f, "after a stray XOFF/XON"))
+        .await;
+}

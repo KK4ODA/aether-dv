@@ -189,6 +189,9 @@ pub fn arq_config(path_kind: &str) -> SenderConfig {
         _ => {
             c.block_size = 256;
             c.rto_initial = 12_000;
+            // Measured on the bench (Test 5): see ModeProfile::dv_slow.
+            c.path_rate_bps = 122;
+            c.per_over_ms = 1_300;
         }
     }
     c
@@ -1023,6 +1026,7 @@ pub fn start(cfg: &Config) -> Result<EngineHandle, String> {
                     baud,
                     mode,
                     software_flow: flow == "software",
+                    xonxoff: flow == "xonxoff",
                     preset,
                     tuning: Tuning {
                         holdoff_ms: rc.holdoff_ms,
