@@ -1214,15 +1214,28 @@ function updateTestCard(card) {
   }
 }
 
+// Credits: Aether DV speaks the D-RATS protocol and builds on its work.
+function aboutSection() {
+  const link = (url, text) => h('a', { href: url, onclick: (e) => { e.preventDefault(); openLink(url); } }, text);
+  return h('section', { class: 'about', 'aria-labelledby': 'about-h' },
+    h('h2', { id: 'about-h' }, 'About'),
+    h('p', {}, 'Aether DV speaks the D-RATS protocol, so it works alongside D-RATS stations and ratflectors. ',
+      link('https://github.com/ham-radio-software/D-Rats', 'D-RATS'),
+      ' was created by Dan Smith KK7DS, revived by Maurizio Andreotti IZ2LXI, and is maintained by John Malmberg WB8TYW and the ham-radio-software community. Thank you.'),
+    h('p', { class: 'muted' }, 'Free software under the GPL-3.0-or-later licence. ',
+      link('https://github.com/KK4ODA/aether-dv#acknowledgements', 'Full acknowledgements')));
+}
+
 function renderDiagnostics(main) {
   let view = $('.diag', main);
   if (!view) {
-    view = h('div', { class: 'xfer diag', style: 'grid-template-rows: auto auto 1fr' },
+    view = h('div', { class: 'xfer diag', style: 'grid-template-rows: auto auto 1fr auto' },
       h('div', { class: 'pane-head', id: 'diag-head', style: 'height:auto; flex-wrap:wrap; padding-block:var(--s3)' }),
       h('div', { id: 'diag-test' }),
       h('div', { class: 'tablewrap' }, h('table', { class: 'grid' },
         h('thead', {}, h('tr', {}, ...['Time', 'Level', 'Port', 'Event'].map((c) => h('th', { scope: 'col' }, c)))),
-        h('tbody', { id: 'diag-events' }))));
+        h('tbody', { id: 'diag-events' }))),
+      aboutSection());
     main.replaceChildren(view);
   }
   const out = h('p', { class: 'muted', role: 'status' });

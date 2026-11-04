@@ -204,3 +204,7 @@ textarea.field { height: auto; min-height: 120px; padding: var(--s3); resize: ve
 .steps { margin: 0; padding-left: var(--s5); display: grid; gap: var(--s3); }
 .summary { width: 100%; font: var(--fs-sm)/1.4 var(--font-wire); background: var(--bg-sunken); color: var(--text-1);
   border: 1px solid var(--line-control); border-radius: var(--r-md); padding: var(--s3); resize: vertical; }
+.about { padding: var(--s4) var(--s5); border-top: 1px solid var(--line-hair); display: grid; gap: var(--s2); max-width: 900px; font-size: var(--fs-sm); }
+.about h2 { margin: 0; font-size: var(--fs-md); font-weight: 600; }
+.about p { margin: 0; }
+.about a { color: var(--text-1); }
