@@ -28,7 +28,7 @@ path = "/dev/serial/by-id/REPLACE-ME"
 baud = 9600
 profile = "icom-ic9700"
 mode = "slow"
-flow = "none"
+flow = "xonxoff"        # honour the radio's XOFF/XON (default)
 
 # Optional: CI-V on USB port A, so Aether can check the radio's DV Fast Data
 # setting against `mode` above at start-up (`aetherdv-cli radio-mode IC-9700`)

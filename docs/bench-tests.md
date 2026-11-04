@@ -60,7 +60,7 @@ path = "COM5"            # the IC-9700's DV data port, USB (B); see A4
 baud = 9600
 profile = "icom-ic9700"
 mode = "slow"
-flow = "none"
+flow = "xonxoff"
 
 [port.civ]
 path = "COM4"            # the IC-9700's CI-V port, USB (A); see A4
@@ -83,7 +83,7 @@ path = "COM7"            # the ID-52 PLUS USB port; see A4
 baud = 9600
 profile = "icom-id52plus"
 mode = "slow"
-flow = "none"
+flow = "xonxoff"
 ```
 
 Replace the COM numbers with yours (A4). Keep the files exactly in this form: one `[[port]]` each, and `[port.civ]` directly under the IC-9700's port.

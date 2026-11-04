@@ -25,7 +25,7 @@ path = "/dev/serial/by-id/REPLACE-ME"
 baud = 9600
 profile = "icom-id52plus"
 mode = "slow"
-flow = "none"
+flow = "xonxoff"        # honour the radio's XOFF/XON (default)
 
 # Optional: CI-V. On the ID-52 PLUS the USB port is either CI-V or DV Data,
 # so CI-V needs the Bluetooth serial port (Serialport Function = CI-V there).

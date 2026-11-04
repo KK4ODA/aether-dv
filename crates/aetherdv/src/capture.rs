@@ -290,10 +290,13 @@ pub fn report(header: &Value, records: &[Record]) -> String {
         if kind != "burst" {
             continue;
         }
-        let (mut on, mut off) = (None, None);
+        let (mut on, mut off, mut written) = (None, None, None);
         for r2 in &records[i + 1..] {
             match r2 {
                 Record::Event { kind, .. } if kind == "burst" => break,
+                Record::Event { t: tt, kind, .. } if kind == "written" && written.is_none() => {
+                    written = Some(*tt);
+                }
                 Record::Event { t: tt, kind, data } if kind == "tx" => {
                     if data["on"] == true && on.is_none() {
                         on = Some(*tt);
@@ -305,12 +308,18 @@ pub fn report(header: &Value, records: &[Record]) -> String {
                 _ => {}
             }
         }
+        // Compare like with like: the estimate on air, without key-up.
+        let est = data["airEstMs"]
+            .as_u64()
+            .unwrap_or(0)
+            .saturating_sub(data["keyupEstMs"].as_u64().unwrap_or(0));
         rows.push((
             *t,
             data["bytes"].as_u64().unwrap_or(0),
-            data["airEstMs"].as_u64().unwrap_or(0),
+            est,
             on.map(|o| o - t),
             on.zip(off).map(|(a, b)| b - a),
+            written.map(|w| w - t),
         ));
     }
     if rows.is_empty() {
@@ -319,20 +328,21 @@ pub fn report(header: &Value, records: &[Record]) -> String {
         let _ = writeln!(o, "\nTransmissions ({}):", rows.len());
         let _ = writeln!(
             o,
-            "  {:>9} {:>6} {:>7} {:>8} {:>8} {:>7}",
-            "at s", "bytes", "est s", "keyup s", "air s", "diff s"
+            "  {:>9} {:>6} {:>7} {:>8} {:>8} {:>8} {:>7}",
+            "at s", "bytes", "est s", "write s", "keyup s", "air s", "diff s"
         );
         let f = |x: Option<u64>| x.map_or("-".into(), |v| format!("{:.2}", secs(v)));
-        for (t, b, est, k, a) in rows.iter().take(40) {
+        for (t, b, est, k, a, w) in rows.iter().take(40) {
             let diff = a.map_or("-".into(), |a| {
                 format!("{:+.2}", (a as f64 - *est as f64) / 1000.0)
             });
             let _ = writeln!(
                 o,
-                "  {:>9.1} {:>6} {:>7.2} {:>8} {:>8} {:>7}",
+                "  {:>9.1} {:>6} {:>7.2} {:>8} {:>8} {:>8} {:>7}",
                 secs(*t),
                 b,
                 secs(*est),
+                f(*w),
                 f(*k),
                 f(*a),
                 diff
@@ -409,6 +419,7 @@ pub fn report(header: &Value, records: &[Record]) -> String {
         "rx_calls",
         "rx_message",
         "channel",
+        "flow",
     ];
     let mut lines = Vec::new();
     let mut last_route = String::new();

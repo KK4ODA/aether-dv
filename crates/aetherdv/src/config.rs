@@ -29,7 +29,7 @@
 //! baud = 9600
 //! profile = "icom-ic9700"
 //! mode = "slow"                     # slow | fast (radio setting must match)
-//! flow = "none"                     # none | software (XON/XOFF), per HW-3
+//! flow = "xonxoff"                  # xonxoff (default) | none | software, see below
 //!
 //! [port.route]                      # optional; without it the port is direct (simplex)
 //! via = "repeater"                  # direct | repeater
@@ -247,8 +247,12 @@ pub enum PortConfig {
         profile: String,
         #[serde(default = "default_mode")]
         mode: String,
-        /// `none` (default) or `software` (driver XON/XOFF). Decided per radio
-        /// by hardware test HW-3; legacy handling of this lost bytes (DR#253).
+        /// `xonxoff` (default): the engine honours the radio's XOFF/XON
+        /// (0x13/0x11), pausing writes and removing them from received
+        /// data. Icom radios send them when a larger block fills their
+        /// buffer (bench Test 5, 2026-11). `none`: ignore them. `software`:
+        /// the OS driver's XON/XOFF (legacy; D-RATS lost bytes with it,
+        /// DR#253/#262).
         #[serde(default = "default_flow")]
         flow: String,
         /// Optional CI-V control channel to the same radio (`[port.civ]`).
@@ -269,7 +273,7 @@ fn default_mode() -> String {
     "slow".into()
 }
 fn default_flow() -> String {
-    "none".into()
+    "xonxoff".into()
 }
 
 impl PortConfig {
@@ -357,9 +361,9 @@ impl Config {
                         p.name()
                     )));
                 }
-                if flow != "none" && flow != "software" {
+                if !["xonxoff", "none", "software"].contains(&flow.as_str()) {
                     return Err(ConfigError::Invalid(format!(
-                        "port {}: flow must be none or software",
+                        "port {}: flow must be xonxoff, none or software",
                         p.name()
                     )));
                 }
