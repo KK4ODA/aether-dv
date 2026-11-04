@@ -361,7 +361,8 @@ pub fn report(header: &Value, records: &[Record]) -> String {
             );
         }
     }
-    // Waiting by reason.
+    // Waiting by reason, only while something was queued (a busy channel
+    // with nothing to send isn't waiting).
     let mut waits: Vec<(String, u64)> = Vec::new();
     let mut cur: Option<(String, u64)> = None;
     for r in records {
@@ -373,7 +374,7 @@ pub fn report(header: &Value, records: &[Record]) -> String {
                         None => waits.push((why, t - since)),
                     }
                 }
-                if data["state"] == "waiting" {
+                if data["state"] == "waiting" && data["queued"].as_u64().unwrap_or(0) > 0 {
                     cur = Some((data["why"].as_str().unwrap_or("?").to_string(), *t));
                 }
             }
@@ -382,7 +383,7 @@ pub fn report(header: &Value, records: &[Record]) -> String {
     if !waits.is_empty() {
         let _ = writeln!(
             o,
-            "\nWaiting, by reason: {}",
+            "\nMessages waited, by reason: {}",
             waits
                 .iter()
                 .map(|(w, v)| format!("{w} {:.1} s", secs(*v)))
@@ -460,6 +461,24 @@ impl Record {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn report_counts_waiting_only_with_something_queued() {
+        let ev = |t: u64, state: &str, why: Option<&str>, queued: u64| Record::Event {
+            t,
+            kind: "sched".into(),
+            data: json!({ "state": state, "why": why, "queued": queued }),
+        };
+        let recs = vec![
+            ev(1_000, "waiting", Some("voice"), 0), // busy, nothing to send
+            ev(15_000, "idle", None, 0),
+            ev(20_000, "waiting", Some("voice"), 1), // a message waits 4 s
+            ev(24_000, "sending", None, 1),
+            ev(25_000, "idle", None, 0),
+        ];
+        let r = report(&json!({ "port": "rf" }), &recs);
+        assert!(r.contains("Messages waited, by reason: voice 4.0 s"), "{r}");
+    }
 
     #[test]
     fn write_read_round_trip_and_stop() {
