@@ -1,5 +1,7 @@
 # 02 — Legacy D-RATS Wire Protocol (DDT2) Analysis
 
+DDT2 and the ratflector were designed by Dan Smith KK7DS for D-RATS; the protocol has since been maintained by Maurizio Andreotti IZ2LXI, John Malmberg WB8TYW and the ham-radio-software community. This document describes their work so that Aether DV can interoperate with it, including its known defects; it is not a judgement of it. See the [README acknowledgements](../README.md#acknowledgements).
+
 Status: Phase A research. Evidence level: **source-reading**, plus byte vectors produced by an independent re-implementation (`tools/model_ddt2.py`). None of this has yet been checked against a live D-RATS instance (see §9).
 
 Source baseline: `ham-radio-software/D-Rats` at commit `d0e7a39` (2026-08-15). All `file:line` references are to that tree unless another repository is named.
