@@ -25,6 +25,12 @@ function h(tag, attrs, ...kids) {
   return e;
 }
 
+// Replace an element's children, flattening nested lists and skipping empty
+// entries the way h() does (DOM replaceChildren would print them as text).
+function fill(el, ...kids) {
+  el.replaceChildren(...kids.flat(Infinity).filter((k) => k != null && k !== false));
+}
+
 const pad = (n) => String(n).padStart(2, '0');
 function hms(ms) {
   const d = new Date(ms);
@@ -558,7 +564,7 @@ function renderUpdate() {
   if (!show) return;
   const u = Shell.update || {};
   const pct = Shell.progress && Shell.progress.total ? Math.round((100 * Shell.progress.downloaded) / Shell.progress.total) : null;
-  box.replaceChildren(
+  fill(box,
     h('h2', {}, `Aether DV ${u.version} is available`),
     h('p', { class: 'muted' }, `You have ${Shell.info ? Shell.info.version : '?'}.`),
     u.notes ? h('p', { class: 'notes' }, u.notes.length > 400 ? `${u.notes.slice(0, 400)}…` : u.notes) : null,
@@ -1001,7 +1007,7 @@ function renderPort() {
   const paused = c.why === 'paused';
   // Keep keyboard focus on the same control across re-renders.
   const focused = dlg.contains(document.activeElement) ? document.activeElement.textContent : null;
-  dlg.replaceChildren(...[
+  fill(dlg, ...[
     h('div', { class: 'sheet-head' }, h('h2', { id: 'port-title' }, p.name),
       h('span', { class: 'muted' }, SCOPE_WORDS[r.scope] || ''),
       h('button', { class: 'btn quiet', type: 'button', 'aria-label': 'Close', onclick: () => dlg.close() }, '✕')),
@@ -1246,7 +1252,7 @@ function renderDiagnostics(main) {
     : null;
   const head = $('#diag-head', view);
   if (!head.contains(document.activeElement)) {
-    head.replaceChildren(...[h('h1', {}, 'Diagnostics'), about,
+    fill(head, ...[h('h1', {}, 'Diagnostics'), about,
       ...S.ports.filter((p) => p.route && p.route.via === 'repeater' && p.route.civRoute).map((p) => act(`Check access to ${p.route.repeater}`, 'diag.repeaterCheck', { id: p.id })),
       act('Write support bundle', 'diag.supportBundle', { includeCaptures: true }), out].filter(Boolean));
   }
