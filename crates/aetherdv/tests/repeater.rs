@@ -740,3 +740,39 @@ async fn radio_xoff_holds_writing_until_xon() {
         .wait_frame("second chat", |f| has_text(f, "after a stray XOFF/XON"))
         .await;
 }
+
+/// A chat held during voice can be cancelled before it goes out.
+#[tokio::test]
+async fn queued_chat_can_be_cancelled() {
+    let r = radio("CQCQCQ", "W4DOC  B", "");
+    let mut b = bench(REPEATER, Some(r.clone())).await;
+    wait_for(&mut b.ev, "route open", |e| {
+        e.topic == "port.route" && e.data["route"]["gate"] == "open"
+    })
+    .await;
+    r.lock().unwrap().status = 0x50; // voice on the channel
+    wait_for(&mut b.ev, "voice sensed", |e| {
+        e.topic == "port.channel" && e.data["channel"]["why"] == "voice"
+    })
+    .await;
+    let line = chat(&b, "never mind").await.unwrap();
+    let id = line["id"].as_i64().unwrap();
+    ask(&b.h, |reply| Cmd::ChatCancel {
+        port: "rf".into(),
+        id,
+        reply,
+    })
+    .await
+    .unwrap();
+    let ev = wait_for(&mut b.ev, "line cancelled", |e| {
+        e.topic == "chat.line" && e.data["id"] == id && e.data["txReason"] == "cancelled"
+    })
+    .await;
+    assert_eq!(ev.data["txState"], "failed");
+    r.lock().unwrap().status = 0x00;
+    tokio::time::sleep(Duration::from_millis(1_500)).await;
+    assert!(
+        !b.data.sent().iter().any(|f| has_text(f, "never mind")),
+        "a cancelled line is never written"
+    );
+}

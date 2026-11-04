@@ -208,3 +208,27 @@ textarea.field { height: auto; min-height: 120px; padding: var(--s3); resize: ve
 .about h2 { margin: 0; font-size: var(--fs-md); font-weight: 600; }
 .about p { margin: 0; }
 .about a { color: var(--text-1); }
+
+/* ---- chat tabs, station actions, file send (0.3.0) ---- */
+.convo .pane-head #clear-tab { margin-left: auto; }
+.convo .pane-head #cleared-note { font-size: var(--fs-sm); }
+.channels { overflow-x: auto; }
+.channels li { display: inline-flex; align-items: center; }
+.channels li.pair a { padding-right: var(--s2); }
+.channels .unread { font-size: var(--fs-xs); color: var(--bg-base); background: var(--text-1); border-radius: 8px; padding: 0 6px; font-weight: 600; }
+.channels .tab-x { background: none; border: 0; color: var(--text-3); font: inherit; font-size: var(--fs-lg); line-height: 1; padding: 0 var(--s3) 0 var(--s1); cursor: pointer; }
+.channels .tab-x:hover, .channels .tab-x:focus-visible { color: var(--text-1); }
+.stations li[data-call] { cursor: pointer; }
+.stations li[data-call]:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
+aside .hint { font-size: var(--fs-xs); padding: 0 var(--s5); margin: calc(-1 * var(--s3)) 0 var(--s3); }
+.ctx-menu { position: fixed; z-index: 50; min-width: 220px; display: grid; padding: var(--s2) 0;
+  background: var(--bg-raised); border: 1px solid var(--line-strong); border-radius: var(--r-md); box-shadow: 0 8px 24px rgb(0 0 0 / .4); }
+.ctx-menu button { all: unset; padding: 6px var(--s5); font-size: var(--fs-md); color: var(--text-1); cursor: pointer; }
+.ctx-menu button:hover, .ctx-menu button:focus-visible { background: var(--bg-select); }
+.ctx-menu hr { border: 0; border-top: 1px solid var(--line-hair); margin: var(--s2) 0; width: 100%; }
+.chat.dropping .convo { outline: 2px dashed var(--focus); outline-offset: -6px; }
+.sheet .kv { border-collapse: collapse; margin-bottom: var(--s3); }
+.sheet .kv th, .sheet .kv td { text-align: left; padding: 2px var(--s5) 2px 0; font-size: var(--fs-md); }
+.sheet .kv th { color: var(--text-2); font-weight: 500; }
+.sheet > .acts { display: flex; gap: var(--s3); padding: var(--s4) var(--s5); }
+.line .meta .btn.quiet { padding: 0 var(--s2); height: auto; font-size: var(--fs-sm); }

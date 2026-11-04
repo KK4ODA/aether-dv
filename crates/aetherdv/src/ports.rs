@@ -37,6 +37,11 @@ pub enum PortCmd {
     /// Operator pause: indefinitely (`None`) or for a number of ms.
     Pause(Option<u64>),
     Resume,
+    /// Take back a queued frame (`token` from `Send`) if it hasn't been
+    /// written yet; answered with `NotTransmitted { reason: "cancelled" }`.
+    Withdraw {
+        token: i64,
+    },
 }
 
 /// What a radio port's scheduler is doing (sent when it changes).
@@ -452,7 +457,7 @@ impl Persist {
     /// Apply a non-send command. Returns true if the profile must change.
     fn apply(&mut self, c: &PortCmd, now: u64, sched: Option<&mut Scheduler>, tap: &Tap) -> bool {
         match c {
-            PortCmd::Send { .. } => {}
+            PortCmd::Send { .. } | PortCmd::Withdraw { .. } => {}
             PortCmd::Channel { source, busy } => tap.event(
                 "channel",
                 serde_json::json!({ "source": source.as_str(), "busy": busy.map(Busy::as_str) }),
@@ -466,7 +471,7 @@ impl Persist {
             PortCmd::Resume => tap.event("resume", serde_json::json!({})),
         }
         match c {
-            PortCmd::Send { .. } => false,
+            PortCmd::Send { .. } | PortCmd::Withdraw { .. } => false,
             PortCmd::Channel { source, busy } => {
                 if let Some(agg) = self.sense.report(*source, *busy) {
                     if let Some(s) = sched {
@@ -844,6 +849,15 @@ pub async fn run_serial(
                         next_item += 1;
                         if let Some(t) = token { tokens.insert(id, t); }
                         sched.enqueue(priority, Item { id, bytes });
+                    }
+                    Some(PortCmd::Withdraw { token }) => {
+                        let id = tokens.iter().find(|(_, &t)| t == token).map(|(&id, _)| id);
+                        if let Some(id) = id.filter(|&id| sched.withdraw(id)) {
+                            tokens.remove(&id);
+                            p.tap.event("withdrawn", serde_json::json!({ "token": token }));
+                            let ev = PortEvt::NotTransmitted { port: p.name.clone(), token, reason: "cancelled".into() };
+                            if !emit(&evt, vec![ev]).await { return; }
+                        }
                     }
                     Some(other) => {
                         if persist.apply(&other, now(), Some(&mut sched), &p.tap) {

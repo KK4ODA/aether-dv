@@ -338,6 +338,18 @@ impl Scheduler {
         self.deadline
     }
 
+    /// Take a queued item back before it is sent. Returns false if it is
+    /// not queued (already written, or unknown).
+    pub fn withdraw(&mut self, id: u64) -> bool {
+        for q in &mut self.queues {
+            if let Some(i) = q.iter().position(|it| it.id == id) {
+                q.remove(i);
+                return true;
+            }
+        }
+        false
+    }
+
     pub fn enqueue(&mut self, p: Priority, item: Item) {
         self.queues[p as usize].push_back(item);
     }

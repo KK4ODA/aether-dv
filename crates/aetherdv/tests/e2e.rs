@@ -627,6 +627,36 @@ async fn file_and_form_transfer_through_aether_rfd() {
     .unwrap();
     assert_eq!(list.as_array().unwrap().len(), 1);
     assert_eq!(list[0]["filename"], "sitrep 0900.txt");
+    assert_eq!(
+        list[0]["savedPath"],
+        json!(saved),
+        "the app can show the file"
+    );
+
+    // The same through transfers.sendData: the app read the file itself.
+    let t2 = ask(&a, |reply| Cmd::SendData {
+        port: "net".into(),
+        peer: "W4DRS".into(),
+        name: "C:\\Users\\x\\notes.txt".into(),
+        data: b"picked in the app".to_vec(),
+        confirm_reflector: false,
+        reply,
+    })
+    .await
+    .unwrap();
+    let id2 = t2["id"].as_str().unwrap().to_string();
+    let saved_ev = wait_for(&mut b_ev, "B saved notes", |e| e.topic == "transfer.saved").await;
+    let notes = db.path().join("notes.txt");
+    assert_eq!(
+        saved_ev.data["path"],
+        json!(notes),
+        "directory part dropped"
+    );
+    assert_eq!(std::fs::read(&notes).unwrap(), b"picked in the app");
+    wait_for(&mut a_ev, "A done 2", |e| {
+        e.topic == "transfer.progress" && e.data["id"] == id2.as_str() && e.data["state"] == "done"
+    })
+    .await;
     let active = ask(&b, |reply| Cmd::Transfers {
         include_finished: false,
         reply,

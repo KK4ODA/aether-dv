@@ -54,7 +54,7 @@ To try it on a ratflector or over RF once chat works:
 ./target/release/aetherdv-cli --token-file aetherdv.token transfers all
 ```
 
-From D-RATS, send a file or a form to your callsign; it appears in `received/` (or `received/forms/`) next to the database, and in `aetherdv-cli tail`.
+In the app, send a file from Chat: **Send file…**, or drop it on the chat. It goes to the station in **To**, or to the station of the open tab. From D-RATS, send a file or a form to your callsign. It appears in `Documents/Aether DV/Received/CALL/` (or `…/forms/`) unless `files_dir` is set, with a **Show file** button in Chat and Transfers, and in `aetherdv-cli tail`.
 
 A finding from building this: the stale-ACK guard in ARQ-1 (P20) originally ignored any ACK that arrived before the *estimated* end of our transmission. On a path faster than the estimate (a ratflector, or a radio faster than 119 B/s) that stalled every window until the RTO. The guard now uses half the estimated air time: stale and duplicated ACKs, which arrive right after a burst starts, are still caught (test `faster_than_estimated_path_is_not_stalled`). HW-4 timing measurements will tell us how good the estimate is.
 

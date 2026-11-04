@@ -107,7 +107,24 @@ const S = {
   lastError: '',
   checks: new Map(), // portId -> last repeater access check result
   portOpen: null, // port whose route panel is open
+  convos: loadPref('aether.convos', []), // station tabs (call signs)
+  cleared: loadPref('aether.cleared', {}), // tab id -> cleared at (ms); view only
+  unreadBy: new Map(), // call -> unread lines in its tab
+  toChoice: '', // To in the shared tabs: '' everyone, a call, or OTHER
+  pings: new Map(), // call (or CQCQCQ) -> when we pinged it
+  rtt: new Map(), // ping reply line id -> round trip (ms)
+  versionAsked: new Set(),
+  filesDir: null, // where the engine saves received files
 };
+
+function loadPref(key, dflt) {
+  try {
+    const v = JSON.parse(localStorage.getItem(key));
+    return v == null ? dflt : v;
+  } catch {
+    return dflt;
+  }
+}
 
 // ---------------------------------------------------------------- engine API
 const Engine = {
@@ -158,6 +175,7 @@ const Engine = {
         });
         this.retry = 1000;
         S.me = hello.profile;
+        S.filesDir = hello.filesDir || null;
         S.connected = true;
         S.lastError = '';
         await this.call('events.subscribe', { topics: [] });
@@ -219,7 +237,7 @@ async function loadAll() {
 }
 
 async function loadChat() {
-  const port = S.channel === 'all' ? null : S.channel;
+  const port = S.channel === 'all' || S.channel.startsWith('call:') ? null : S.channel;
   const lines = await Engine.call('chat.history', { portId: port, limit: 300 });
   for (const l of lines) S.lines.set(l.id, l);
 }
@@ -264,11 +282,26 @@ function onEvent(topic, d) {
       }
       if (prev && prev.txState !== 'failed' && d.txState === 'failed') Sounds.play('failed');
       if (!S.lines.has(d.id) && d.direction === 'in' && S.view !== 'chat') S.unreadChat++;
+      if (!prev && d.direction === 'in') {
+        // A message addressed to us opens (or marks) that station's tab.
+        if (d.dst === S.me && d.src !== S.me && d.kind === 'text') {
+          if (!S.convos.includes(d.src)) openConvo(d.src, false);
+          if (!(S.view === 'chat' && S.channel === `call:${d.src}`)) S.unreadBy.set(d.src, (S.unreadBy.get(d.src) || 0) + 1);
+        }
+        if (d.kind === 'ping_rsp') {
+          const sent = S.pings.get(d.src) || S.pings.get('CQCQCQ');
+          if (sent && Date.now() - sent < 120000) S.rtt.set(d.id, Date.now() - sent);
+        }
+      }
+      if (prev && d.txState === prev.txState && prev.txReason && !d.txReason) d.txReason = prev.txReason;
       S.lines.set(d.id, d);
       break;
     }
     case 'station.heard': {
       const s = S.stations.get(d.callsign) || { callsign: d.callsign };
+      if (d.software && S.versionAsked.delete(d.callsign)) {
+        S.sys.push({ at: Date.now(), portId: d.portId, peer: d.callsign, who: 'Version', text: [h('span', { class: 'call' }, d.callsign), ` runs ${d.software}.`] });
+      }
       if (d.software) s.software = d.software;
       else {
         s.lastHeard = Date.now();
@@ -287,8 +320,29 @@ function onEvent(topic, d) {
         if (d.state === 'done' && d.direction === 'receive' && d.protocol === 'legacy_file') Sounds.play('file');
         if (d.state === 'done' && d.direction === 'send' && d.protocol === 'legacy_file') Sounds.play('sent');
         if (d.state === 'failed' && d.stateReason !== 'cancelled') Sounds.play('failed');
+        // The outcome of a file we sent, in that station's tab and All traffic.
+        if (prev && d.direction === 'send' && d.protocol === 'legacy_file' && ['done', 'failed'].includes(d.state)) {
+          S.sys.push({
+            at: Date.now(), portId: d.portId, peer: d.peer, who: 'File',
+            text: d.state === 'done'
+              ? [`${d.filename} handed off to `, h('span', { class: 'call' }, d.peer), ': every block was acknowledged.']
+              : [`${d.filename} to `, h('span', { class: 'call' }, d.peer), d.stateReason === 'cancelled' ? ' cancelled.' : ` failed${d.stateReason ? `: ${d.stateReason}` : ''}.`],
+          });
+        }
       }
+      if (prev && prev.savedPath && !d.savedPath) d.savedPath = prev.savedPath;
       S.transfers.set(d.id, d);
+      break;
+    }
+    case 'transfer.saved': {
+      const t = S.transfers.get(d.id);
+      if (t) {
+        t.savedPath = d.path;
+        S.sys.push({
+          at: Date.now(), portId: t.portId, peer: t.peer, who: 'File', file: d.path,
+          text: [`Received ${t.filename} (${kb(d.bytes != null ? d.bytes : t.totalBytes)}) from `, h('span', { class: 'call' }, t.peer), '.'],
+        });
+      }
       break;
     }
     case 'message.state': {
@@ -582,7 +636,7 @@ function renderUpdate() {
 
 // ---------------------------------------------------------------- chat
 function channelPorts() {
-  return S.channel === 'all' ? S.ports : S.ports.filter((p) => p.id === S.channel);
+  return S.channel === 'all' || convoCall() ? S.ports : S.ports.filter((p) => p.id === S.channel);
 }
 
 function lineState(l) {
@@ -590,7 +644,11 @@ function lineState(l) {
   const port = S.ports.find((p) => p.id === l.portId);
   switch (l.txState) {
     case 'queued':
-      return h('span', { class: 'st pending' }, 'Queued');
+      return [h('span', { class: 'st pending' }, 'Queued'), ' ',
+        h('button', {
+          class: 'btn quiet', type: 'button', title: 'Take this message back before it goes out',
+          onclick: () => Engine.call('chat.cancel', { portId: l.portId, id: l.id }).catch((e) => alert(e.message)),
+        }, 'Cancel')];
     case 'transmitted':
       return h('span', {
         class: 'st unknown',
@@ -599,7 +657,7 @@ function lineState(l) {
           : 'Transmitted. D-RATS chat has no delivery receipt.',
       }, 'Transmitted');
     case 'failed':
-      return h('span', { class: 'st fail' }, 'Not sent');
+      return l.txReason === 'cancelled' ? h('span', { class: 'st unknown' }, 'Cancelled') : h('span', { class: 'st fail' }, 'Not sent');
     default:
       return null;
   }
@@ -612,21 +670,80 @@ function renderChat(main) {
     main.replaceChildren(view);
   }
   S.unreadChat = 0;
+  if (convoCall()) S.unreadBy.delete(convoCall());
   updateChat(view);
+}
+
+// ---- chat tabs: one per radio, all traffic, and one per station pair
+const convoCall = () => (S.channel.startsWith('call:') ? S.channel.slice(5) : null);
+
+function saveChatPrefs() {
+  try {
+    localStorage.setItem('aether.convos', JSON.stringify(S.convos));
+    localStorage.setItem('aether.cleared', JSON.stringify(S.cleared));
+  } catch {
+    // per-viewer convenience only
+  }
+}
+
+function openConvo(call, show = true) {
+  if (!call || call === S.me || call === 'CQCQCQ') return;
+  if (!S.convos.includes(call)) {
+    S.convos.push(call);
+    saveChatPrefs();
+  }
+  if (show) {
+    S.channel = `call:${call}`;
+    S.unreadBy.delete(call);
+    if (location.hash !== '#chat') location.hash = '#chat';
+  }
+  render();
+}
+
+function closeConvo(call) {
+  S.convos = S.convos.filter((c) => c !== call);
+  S.unreadBy.delete(call);
+  if (S.channel === `call:${call}`) S.channel = 'all';
+  saveChatPrefs();
+  render();
+}
+
+function chatTabs() {
+  return [
+    ...S.ports.map((p) => ({ id: p.id, name: p.name, port: p })),
+    { id: 'all', name: 'All traffic' },
+    ...S.convos.map((c) => ({ id: `call:${c}`, name: c, call: c })),
+  ];
+}
+
+async function selectTab(id) {
+  S.channel = id;
+  if (id.startsWith('call:')) S.unreadBy.delete(id.slice(5));
+  await loadChat();
+  render();
+  $('#msg') && $('#msg').focus();
+}
+
+// Lines between us and one station, in either direction, on any port.
+const inConvo = (l, call) => (l.src === S.me && l.dst === call) || (l.src === call && l.dst === S.me);
+
+function clearTab() {
+  S.cleared[S.channel] = Date.now();
+  saveChatPrefs();
+  render();
 }
 
 function buildChat() {
   const input = h('input', { id: 'msg', placeholder: 'Type a message', autocomplete: 'off' });
-  // Any call sign can be typed; heard stations are suggested. Empty means
-  // everyone (CQCQCQ).
-  const to = h('input', {
-    'aria-label': 'Recipient: a call sign, or empty for everyone', id: 'to', list: 'to-calls',
-    placeholder: 'Everyone', autocomplete: 'off', spellcheck: 'false', maxlength: '8', size: '10',
+  const to = h('select', { 'aria-label': 'Send to', id: 'to' });
+  const other = h('input', {
+    id: 'to-other', 'aria-label': 'Call sign', placeholder: 'Call sign', autocomplete: 'off',
+    spellcheck: 'false', maxlength: '8', size: '9', hidden: '',
   });
-  const toCalls = h('datalist', { id: 'to-calls' });
   const via = h('select', { 'aria-label': 'Send via', id: 'via' });
   const estimate = h('span', { class: 'estimate', id: 'estimate' });
   const err = h('span', { class: 'error-text', id: 'send-err', role: 'alert' });
+  const picker = h('input', { type: 'file', id: 'file-pick', hidden: '', 'aria-hidden': 'true' });
   const send = async () => {
     const body = input.value;
     if (!body.trim()) return;
@@ -648,32 +765,81 @@ function buildChat() {
   });
   input.addEventListener('input', () => updateEstimate());
   via.addEventListener('change', () => updateEstimate());
-  to.addEventListener('input', () => {
-    const pos = to.selectionStart;
-    to.value = to.value.toUpperCase();
-    to.setSelectionRange(pos, pos);
+  to.addEventListener('change', () => {
+    S.toChoice = to.value;
+    other.hidden = to.value !== OTHER;
+    if (!other.hidden) other.focus();
     updateEstimate();
   });
-  return h('div', { class: 'chat' },
+  other.addEventListener('input', () => {
+    const pos = other.selectionStart;
+    other.value = other.value.toUpperCase();
+    other.setSelectionRange(pos, pos);
+    updateEstimate();
+  });
+  picker.addEventListener('change', () => {
+    if (picker.files && picker.files[0]) offerFile(picker.files[0]);
+    picker.value = '';
+  });
+  const view = h('div', { class: 'chat' },
     h('section', { class: 'convo', 'aria-labelledby': 'chan-title' },
-      h('div', { class: 'pane-head' }, h('h1', { id: 'chan-title' }), h('span', { id: 'chan-tag' })),
-      h('ul', { class: 'channels', id: 'channels', 'aria-label': 'Chat channels' }),
+      h('div', { class: 'pane-head' }, h('h1', { id: 'chan-title' }), h('span', { id: 'chan-tag' }),
+        h('span', { id: 'cleared-note', class: 'faint' }),
+        h('button', { class: 'btn quiet', type: 'button', id: 'clear-tab', title: 'Clear this tab (Ctrl+L). Messages stay in the history.', onclick: clearTab }, 'Clear')),
+      h('ul', { class: 'channels', id: 'channels', role: 'tablist', 'aria-label': 'Chat tabs' }),
       h('ol', { class: 'log', id: 'log', role: 'log', 'aria-live': 'polite', 'aria-label': 'Chat' }),
       h('form', { class: 'compose', 'aria-label': 'Write a chat message', onsubmit: (e) => { e.preventDefault(); send(); } },
         h('div', { class: 'compose-row' },
-          h('label', {}, 'To ', to, toCalls), h('label', {}, 'Send via ', via), err, estimate),
+          h('label', {}, 'To ', to), other, h('label', {}, 'Send via ', via), err, estimate),
         h('div', { class: 'compose-input' },
           h('label', { class: 'sr', for: 'msg' }, 'Message'), input,
-          h('button', { class: 'btn primary', type: 'submit' }, 'Send')))),
+          h('button', { class: 'btn', type: 'button', title: 'Send a file to the station in To (or drop a file here)', onclick: () => picker.click() }, 'Send file…'),
+          h('button', { class: 'btn primary', type: 'submit' }, 'Send')),
+        picker)),
     h('aside', { class: 'context', 'aria-label': 'Channel context' },
-      h('h2', {}, 'Heard'), h('ul', { class: 'stations', id: 'heard' }),
+      h('h2', {}, 'Heard'),
+      h('ul', { class: 'stations', id: 'heard', 'aria-label': 'Heard stations. Right-click or press the menu key for actions.' }),
+      h('p', { class: 'faint hint' }, 'Right-click for Ping all stations.'),
       h('h2', {}, 'Waiting to send'), h('ul', { class: 'queue', id: 'queue' })));
+  // Right-click anywhere in the Heard panel: actions for all stations, or
+  // for the one under the pointer.
+  $('aside', view).addEventListener('contextmenu', (e) => {
+    const li = e.target.closest && e.target.closest('#heard li[data-call]');
+    e.preventDefault();
+    stationMenu(li ? li.dataset.call : null, e);
+  });
+  // Drop a file anywhere on the chat to send it.
+  view.addEventListener('dragover', (e) => {
+    if (e.dataTransfer && [...e.dataTransfer.types].includes('Files')) {
+      e.preventDefault();
+      view.classList.add('dropping');
+    }
+  });
+  view.addEventListener('dragleave', (e) => { if (e.target === view) view.classList.remove('dropping'); });
+  view.addEventListener('drop', (e) => {
+    view.classList.remove('dropping');
+    const f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+    if (f) {
+      e.preventDefault();
+      offerFile(f);
+    }
+  });
+  return view;
 }
+
+const OTHER = '__other';
 
 // The chat recipient as the engine expects it.
 function recipient() {
-  const v = ($('#to') ? $('#to').value : '').trim().toUpperCase();
-  return v === '' || v === 'EVERYONE' ? 'CQCQCQ' : v;
+  const call = convoCall();
+  if (call) return call;
+  const to = $('#to');
+  if (!to || to.value === '') return 'CQCQCQ';
+  if (to.value === OTHER) {
+    const v = ($('#to-other').value || '').trim().toUpperCase();
+    return v || 'CQCQCQ';
+  }
+  return to.value;
 }
 
 function updateEstimate() {
@@ -693,38 +859,53 @@ function updateEstimate() {
   }
 }
 
+function chatItems() {
+  const call = convoCall();
+  const since = S.cleared[S.channel] || 0;
+  const lines = [...S.lines.values()].filter((l) => (call ? inConvo(l, call) : S.channel === 'all' || l.portId === S.channel));
+  const sys = S.sys.filter((x) => (call ? x.peer === call : S.channel === 'all' || !x.portId || x.portId === S.channel));
+  return [
+    ...lines.map((l) => ({ at: l.at, key: l.id, l })),
+    ...sys.map((x, i) => ({ at: x.at, key: `s${i}`, x })),
+  ].filter((it) => it.at > since)
+    .sort((a, b) => a.at - b.at || String(a.key).localeCompare(String(b.key))).slice(-400);
+}
+
 function updateChat(view) {
+  const call = convoCall();
+  if (call && !S.convos.includes(call)) S.channel = 'all';
   const title = $('#chan-title', view);
   const port = S.ports.find((p) => p.id === S.channel);
-  title.textContent = port ? port.name : 'All traffic';
+  title.textContent = convoCall() ? `${S.me} and ${convoCall()}` : port ? port.name : 'All traffic';
   $('#chan-tag', view).replaceChildren(port ? h('span', { class: `tag ${modeOf(port).mode}` }, `${modeOf(port).label}`) : '');
+  const since = S.cleared[S.channel];
+  $('#cleared-note', view).replaceChildren(...(since ? [`Cleared at ${hms(since)}. `,
+    h('button', { class: 'btn quiet', type: 'button', onclick: () => { delete S.cleared[S.channel]; saveChatPrefs(); render(); } }, 'Show all')] : []));
 
-  // channels
-  $('#channels', view).replaceChildren(
-    ...[...S.ports.map((p) => [p.id, p.name, p]), ['all', 'All traffic', null]].map(([id, name, p]) =>
-      h('li', {}, h('a', {
-        href: '#chat', 'aria-current': S.channel === id ? 'true' : null,
-        onclick: async (e) => {
-          e.preventDefault();
-          S.channel = id;
-          await loadChat();
-          render();
-        },
-      }, name, p ? h('span', { class: `tag ${modeOf(p).mode}` }, modeOf(p).label) : null))));
+  // tabs
+  $('#channels', view).replaceChildren(...chatTabs().map((t, i) => {
+    const unread = t.call ? S.unreadBy.get(t.call) || 0 : 0;
+    return h('li', { class: t.call ? 'pair' : null },
+      h('a', {
+        href: '#chat', role: 'tab', 'aria-selected': S.channel === t.id ? 'true' : 'false', 'aria-current': S.channel === t.id ? 'true' : null,
+        title: i < 9 ? `Ctrl+${i + 1}` : null,
+        onclick: (e) => { e.preventDefault(); selectTab(t.id); },
+      }, t.call ? h('span', { class: 'call' }, t.name) : t.name,
+      t.port ? h('span', { class: `tag ${modeOf(t.port).mode}` }, modeOf(t.port).label) : null,
+      unread ? h('span', { class: 'unread', 'aria-label': `${unread} unread` }, String(unread)) : null),
+      t.call ? h('button', { class: 'tab-x', type: 'button', 'aria-label': `Close ${t.name}`, onclick: () => closeConvo(t.call) }, '×') : null);
+  }));
 
   // log
   const log = $('#log', view);
   const atBottom = log.scrollHeight - log.scrollTop - log.clientHeight < 40;
-  const lines = [...S.lines.values()].filter((l) => S.channel === 'all' || l.portId === S.channel);
-  const sys = S.sys.filter((x) => S.channel === 'all' || !x.portId || x.portId === S.channel);
-  const items = [
-    ...lines.map((l) => ({ at: l.at, key: l.id, l })),
-    ...sys.map((x, i) => ({ at: x.at, key: `s${i}`, x })),
-  ].sort((a, b) => a.at - b.at || String(a.key).localeCompare(String(b.key))).slice(-400);
+  const items = chatItems();
   log.replaceChildren(...(items.length ? items.map(({ l, x }) => {
     if (x) {
       return h('li', { class: 'line sys' }, h('time', {}, hms(x.at)), h('span', { class: 'who' }, x.who),
-        h('span', { class: 'body' }, x.text, x.link ? [' ', h('a', { href: '#messages', style: 'color:var(--text-1)', onclick: () => { S.msgSel = x.link; S.folder = 'inbox'; } }, 'Open')] : null),
+        h('span', { class: 'body' }, x.text,
+          x.link ? [' ', h('a', { href: '#messages', style: 'color:var(--text-1)', onclick: () => { S.msgSel = x.link; S.folder = 'inbox'; } }, 'Open')] : null,
+          x.file ? [' ', showFileButton(x.file)] : null),
         h('span', { class: 'meta' }));
     }
     if (l.position) {
@@ -735,17 +916,38 @@ function updateChat(view) {
         h('span', { class: 'meta' }));
     }
     const kind = l.kind === 'text' ? null : { ping_req: 'ping', ping_rsp: 'ping reply', echo_req: 'echo', echo_rsp: 'echo reply', status: 'status', raw: 'raw' }[l.kind];
+    const rtt = l.kind === 'ping_rsp' && S.rtt.get(l.id);
     return h('li', { class: `line${l.direction === 'out' ? ' mine' : ''}${kind ? ' sys' : ''}` },
       h('time', { datetime: new Date(l.at).toISOString() }, hms(l.at)),
       h('span', { class: 'who call' }, l.src),
-      h('span', { class: 'body' }, l.dst !== 'CQCQCQ' ? h('span', { class: 'faint' }, `to ${l.dst}: `) : null, kind ? `${kind}: ` : null, l.body),
+      h('span', { class: 'body' }, l.dst !== 'CQCQCQ' && !convoCall() ? h('span', { class: 'faint' }, `to ${l.dst}: `) : null, kind ? `${kind}: ` : null, l.body,
+        rtt ? h('span', { class: 'faint' }, ` (${(rtt / 1000).toFixed(1)} s round trip)`) : null),
       h('span', { class: 'meta' }, lineState(l)));
-  }) : [h('li', { class: 'empty' }, 'Nothing heard yet. Messages on this channel appear here as they arrive.')]));
+  }) : [h('li', { class: 'empty' }, convoCall()
+    ? `Nothing between you and ${convoCall()} yet. Messages you send here go to ${convoCall()} only.`
+    : since ? 'Cleared. New messages appear here as they arrive.' : 'Nothing heard yet. Messages on this channel appear here as they arrive.')]));
   if (atBottom) log.scrollTop = log.scrollHeight;
 
-  // compose: suggest heard stations for To (the typed value is kept)
-  const calls = [...S.stations.values()].filter((s) => s.callsign !== S.me).sort((a, b) => (b.lastHeard || 0) - (a.lastHeard || 0));
-  $('#to-calls', view).replaceChildren(...calls.map((s) => h('option', { value: s.callsign })));
+  // compose: To is a list (Everyone first); in a station tab it's that station.
+  const to = $('#to', view);
+  const other = $('#to-other', view);
+  const calls = [...S.stations.values()].filter((s) => s.callsign !== S.me).sort((a, b) => (b.lastHeard || 0) - (a.lastHeard || 0)).map((s) => s.callsign);
+  if (convoCall()) {
+    to.replaceChildren(h('option', { value: convoCall() }, convoCall()));
+    to.disabled = true;
+    other.hidden = true;
+  } else {
+    const want = S.toChoice || '';
+    const keep = want && want !== OTHER && !calls.includes(want) ? [want] : [];
+    to.disabled = false;
+    if (document.activeElement !== to) {
+      to.replaceChildren(h('option', { value: '' }, 'Everyone (CQCQCQ)'),
+        ...[...keep, ...calls].map((c) => h('option', { value: c }, c)),
+        h('option', { value: OTHER }, 'Other call sign…'));
+      to.value = want;
+    }
+    other.hidden = to.value !== OTHER;
+  }
   const via = $('#via', view);
   const keepVia = via.value;
   via.replaceChildren(...channelPorts().map((p) => h('option', { value: p.id }, `${p.name}, ${modeOf(p).words}`)));
@@ -753,12 +955,17 @@ function updateChat(view) {
   updateEstimate();
 
   // aside
-  const heard = [...S.stations.values()].filter((s) => s.lastHeard && (S.channel === 'all' || s.portId === S.channel))
+  const heard = [...S.stations.values()].filter((s) => s.lastHeard && (S.channel === 'all' || convoCall() || s.portId === S.channel))
     .sort((a, b) => b.lastHeard - a.lastHeard).slice(0, 30);
   $('#heard', view).replaceChildren(...(heard.length ? heard.map((s) => {
     const p = S.ports.find((x) => x.id === s.portId);
-    return h('li', { title: s.software || '' }, h('span', { class: 'call' }, s.callsign),
-      p ? h('span', { class: `tag ${modeOf(p).mode}` }, modeOf(p).label) : h('span'), h('span', { class: 'ago' }, ago(s.lastHeard)));
+    return h('li', {
+      title: `${s.software ? `${s.software}. ` : ''}Click to open a conversation; right-click for more.`,
+      tabindex: 0, 'data-call': s.callsign,
+      onclick: () => openConvo(s.callsign),
+      onkeydown: (e) => { if (e.key === 'Enter') openConvo(s.callsign); },
+    }, h('span', { class: 'call' }, s.callsign),
+    p ? h('span', { class: `tag ${modeOf(p).mode}` }, modeOf(p).label) : h('span'), h('span', { class: 'ago' }, ago(s.lastHeard)));
   }) : [h('li', { class: 'faint' }, 'No stations heard yet')]));
   const active = [...S.transfers.values()].filter((t) => !['done', 'failed', 'cancelled'].includes(t.state));
   $('#queue', view).replaceChildren(...(active.length ? active.map(transferCard) : [h('li', { class: 'faint' }, 'Nothing waiting')]));
@@ -771,7 +978,164 @@ function transferCard(t) {
       h('span', { class: 'st pending' }, t.state === 'opening' ? 'Opening' : t.state === 'offering' ? 'Offering' : t.direction === 'send' ? 'Sending' : 'Receiving')),
     h('div', { class: 'bar', role: 'progressbar', 'aria-valuenow': pctv, 'aria-valuemin': 0, 'aria-valuemax': 100, 'aria-label': `${t.filename} progress` },
       h('span', { style: `width:${pctv}%` })),
-    h('div', { class: 'q2' }, h('span', {}, `${pctv}% of ${kb(t.totalBytes)}`), h('span', {}, t.retries ? `${t.retries} retries` : '')));
+    h('div', { class: 'q2' }, h('span', {}, `${pctv}% of ${kb(t.totalBytes)}`), h('span', {}, t.retries ? `${t.retries} retries` : ''),
+      h('button', { class: 'btn quiet', type: 'button', onclick: () => cancelTransfer(t) }, 'Cancel')));
+}
+
+function cancelTransfer(t) {
+  if (!confirm(`Cancel ${t.filename} ${t.direction === 'send' ? 'to' : 'from'} ${t.peer}?`)) return;
+  Engine.call('transfers.cancel', { id: t.id }).catch((e) => alert(e.message));
+}
+
+function showFileButton(path) {
+  const t = window.__TAURI__ && window.__TAURI__.core;
+  if (!t) return h('span', { class: 'faint' }, path);
+  return h('button', {
+    class: 'btn quiet', type: 'button', title: path,
+    onclick: () => t.invoke('reveal_file', { path }).catch((e) => alert(String(e))),
+  }, 'Show file');
+}
+
+// ---- station actions (right-click on Heard)
+function closeMenu() {
+  const m = $('#ctx-menu');
+  if (m) m.remove();
+}
+
+function stationMenu(call, e) {
+  closeMenu();
+  const via = $('#via') ? $('#via').value : (S.ports[0] && S.ports[0].id);
+  const st = call && S.stations.get(call);
+  const port = (st && st.portId) || via;
+  const item = (label, fn) => h('button', { type: 'button', role: 'menuitem', onclick: () => { closeMenu(); fn(); } }, label);
+  const items = [
+    ...(call ? [
+      item(`Open conversation with ${call}`, () => openConvo(call)),
+      item(`Ping ${call}`, () => ping(port, call)),
+      item(`Get version of ${call}`, () => askVersion(port, call)),
+      item(`Send file to ${call}…`, () => { openConvo(call); setTimeout(() => $('#file-pick') && $('#file-pick').click(), 50); }),
+      h('hr', { role: 'separator' }),
+    ] : []),
+    item('Ping all stations', () => ping(via, 'CQCQCQ')),
+  ];
+  const menu = h('div', { id: 'ctx-menu', class: 'ctx-menu', role: 'menu', 'aria-label': call ? `Actions for ${call}` : 'Station actions' }, ...items);
+  document.body.append(menu);
+  const r = menu.getBoundingClientRect();
+  const x = e.clientX || (e.target.getBoundingClientRect ? e.target.getBoundingClientRect().left : 0);
+  const y = e.clientY || (e.target.getBoundingClientRect ? e.target.getBoundingClientRect().bottom : 0);
+  menu.style.left = `${Math.min(x, innerWidth - r.width - 8)}px`;
+  menu.style.top = `${Math.min(y, innerHeight - r.height - 8)}px`;
+  const buttons = [...menu.querySelectorAll('button')];
+  buttons[0].focus();
+  menu.addEventListener('keydown', (k) => {
+    const i = buttons.indexOf(document.activeElement);
+    if (k.key === 'Escape') { closeMenu(); k.preventDefault(); }
+    if (k.key === 'ArrowDown') { buttons[(i + 1) % buttons.length].focus(); k.preventDefault(); }
+    if (k.key === 'ArrowUp') { buttons[(i - 1 + buttons.length) % buttons.length].focus(); k.preventDefault(); }
+  });
+  setTimeout(() => document.addEventListener('pointerdown', (ev) => { if (!menu.contains(ev.target)) closeMenu(); }, { once: true }), 0);
+}
+
+async function ping(portId, call) {
+  const p = S.ports.find((x) => x.id === portId);
+  try {
+    await Engine.call('stations.ping', { portId, callsign: call });
+    S.pings.set(call, Date.now());
+    S.sys.push({
+      at: Date.now(), portId, peer: call === 'CQCQCQ' ? null : call, who: 'Ping',
+      text: call === 'CQCQCQ' ? `Ping sent to all stations via ${p ? p.name : portId}. Replies appear here.` : ['Ping sent to ', h('span', { class: 'call' }, call), ` via ${p ? p.name : portId}.`],
+    });
+  } catch (e) {
+    S.sys.push({ at: Date.now(), portId, who: 'Ping', text: `Ping not sent: ${e.message}` });
+  }
+  render();
+}
+
+async function askVersion(portId, call) {
+  try {
+    await Engine.call('stations.queryCapabilities', { portId, callsign: call });
+    S.versionAsked.add(call);
+    S.sys.push({ at: Date.now(), portId, peer: call, who: 'Version', text: ['Asked ', h('span', { class: 'call' }, call), ' for its version.'] });
+  } catch (e) {
+    S.sys.push({ at: Date.now(), portId, who: 'Version', text: `Not sent: ${e.message}` });
+  }
+  render();
+}
+
+// ---- sending a file from the app (picker or drop)
+function fileDialog() {
+  let dlg = $('#file-dialog');
+  if (!dlg) {
+    dlg = h('dialog', { id: 'file-dialog', class: 'sheet', 'aria-labelledby': 'file-title' });
+    document.body.append(dlg);
+  }
+  return dlg;
+}
+
+function b64(buf) {
+  const bytes = new Uint8Array(buf);
+  let s = '';
+  for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  return btoa(s);
+}
+
+const MAX_APP_FILE = 4 << 20;
+
+function offerFile(file) {
+  const dlg = fileDialog();
+  const dst = recipient();
+  const via = $('#via');
+  const port = S.ports.find((p) => p.id === (via && via.value));
+  const m = modeOf(port);
+  const close = h('button', { class: 'btn quiet', type: 'button', onclick: () => dlg.close() }, 'Cancel');
+  const head = h('div', { class: 'sheet-head' }, h('h2', { id: 'file-title' }, 'Send a file'));
+  if (dst === 'CQCQCQ') {
+    fill(dlg, head, h('section', {}, h('p', {}, 'Files go to one station. Choose a station in To, or open its tab, then send the file again.')),
+      h('div', { class: 'acts' }, close));
+  } else if (!port) {
+    fill(dlg, head, h('section', {}, h('p', {}, 'No port to send through.')), h('div', { class: 'acts' }, close));
+  } else if (file.size > MAX_APP_FILE) {
+    fill(dlg, head, h('section', {}, h('p', {}, `${file.name} is ${kb(file.size)}. The app sends files up to 4 MB.`)), h('div', { class: 'acts' }, close));
+  } else {
+    // Upper bound: no compression, ~25% protocol overhead, plus an over
+    // each way per 4 blocks.
+    const secs = m.rate ? Math.round((file.size * 1.25) / m.rate + Math.ceil(file.size / 1024) * 3) : 0;
+    const long = m.rate && secs > 120;
+    const err = h('p', { class: 'error-text', role: 'alert' });
+    const go = h('button', {
+      class: 'btn primary', type: 'button',
+      onclick: async () => {
+        go.disabled = true;
+        go.textContent = 'Starting…';
+        try {
+          const content = b64(await file.arrayBuffer());
+          const confirmReflector = !!(port.route && port.route.scope === 'reflector');
+          const t = await Engine.call('transfers.sendData', { portId: port.id, peer: dst, name: file.name, contentBase64: content, confirmReflector });
+          S.transfers.set(t.id, t);
+          S.sys.push({ at: Date.now(), portId: port.id, peer: dst, who: 'File', text: [`Sending ${file.name} (${kb(file.size)}) to `, h('span', { class: 'call' }, dst), '. Progress is under Waiting to send.'] });
+          dlg.close();
+          render();
+        } catch (e) {
+          err.textContent = e.message;
+          go.disabled = false;
+          go.textContent = 'Send';
+        }
+      },
+    }, 'Send');
+    fill(dlg, head,
+      h('section', {},
+        h('table', { class: 'kv' },
+          h('tr', {}, h('th', { scope: 'row' }, 'File'), h('td', {}, file.name)),
+          h('tr', {}, h('th', { scope: 'row' }, 'Size'), h('td', {}, kb(file.size))),
+          h('tr', {}, h('th', { scope: 'row' }, 'To'), h('td', { class: 'call' }, dst)),
+          h('tr', {}, h('th', { scope: 'row' }, 'Via'), h('td', {}, `${port.name}, ${m.words}`)),
+          m.rate ? h('tr', {}, h('th', { scope: 'row' }, 'Time on air'), h('td', {}, `up to about ${secs < 90 ? `${secs} s` : `${Math.round(secs / 60)} min`}, less if it compresses`)) : null),
+        long ? h('p', { class: 'note' }, 'This is a long transmission. Other stations can’t use the channel while it’s on air, and Aether DV pauses for voice.') : null,
+        port.route && port.route.scope === 'reflector' ? h('p', { class: 'note' }, 'This goes to every repeater on the linked reflector.') : null,
+        err),
+      h('div', { class: 'acts' }, go, close));
+  }
+  if (!dlg.open) dlg.showModal();
 }
 
 // ---------------------------------------------------------------- messages
@@ -897,7 +1261,11 @@ function renderTransfers(main) {
   const rows = [...S.transfers.values()].sort((a, b) => (a.id < b.id ? 1 : -1));
   main.replaceChildren(h('div', { class: 'xfer', style: 'grid-template-rows: 44px 1fr' },
     h('div', { class: 'pane-head' }, h('h1', {}, 'Transfers'),
-      h('span', { class: 'muted' }, 'Send files with: aetherdv-cli send-file PORT CALL PATH')),
+      h('span', { class: 'muted' }, 'To send a file: Chat, Send file… (or drop a file on the chat).'),
+      S.filesDir && window.__TAURI__ ? h('button', {
+        class: 'btn', style: 'margin-left:auto', title: S.filesDir,
+        onclick: () => window.__TAURI__.core.invoke('open_folder', { path: S.filesDir }).catch((e) => alert(String(e))),
+      }, 'Open received files') : S.filesDir ? h('span', { class: 'faint', style: 'margin-left:auto' }, `Received files: ${S.filesDir}`) : null),
     h('div', { class: 'tablewrap' }, rows.length ? h('table', { class: 'grid' },
       h('thead', {}, h('tr', {}, ...['File', 'Direction', 'Station', 'Port', 'State', 'Progress', 'Retries', ''].map((c) => h('th', { scope: 'col' }, c)))),
       h('tbody', {}, ...rows.map((t) => {
@@ -915,7 +1283,8 @@ function renderTransfers(main) {
               p && (routeHeld(p) || (p.channel && p.channel.holdsTimers)) ? `${t.state}, ${routeHeld(p) ? GATE_WORDS[p.route.gate] : channelWords(p)}`.toLowerCase().replace(/^./, (c) => c.toUpperCase()) : t.state)),
           h('td', {}, h('div', { class: 'prog' }, h('div', { class: `bar ${p ? modeOf(p).mode : ''}`, role: 'progressbar', 'aria-valuenow': pctv, 'aria-valuemin': 0, 'aria-valuemax': 100, 'aria-label': `${t.filename} progress` }, h('span', { style: `width:${pctv}%` })), h('span', { class: 'num' }, `${pctv}%`))),
           h('td', { class: 'num' }, t.retries),
-          h('td', {}, active ? h('button', { class: 'btn quiet', onclick: () => Engine.call('transfers.cancel', { id: t.id }).catch((e) => alert(e.message)) }, 'Cancel') : null));
+          h('td', {}, active ? h('button', { class: 'btn quiet', onclick: () => cancelTransfer(t) }, 'Cancel')
+            : t.direction === 'receive' && t.state === 'done' && t.savedPath ? showFileButton(t.savedPath) : null));
       }))) : h('p', { class: 'empty' }, 'No transfers yet.'))));
 }
 
@@ -1506,6 +1875,25 @@ function route() {
 }
 window.addEventListener('hashchange', route);
 setInterval(() => { if (S.connected && S.view === 'chat') render(); }, 10000); // refresh "ago"
+// Chat shortcuts: Ctrl+L clears the tab, Ctrl+1..9 switch tabs.
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') closeMenu();
+  if (S.view !== 'chat' || !S.connected || !(e.ctrlKey || e.metaKey) || e.altKey || e.shiftKey) return;
+  if (e.key === 'l' || e.key === 'L') {
+    e.preventDefault();
+    clearTab();
+    return;
+  }
+  const n = Number(e.key);
+  if (Number.isInteger(n) && n >= 1 && n <= 9) {
+    const t = chatTabs()[n - 1];
+    if (t) {
+      e.preventDefault();
+      selectTab(t.id);
+    }
+  }
+});
+
 route();
 // The connect screen needs the app information (bundled engine or not), so
 // fetch it before the first connection attempt.

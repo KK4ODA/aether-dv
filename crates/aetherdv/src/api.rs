@@ -254,6 +254,47 @@ async fn session(
                     (Err(e), _, _) | (_, Err(e), _) | (_, _, Err(e)) => Err(e),
                 }
             }
+            "transfers.sendData" => {
+                match (
+                    s(&params, "portId"),
+                    s(&params, "peer"),
+                    s(&params, "name"),
+                    s(&params, "contentBase64"),
+                ) {
+                    (Ok(port), Ok(peer), Ok(name), Ok(b64)) => {
+                        use base64::Engine as _;
+                        match base64::engine::general_purpose::STANDARD.decode(b64.as_bytes()) {
+                            Err(e) => Err(ApiError::new(E_INVALID, format!("contentBase64: {e}"))),
+                            Ok(data) => {
+                                let confirm_reflector = params
+                                    .get("confirmReflector")
+                                    .and_then(Value::as_bool)
+                                    .unwrap_or(false);
+                                ask(&engine, |reply| Cmd::SendData {
+                                    port,
+                                    peer,
+                                    name,
+                                    data,
+                                    confirm_reflector,
+                                    reply,
+                                })
+                                .await
+                            }
+                        }
+                    }
+                    (Err(e), ..) | (_, Err(e), ..) | (_, _, Err(e), _) | (.., Err(e)) => Err(e),
+                }
+            }
+            "chat.cancel" => match (
+                s(&params, "portId"),
+                params.get("id").and_then(Value::as_i64),
+            ) {
+                (Ok(port), Some(id)) => {
+                    ask(&engine, |reply| Cmd::ChatCancel { port, id, reply }).await
+                }
+                (Err(e), _) => Err(e),
+                (_, None) => Err(ApiError::new(E_INVALID, "id: a chat line id is required")),
+            },
             "transfers.list" => {
                 let include_finished = params
                     .get("includeFinished")
