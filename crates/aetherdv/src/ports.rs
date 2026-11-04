@@ -821,6 +821,9 @@ pub async fn run_serial(
                         if !emit(&evt, out).await { return; }
                     }
                     Some(Io::Accepted(ids, len)) => {
+                        // When the OS finished the write: separates PC/USB
+                        // delay from the radio's own key-up in the summary.
+                        p.tap.event("written", serde_json::json!({ "bytes": len }));
                         sched.on_port_accepted(now());
                         let air = Duration::from_millis(sched.profile().air_ms(len));
                         for id in ids {
