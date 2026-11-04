@@ -458,7 +458,7 @@ impl Engine {
             .transfers(true, 10_000)
             .map_err(internal)?
             .iter()
-            .map(transfer_json)
+            .map(|t| transfer_json(t, self.saved_files.get(&t.id)))
             .collect();
         files.push((
             "transfers.json".into(),

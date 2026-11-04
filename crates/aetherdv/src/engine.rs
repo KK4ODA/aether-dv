@@ -79,6 +79,22 @@ pub enum Cmd {
         callsign: String,
         reply: Reply<Value>,
     },
+    /// `transfers.sendData`: a file the app read itself (file picker or
+    /// drag and drop), so no path on the engine side is needed.
+    SendData {
+        port: String,
+        peer: String,
+        name: String,
+        data: Vec<u8>,
+        confirm_reflector: bool,
+        reply: Reply<Value>,
+    },
+    /// `chat.cancel`: take back a queued chat line before it's sent.
+    ChatCancel {
+        port: String,
+        id: i64,
+        reply: Reply<Value>,
+    },
     SendFile {
         port: String,
         peer: String,
@@ -153,14 +169,31 @@ fn unix_ms() -> i64 {
         .unwrap_or(0)
 }
 
-fn transfer_json(t: &TransferRow) -> Value {
+fn transfer_json(t: &TransferRow, saved: Option<&PathBuf>) -> Value {
     json!({
         "id": t.id, "direction": t.direction, "protocol": t.protocol, "peer": t.peer,
         "portId": t.port_id, "filename": t.filename, "totalBytes": t.total_bytes,
         "doneBytes": t.done_bytes, "blockSize": t.block_size, "state": t.state,
         "stateReason": t.state_reason, "priority": 50, "retries": t.retries,
-        "rateBps": null, "wrapWarning": t.wrap_warning,
+        "rateBps": null, "wrapWarning": t.wrap_warning, "savedPath": saved,
     })
+}
+
+/// Largest file the app can hand over in one API message (`transfers.sendData`);
+/// at DV slow data rates even this takes many hours.
+pub const MAX_SEND_DATA_BYTES: usize = 4 << 20;
+
+/// Where received files go without `files_dir`: Documents/Aether DV/Received/CALL
+/// (one folder per station, so two engines on one PC don't mix), else next to
+/// the database, else the temp directory.
+fn default_files_dir(callsign: &str, db: Option<&std::path::Path>) -> PathBuf {
+    if let Some(docs) = dirs::document_dir() {
+        return docs.join("Aether DV").join("Received").join(callsign);
+    }
+    match db {
+        Some(db) => db.with_file_name("received"),
+        None => std::env::temp_dir().join("aether-received"),
+    }
 }
 
 /// ARQ-1 sender parameters per path. Blocks start at 256 B on DV slow data
@@ -272,6 +305,8 @@ struct Engine {
     xfers: Transfers,
     xfer_meta: HashMap<u64, XferMeta>,
     files_dir: PathBuf,
+    /// Where each received file was saved, by transfer id (this run only).
+    saved_files: HashMap<String, PathBuf>,
     capture_dir: PathBuf,
     /// Configuration without secrets, for support bundles.
     config_summary: Value,
@@ -517,6 +552,7 @@ impl Engine {
                 let _ = r.send(Ok(json!({
                     "engineVersion": crate::station::VERSION, "apiVersion": crate::api::API_VERSION,
                     "profile": self.station.callsign, "uptimeMs": self.started.elapsed().as_millis() as u64,
+                    "filesDir": self.files_dir,
                 })));
             }
             Cmd::Ports(r) => {
@@ -578,6 +614,51 @@ impl Engine {
                     .send_frame(&port, &f, enc, Priority::Control, None)
                     .await
                     .map(|_| json!(true));
+                let _ = reply.send(res);
+            }
+            Cmd::ChatCancel { port, id, reply } => {
+                let res = match self.ports.get(&port) {
+                    None => Err(ApiError::new(E_NOT_FOUND, format!("no port {port}"))),
+                    Some(p) => {
+                        p.tx.send(PortCmd::Withdraw { token: id })
+                            .await
+                            .map(|_| json!({ "requested": true }))
+                            .map_err(|_| ApiError::new(E_INTERNAL, "port stopped"))
+                    }
+                };
+                let _ = reply.send(res);
+            }
+            Cmd::SendData {
+                port,
+                peer,
+                name,
+                data,
+                confirm_reflector,
+                reply,
+            } => {
+                // Base name only, whichever OS the client named it on.
+                let name = name
+                    .rsplit(['/', '\\'])
+                    .next()
+                    .unwrap_or_default()
+                    .trim()
+                    .to_string();
+                let res = if name.is_empty() {
+                    Err(ApiError::new(E_INVALID, "the file needs a name"))
+                } else if data.len() > MAX_SEND_DATA_BYTES {
+                    Err(ApiError::new(
+                        E_INVALID,
+                        format!(
+                            "file is larger than the {} MiB limit",
+                            MAX_SEND_DATA_BYTES >> 20
+                        ),
+                    ))
+                } else if let Err(e) = self.check_file_scope(&port, data.len(), confirm_reflector) {
+                    Err(e)
+                } else {
+                    self.start_transfer(&port, &peer, Class::File, &name, &data, None)
+                        .await
+                };
                 let _ = reply.send(res);
             }
             Cmd::SendFile {
@@ -649,7 +730,13 @@ impl Engine {
                 let res = self
                     .store
                     .transfers(include_finished, 500)
-                    .map(|v| Value::Array(v.iter().map(transfer_json).collect()))
+                    .map(|v| {
+                        Value::Array(
+                            v.iter()
+                                .map(|t| transfer_json(t, self.saved_files.get(&t.id)))
+                                .collect(),
+                        )
+                    })
                     .map_err(|e| ApiError::new(E_INTERNAL, e.to_string()));
                 let _ = reply.send(res);
             }
@@ -682,15 +769,27 @@ impl Engine {
     /// (`chat.line` consumers upsert by id).
     fn chat_state(&mut self, id: i64, state: &str, reason: Option<String>) {
         let _ = self.store.set_chat_tx_state(id, state);
-        if let Some(reason) = reason {
-            self.log(
+        match reason.as_deref() {
+            Some("cancelled") => self.log(
+                "info",
+                None,
+                &format!("chat line {id} cancelled before sending"),
+            ),
+            Some(r) => self.log(
                 "warn",
                 None,
-                &format!("chat line {id} not transmitted: {reason}"),
-            );
+                &format!("chat line {id} not transmitted: {r}"),
+            ),
+            None => {}
         }
         if let Ok(Some(line)) = self.store.chat_line(id) {
-            self.publish("chat.line", chat_json(&line));
+            let mut v = chat_json(&line);
+            // Not stored (the schema has no reason column): live clients
+            // can tell a cancelled line from a failed one.
+            if let Some(r) = reason {
+                v["txReason"] = json!(r);
+            }
+            self.publish("chat.line", v);
         }
     }
 
@@ -787,7 +886,8 @@ impl Engine {
                         );
                         self.xfer_meta.remove(&s.key);
                     }
-                    self.publish("transfer.progress", transfer_json(&row));
+                    let saved = self.saved_files.get(&row.id);
+                    self.publish("transfer.progress", transfer_json(&row, saved));
                 }
                 XEffect::Received {
                     key,
@@ -809,15 +909,24 @@ impl Engine {
                         continue;
                     }
                     match crate::inbox::save_unique(&self.files_dir, &name, &data) {
-                        Ok(path) => self.log(
-                            "info",
-                            Some(&port),
-                            &format!(
-                                "saved {name} from {peer} ({} bytes) to {}",
-                                data.len(),
-                                path.display()
-                            ),
-                        ),
+                        Ok(path) => {
+                            self.log(
+                                "info",
+                                Some(&port),
+                                &format!(
+                                    "saved {name} from {peer} ({} bytes) to {}",
+                                    data.len(),
+                                    path.display()
+                                ),
+                            );
+                            if let Some(id) = self.xfer_meta.get(&key).map(|m| m.id.clone()) {
+                                self.publish(
+                                    "transfer.saved",
+                                    json!({ "id": id, "path": path, "bytes": data.len() }),
+                                );
+                                self.saved_files.insert(id, path);
+                            }
+                        }
                         Err(err) => self.log(
                             "error",
                             Some(&port),
@@ -888,7 +997,7 @@ impl Engine {
             .transfers(true, 50)
             .ok()
             .and_then(|v| v.into_iter().find(|t| t.id == id))
-            .map(|t| transfer_json(&t))
+            .map(|t| transfer_json(&t, self.saved_files.get(&t.id)))
             .unwrap_or(json!({ "id": id })))
     }
 
@@ -1097,10 +1206,12 @@ pub fn start(cfg: &Config) -> Result<EngineHandle, String> {
             },
         );
     }
-    let files_dir = cfg.files_dir.clone().unwrap_or_else(|| match &cfg.db {
-        Some(db) => db.with_file_name("received"),
-        None => std::env::temp_dir().join("aether-received"),
-    });
+    let files_dir = cfg
+        .files_dir
+        .clone()
+        .unwrap_or_else(|| default_files_dir(&cfg.callsign, cfg.db.as_deref()));
+    // Absolute, so the app can show a saved file whatever its working dir.
+    let files_dir = std::path::absolute(&files_dir).unwrap_or(files_dir);
     let limits = xfer::Limits {
         max_wire_bytes: cfg.max_incoming_kib.saturating_mul(1024),
         ..xfer::Limits::default()
@@ -1135,6 +1246,7 @@ pub fn start(cfg: &Config) -> Result<EngineHandle, String> {
         config_summary,
         xfers: Transfers::new(&cfg.callsign, limits),
         xfer_meta: HashMap::new(),
+        saved_files: HashMap::new(),
         files_dir,
         station: Station::new(&cfg.callsign, seed),
         store,

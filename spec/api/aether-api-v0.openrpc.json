@@ -895,6 +895,49 @@
       ]
     },
     {
+      "name": "chat.cancel",
+      "summary": "Take back a queued chat line before it is sent. The line then reports txState failed with txReason cancelled; nothing happens if it was already written to the radio.",
+      "params": [
+        {
+          "name": "portId",
+          "required": true,
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "id",
+          "required": true,
+          "schema": {
+            "type": "integer",
+            "description": "Chat line id"
+          }
+        }
+      ],
+      "result": {
+        "name": "requested",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "requested": {
+              "type": "boolean"
+            }
+          }
+        }
+      },
+      "errors": [
+        {
+          "code": 1404,
+          "message": "not found"
+        }
+      ],
+      "tags": [
+        {
+          "name": "chat"
+        }
+      ]
+    },
+    {
       "name": "chat.history",
       "summary": "Chat lines for a port (null = merged view), newest first.",
       "params": [
@@ -1437,6 +1480,72 @@
           "required": false,
           "schema": {
             "type": "integer"
+          }
+        },
+        {
+          "name": "confirmReflector",
+          "required": false,
+          "schema": {
+            "type": "boolean",
+            "description": "Required on a port in reflector scope (files up to 8 KiB)"
+          }
+        }
+      ],
+      "result": {
+        "name": "transfer",
+        "schema": {
+          "$ref": "#/components/schemas/Transfer"
+        }
+      },
+      "errors": [
+        {
+          "code": 1404,
+          "message": "not found"
+        },
+        {
+          "code": 1422,
+          "message": "self-addressed traffic refused"
+        }
+      ],
+      "tags": [
+        {
+          "name": "transfers"
+        }
+      ]
+    },
+    {
+      "name": "transfers.sendData",
+      "summary": "Send a file the client read itself (file picker or drag and drop); up to 4 MiB.",
+      "params": [
+        {
+          "name": "portId",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "description": "UUIDv7"
+          }
+        },
+        {
+          "name": "peer",
+          "required": true,
+          "schema": {
+            "$ref": "#/components/schemas/Callsign"
+          }
+        },
+        {
+          "name": "name",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "description": "File name only; any directory part is dropped"
+          }
+        },
+        {
+          "name": "contentBase64",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "description": "File content, standard base64"
           }
         },
         {
@@ -2752,6 +2861,10 @@
           },
           "pathKind": {
             "$ref": "#/components/schemas/PathKind"
+          },
+          "txReason": {
+            "type": "string",
+            "description": "Live events only: why a line failed, e.g. cancelled"
           }
         },
         "additionalProperties": false,
@@ -3091,6 +3204,13 @@
           "wrapWarning": {
             "type": "boolean",
             "description": "Legacy transfer >256 blocks: delivery cannot be confirmed (P19)"
+          },
+          "savedPath": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Where a received file was saved (this engine run only)"
           }
         },
         "additionalProperties": false,
@@ -3794,6 +3914,24 @@
           "portId",
           "result"
         ]
+      }
+    },
+    "transfer.saved": {
+      "schema": {
+        "type": "object",
+        "description": "A received file was saved to disk.",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          },
+          "bytes": {
+            "type": "integer",
+            "description": "Size of the saved file"
+          }
+        }
       }
     }
   }

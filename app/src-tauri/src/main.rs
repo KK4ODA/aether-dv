@@ -233,6 +233,36 @@ fn reveal_bundle(app: tauri::AppHandle, path: String) -> Result<(), String> {
         .map_err(|e| format!("Could not show the file: {e}"))
 }
 
+/// Show a received file in the system file manager (selects it; never
+/// opens or runs it). Only existing files with an absolute path.
+#[tauri::command]
+fn reveal_file(app: tauri::AppHandle, path: String) -> Result<(), String> {
+    let p = std::path::PathBuf::from(&path);
+    if !p.is_absolute() || !p.is_file() {
+        return Err("That file is no longer there.".into());
+    }
+    app.opener()
+        .reveal_item_in_dir(&p)
+        .map_err(|e| format!("Could not show the file: {e}"))
+}
+
+/// Open a folder (the received-files folder) in the system file manager.
+/// Directories only, so nothing is ever executed.
+#[tauri::command]
+fn open_folder(app: tauri::AppHandle, path: String) -> Result<(), String> {
+    let p = std::path::PathBuf::from(&path);
+    if !p.is_absolute() {
+        return Err("Not a folder on this computer.".into());
+    }
+    std::fs::create_dir_all(&p).map_err(|e| format!("{}: {e}", p.display()))?;
+    if !p.is_dir() {
+        return Err("Not a folder.".into());
+    }
+    app.opener()
+        .open_path(p.to_string_lossy(), None::<&str>)
+        .map_err(|e| format!("Could not open the folder: {e}"))
+}
+
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 struct AppInfo {
@@ -394,6 +424,8 @@ fn main() {
             engine_start,
             open_link,
             reveal_bundle,
+            reveal_file,
+            open_folder,
             app_info,
             update_check,
             update_install

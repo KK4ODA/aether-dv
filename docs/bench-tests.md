@@ -278,18 +278,15 @@ That decides whether the ID-52 PLUS gets voice sensing and route checking like t
 2. Start recordings on **both** engines: "Test 5 timing".
 3. **IC-9700 → ID-52 PLUS:** three chats a few seconds apart, then the file:
    - app: Chat, To = KK4ODA-1, three short lines;
-   - file, from a PowerShell window:
+   - file (0.3.0 or later): in Chat, open the **KK4ODA-1** tab (click the station under **Heard**), click **Send file…**, pick `C:\AetherTest\test2k.txt`, check the details and click **Send**. Dropping the file onto the chat does the same.
+
+     Before 0.3.0, from a PowerShell window in the program folder:
 
      ```powershell
-     & "<AetherDV folder>\aetherdv-cli.exe" --api 127.0.0.1:7373 --token-file "$env:APPDATA\org.aetherdv.desktop\aetherdv.token" send-file IC-9700 KK4ODA-1 C:\AetherTest\test2k.txt
+     .\aetherdv-cli.exe --token-file "$env:APPDATA\org.aetherdv.desktop\aetherdv.token" send-file IC-9700 KK4ODA-1 C:\AetherTest\test2k.txt
      ```
-
-     That's the token file of the engine the app started. The app has no file-send button yet, so files always go through this command.
-4. Wait until the file shows **Handed off** (app → Transfers).
-5. **ID-52 PLUS → IC-9700:** three chats and the file:
-   - `a52 send ID-52PLUS KK4ODA timing 1` (then 2, 3)
-   - `a52 send-file ID-52PLUS KK4ODA C:\AetherTest\test2k.txt`
-   - `a52 transfers` until done
+4. Wait until the chat says **handed off** (or Transfers shows **Handed off**).
+5. **ID-52 PLUS → IC-9700:** three chats and the file the same way, from the **KK4ODA** tab on the ID-52 PLUS computer (or `a52 send-file ID-52PLUS KK4ODA C:\AetherTest\test2k.txt` from a terminal). The received file's line has **Show file**; Transfers has **Open received files**.
 6. **Finish test** on both engines and paste **both** summaries.
 
 **What the results mean:** the IC-9700's summary lists every transmission with **key-up delay** and **real air time against the estimate**, measured from the radio's own transmit state. Those figures replace the placeholder timing values.

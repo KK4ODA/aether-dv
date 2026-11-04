@@ -84,6 +84,8 @@ dependencies = [
  "aether-rfd",
  "aether-rfl",
  "aether-store",
+ "base64 0.23.1",
+ "dirs",
  "flate2",
  "futures-util",
  "getrandom 0.3.4",
