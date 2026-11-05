@@ -458,7 +458,7 @@ function renderRail() {
 
 function renderDrawer() {
   const last = S.events.slice(-3).reverse();
-  $('#drawer').replaceChildren(...last.map((e) => h('span', {}, h('time', {}, hms(e.at)), e.message)));
+  $('#drawer').replaceChildren(...last.map((e) => h('span', { title: `${hms(e.at)}  ${e.message}` }, h('time', {}, hms(e.at)), e.message)));
 }
 
 // A path as typed or pasted: Windows' "Copy as path" adds quotation marks.

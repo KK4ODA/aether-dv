@@ -87,3 +87,7 @@ Since 0.3.2, DV slow data is written in pieces of at most 180 bytes of whole fra
 **0.3.5:**
 - **CI-V quiet for the whole write.** The 10 s cap let polling resume during long writes, visible as CI-V readings mid-write; the cap is now 120 s.
 - **Transmission size in the app**, per DV slow data port: 180 (tested, default) or 220 bytes, also `ports.setPieceBytes`. At 220 the acknowledgement and the request ride with a block: 8 transmissions per 8-block group instead of 10. Simulated link, 3 kB: 76 s against 81–82 s. On the radios, 220 is unproven; if they drop bytes at that size, the blocks are resent.
+
+## 2026-11-05: 0.3.5 on the radios
+
+**5 kB IC-9700 → ID-52 PLUS: about 285 s at 180 bytes, about 268 s at 220 bytes.** Both files arrived intact. At 220 there were no resends, and every 220-byte piece arrived whole, so the radios take that size. Both runs were within the spread of 0.3.4 (about 250 s). The time is set by the IC-9700's own pauses between transmissions: 10–18 s at times, with CI-V quiet and the channel clear. Tuning of DV slow data speed stops here; 180 stays the default and 220 is the user's choice.
