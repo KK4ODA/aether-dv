@@ -271,7 +271,10 @@ async fn bench_with(
         // running and reopen their port path after a loss, so a freed PTY
         // number reused by a later test could be taken by an old engine
         // (seen in CI as "timed out waiting for serial ready").
-        _keep: keep.into_iter().map(|fd| &*Box::leak(Box::new(fd))).collect(),
+        _keep: keep
+            .into_iter()
+            .map(|fd| &*Box::leak(Box::new(fd)))
+            .collect(),
     }
 }
 
