@@ -28,8 +28,8 @@ pub const RX_STATUS_READ: &[u8] = &[0x20, 0x02, 0x02];
 pub const RX_STATUS_PUSH: &[u8] = &[0x20, 0x02, 0x01];
 /// `15 01`: noise / S-meter squelch status (`00` closed, `01` open).
 pub const SQUELCH: &[u8] = &[0x15, 0x01];
-/// `0F`: split/duplex (`00` split off, `01` split on, `11` DUP-, `12`
-/// DUP+, `13` DD repeater simplex).
+/// `0F`: split/duplex (`00` split off, `01` split on, `10` simplex, `11`
+/// DUP-, `12` DUP+, `13` DD repeater simplex).
 pub const DUPLEX: &[u8] = &[0x0F];
 /// `1C 00`: read whether the radio is transmitting (`00` RX, `01` TX).
 /// Read only: the same command with a data byte keys the transmitter, so
@@ -244,7 +244,7 @@ pub fn parse_tx_state(data: &[u8]) -> Option<bool> {
 /// Duplex (`0F`): `Some(true)` for DUP- / DUP+, `Some(false)` for simplex.
 pub fn parse_duplex(data: &[u8]) -> Option<bool> {
     match data {
-        [0x00] | [0x01] | [0x13] => Some(false),
+        [0x00] | [0x01] | [0x10] | [0x13] => Some(false),
         [0x11] | [0x12] => Some(true),
         _ => None,
     }

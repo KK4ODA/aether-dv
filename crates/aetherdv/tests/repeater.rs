@@ -698,7 +698,7 @@ async fn radio_test_session_writes_one_bundle_with_a_summary() {
         "Test: bench chat",
         "keyed voice",
         "Transmissions (1)",
-        "R1 \"W4DOC  B\" R2 \"\" (read over CI-V)",
+        "R1 \"W4DOC  B\" R2 \"\" (duplex on; read over CI-V)",
         "Received (1 burst)",
         "channel {\"busy\":\"voice\"",
     ] {
@@ -784,18 +784,20 @@ async fn queued_chat_can_be_cancelled() {
     );
 }
 
-/// On simplex, a gateway left in R2 is pointed out (never enforced).
+/// On a direct port whose duplex cannot be read, a gateway left in R2 is
+/// pointed out (never enforced). With duplex readably off it is not: the
+/// radio keeps R1/R2 but does not send them (unit test in repeater.rs).
 #[tokio::test]
 async fn simplex_port_notes_a_gateway_in_r2() {
     let r = radio("CQCQCQ", "W4DOC  D", "W4DOC  G");
-    r.lock().unwrap().duplex = 0x10; // simplex, as on the bench
+    r.lock().unwrap().duplex = 0x07; // a reply the engine cannot read
     let mut b = bench("via = \"direct\"\n", Some(r)).await;
     let ev = wait_for(&mut b.ev, "route with notice", |e| {
         e.topic == "port.route" && e.data["route"]["notice"].is_string()
     })
     .await;
     let n = ev.data["route"]["notice"].as_str().unwrap();
-    assert!(n.contains("W4DOC  G") && n.contains("simplex"), "{n}");
+    assert!(n.contains("W4DOC  G") && n.contains("duplex"), "{n}");
     assert_eq!(
         ev.data["route"]["gate"], "open",
         "only a note: sending stays open"

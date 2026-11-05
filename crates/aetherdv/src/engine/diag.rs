@@ -297,8 +297,14 @@ impl Engine {
                     "radio's call signs unknown (no CI-V reading)".to_string()
                 } else {
                     let c = |k: &str| calls[k].as_str().unwrap_or("").trim_end().to_string();
+                    // Icom radios keep R1/R2 with duplex off but do not send them.
+                    let (dup, sent) = match r["observed"]["duplex"].as_bool() {
+                        Some(true) => ("duplex on", ""),
+                        Some(false) => ("simplex", ", R1/R2 stored, not sent on simplex"),
+                        None => ("duplex unknown", ""),
+                    };
                     format!(
-                        "radio UR \"{}\" R1 \"{}\" R2 \"{}\" (read over CI-V)",
+                        "radio UR \"{}\" R1 \"{}\" R2 \"{}\" ({dup}{sent}; read over CI-V)",
                         c("ur"),
                         c("r1"),
                         c("r2")
