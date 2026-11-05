@@ -72,12 +72,10 @@ button { font: inherit; color: inherit; }
 .drawer { grid-area: drawer; display: flex; align-items: center; gap: var(--s6); padding: 0 var(--s5);
   background: var(--bg-sunken); border-top: 1px solid var(--line-hair); color: var(--text-2); font-size: var(--fs-sm); white-space: nowrap; overflow: hidden; }
 .drawer time { color: var(--text-3); margin-right: var(--s3); }
-/* One line: the newest event shrinks to fit and ends in an ellipsis; older
-   ones show only when they fit whole (the rest wrap onto a hidden second
-   line). Full text in each tooltip and in Diagnostics. */
-.drawer { flex-wrap: wrap; align-content: flex-start; row-gap: 0; min-width: 0; }
-.drawer > span { white-space: nowrap; line-height: 30px; flex: 0 0 auto; }
-.drawer > span:first-child { flex: 0 1 auto; min-width: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+/* The latest event, on one line, ending in an ellipsis when it is too long;
+   the full text is in its tooltip and in Diagnostics. */
+.drawer { min-width: 0; }
+.drawer > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* ---- shared atoms ---- */
 .call { font-family: var(--font-call); font-weight: 600; letter-spacing: .02em; }

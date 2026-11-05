@@ -40,6 +40,9 @@ pub enum CivReq {
     },
     /// Read UR/R1/R2 and duplex now (result as [`CivEvt::Route`]).
     ReadRoute,
+    /// Re-read them every [`ROUTE_EVERY_HELD`] (`true`, while the radio's
+    /// settings hold sending) or every [`ROUTE_EVERY`] (`false`).
+    RouteFast(bool),
     /// Write UR/R1/R2, then read them back.
     SetRoute {
         calls: TxCalls,
@@ -93,6 +96,9 @@ pub struct SessionParams {
 const REPLY_TIMEOUT: Duration = Duration::from_millis(400);
 const POLL_EVERY: Duration = Duration::from_millis(250);
 const ROUTE_EVERY: Duration = Duration::from_secs(60);
+/// While sending is held for the radio's settings, so that putting them
+/// right resumes sending within seconds.
+const ROUTE_EVERY_HELD: Duration = Duration::from_secs(10);
 const TX_POLL_EVERY: Duration = Duration::from_millis(100);
 /// Polls whose unchanged answers are not recorded again.
 const QUIET_POLLS: [&[u8]; 3] = [dstar::RX_STATUS_READ, dstar::SQUELCH, dstar::TX_STATE];
@@ -243,6 +249,7 @@ struct State {
     last_busy: Option<Busy>,
     last_route: Option<Instant>,
     route_due: bool,
+    route_fast: bool,
     /// Read RX call signs/message this long after the channel changes.
     rx_due: Option<Instant>,
     timeouts: u32,
@@ -303,6 +310,7 @@ fn run(
             last_busy: None,
             last_route: None,
             route_due: dstar_ok,
+            route_fast: false,
             rx_due: None,
             timeouts: 0,
         };
@@ -328,7 +336,11 @@ fn refuse(r: CivReq, msg: &str) {
         CivReq::SetRoute { reply, .. } => {
             let _ = reply.send(Err(msg.to_string()));
         }
-        CivReq::ReadRoute | CivReq::ReadRx | CivReq::WatchTx { .. } | CivReq::Quiet(_) => {}
+        CivReq::ReadRoute
+        | CivReq::RouteFast(_)
+        | CivReq::ReadRx
+        | CivReq::WatchTx { .. }
+        | CivReq::Quiet(_) => {}
     }
 }
 
@@ -405,7 +417,12 @@ fn session(
                     Err(e) => return Some(e),
                 }
             }
-            let due = st.route_due || st.last_route.map_or(true, |t| t.elapsed() >= ROUTE_EVERY);
+            let every = if st.route_fast {
+                ROUTE_EVERY_HELD
+            } else {
+                ROUTE_EVERY
+            };
+            let due = st.route_due || st.last_route.map_or(true, |t| t.elapsed() >= every);
             if due {
                 st.route_due = false;
                 match read_route(r, st) {
@@ -626,6 +643,7 @@ fn handle(
                 send(CivEvt::Route(res));
             }
         }
+        CivReq::RouteFast(on) => st.route_fast = on,
         CivReq::ReadRx => read_rx(r, send)?,
         CivReq::Quiet(on) => {
             st.quiet_until = on.then(|| Instant::now() + QUIET_MAX);

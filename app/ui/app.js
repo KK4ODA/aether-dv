@@ -457,8 +457,10 @@ function renderRail() {
 }
 
 function renderDrawer() {
-  const last = S.events.slice(-3).reverse();
-  $('#drawer').replaceChildren(...last.map((e) => h('span', { title: `${hms(e.at)}  ${e.message}` }, h('time', {}, hms(e.at)), e.message)));
+  // Only the latest event: several in a row read as one line. The full log
+  // is in Diagnostics.
+  const e = S.events[S.events.length - 1];
+  $('#drawer').replaceChildren(...(e ? [h('span', { title: `${hms(e.at)}  ${e.message}` }, h('time', {}, hms(e.at)), e.message)] : []));
 }
 
 // A path as typed or pasted: Windows' "Copy as path" adds quotation marks.

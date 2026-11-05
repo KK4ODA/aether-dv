@@ -803,3 +803,27 @@ async fn simplex_port_notes_a_gateway_in_r2() {
         "only a note: sending stays open"
     );
 }
+
+/// Held for duplex on a direct port, sending resumes within seconds of the
+/// radio being set back to simplex (re-read every 10 s while held, not 60).
+#[tokio::test]
+async fn putting_the_radio_right_resumes_sending_quickly() {
+    let r = radio("CQCQCQ", "", "");
+    r.lock().unwrap().duplex = 0x11; // DUP-
+    let mut b = bench("via = \"direct\"\n", Some(r.clone())).await;
+    wait_for(&mut b.ev, "held for duplex", |e| {
+        e.topic == "port.route" && e.data["route"]["code"] == "duplex_on_direct"
+    })
+    .await;
+    r.lock().unwrap().duplex = 0x10; // back to simplex
+    let open = timeout(Duration::from_secs(20), async {
+        loop {
+            let e = b.ev.recv().await.expect("event stream");
+            if e.topic == "port.route" && e.data["route"]["gate"] == "open" {
+                return;
+            }
+        }
+    })
+    .await;
+    assert!(open.is_ok(), "sending resumed within 20 s of the fix");
+}

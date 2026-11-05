@@ -321,6 +321,10 @@ impl Engine {
             if last_gate.as_ref() != Some(&gate) {
                 if let Some(l) = self.ports.get_mut(&n).and_then(|p| p.link.as_mut()) {
                     l.last_gate = Some(gate.clone());
+                    // Held for the radio's settings: notice the fix sooner.
+                    if let Some(c) = &l.civ_tx {
+                        let _ = c.send(CivReq::RouteFast(matches!(gate, Gate::Wrong(_))));
+                    }
                 }
                 let (g, code) = match &gate {
                     Gate::Open => ("open", None),
