@@ -220,7 +220,9 @@ pub fn arq_config(path_kind: &str) -> SenderConfig {
             c.rto_initial = 12_000;
         }
         _ => {
-            c.block_size = 256;
+            // One block per over: a 120-byte block is ~170 bytes on the
+            // wire, inside the radio's piece size (ports::SLOW_PIECE_BYTES).
+            c.block_size = 120;
             c.rto_initial = 12_000;
             // Measured on the bench (Test 5): see ModeProfile::dv_slow.
             c.path_rate_bps = 122;
@@ -1143,7 +1145,10 @@ pub fn start(cfg: &Config) -> Result<EngineHandle, String> {
                     crate::route::Scope::Reflector => PathPreset::Reflector,
                 };
                 let rc = route.clone().unwrap_or_default();
+                // DV slow data: what the radios took for one over on the bench.
+                let piece_cap = (mode == "slow").then_some(crate::ports::SLOW_PIECE_BYTES);
                 let params = SerialParams {
+                    piece_cap,
                     tap: tap.clone(),
                     name,
                     path,
@@ -1151,6 +1156,7 @@ pub fn start(cfg: &Config) -> Result<EngineHandle, String> {
                     mode,
                     software_flow: flow == "software",
                     xonxoff: flow == "xonxoff",
+
                     preset,
                     tuning: Tuning {
                         holdoff_ms: rc.holdoff_ms,

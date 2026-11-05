@@ -23,7 +23,10 @@ button { font: inherit; color: inherit; }
 .brand-mark { flex: none; width: 18px; height: 18px; border: 2px solid var(--text-1); border-radius: 50%; position: relative; }
 .brand-mark::after { content: ""; position: absolute; inset: 4px; background: var(--fast); border-radius: 50%; }
 .brand-name { font-weight: 600; font-size: var(--fs-lg); letter-spacing: .01em; white-space: nowrap; }
-.brand-call { font-family: var(--font-call); font-weight: 600; color: var(--text-2); font-size: var(--fs-sm); margin-left: auto; }
+.brand-text { display: flex; flex-direction: column; min-width: 0; line-height: 1.15; }
+/* Own line under the name, never wrapped: KK4ODA-1 doesn't fit beside it. */
+.brand-call { font-family: var(--font-call); font-weight: 600; color: var(--text-2); font-size: var(--fs-sm); white-space: nowrap; }
+.brand-call:empty { display: none; }
 
 .strip { grid-area: strip; display: flex; align-items: stretch; margin: 0; padding: 0; list-style: none;
   background: var(--bg-sunken); border-bottom: 1px solid var(--line-hair); }

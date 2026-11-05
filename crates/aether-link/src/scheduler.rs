@@ -460,8 +460,15 @@ impl Scheduler {
 
     /// The port accepted all bytes of the in-flight burst.
     pub fn on_port_accepted(&mut self, now: Millis) {
+        let bytes: usize = self.in_flight.iter().map(|i| i.bytes.len()).sum();
+        self.on_port_accepted_tail(now, bytes);
+    }
+
+    /// Like [`Self::on_port_accepted`], when only the last `bytes` of the
+    /// burst are still to go on the air (the writer sent it in pieces,
+    /// one over each, and waited for the earlier ones).
+    pub fn on_port_accepted_tail(&mut self, now: Millis, bytes: usize) {
         if self.state == State::Writing {
-            let bytes: usize = self.in_flight.iter().map(|i| i.bytes.len()).sum();
             self.state = State::AirDrain;
             self.deadline = Some(now + self.profile.air_ms(bytes));
         }

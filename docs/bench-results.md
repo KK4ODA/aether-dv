@@ -55,3 +55,11 @@ So CI-V polling (status 4×/s, TX state 10×/s during tests) roughly triples the
 - **Retry timers counted from hand-off.** The file offer was written 6.5 s late, so its retry fired while the first copy was barely on the air, and the ID-52 PLUS answered twice. Transfer timers now move by the write delay.
 - **Flow control** worked on both radios (XOFF/XON 0.4–1.4 s apart, writes paused).
 - **Air time** matched the new estimate within about 0.15 s on average.
+
+## 2026-11-05: Test 5b repeated (0.3.1) and the first large file
+
+**5b with 0.3.1:** each block went out in one transmission (745 bytes sent and received on both sides), with no duplicate offers. Each file took 26–29 s each way, against 65 s with 0.3.0. With CI-V paused while writing, the IC-9700's quiet-channel write times were 1.40, 0.52 and 0.87 s, as fast as with CI-V off. Its slowest writes (2.3–3.7 s) all came 2–3 s after it had received the other station; the radio seems to need that long after a reception. Air-time estimate within 0.05 s on average.
+
+**Large file (20,000 random bytes, IC-9700 → ID-52 PLUS): stuck at 0 blocks.** Each ARQ burst was about 1,260 bytes (4 × 256-byte blocks plus REQACK), written in one go. The IC-9700 transmitted only about 260 bytes of each (2.2 s on air against 11 s estimated). The ID-52 PLUS received every block cut short (bad checksums) and answered `ACK []` 25 times. The IC-9700's flow control during the write: XOFF after about 100 bytes, then everything arriving before the next XON was dropped (99 + 99 + 42 bytes got through). So the radio keeps roughly one over's worth (writes up to 179 bytes always went out whole) and loses the rest.
+
+Since 0.3.2, DV slow data is written in pieces of at most 180 bytes of whole frames, each left to go on the air before the next. File blocks are 120 bytes (about 170 on the wire), so each block fits one piece. A frame larger than a piece is written in XOFF-checked 32-byte chunks: split over several transmissions, but nothing lost. The cost is one transmission per block: about 25–30 bytes per second on DV slow data, measured over a simulated link.
