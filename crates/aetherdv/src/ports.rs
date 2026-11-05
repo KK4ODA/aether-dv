@@ -380,6 +380,10 @@ pub struct SerialParams {
     /// while the radio says XOFF; the two bytes are removed from received
     /// data (yEnc escapes them, so they are never payload).
     pub xonxoff: bool,
+    /// Most bytes the radio takes for one over (`None`: no limit). The
+    /// IC-9700 kept ~260 of a 1260-byte write and dropped the rest;
+    /// 179-byte writes always went out whole.
+    pub piece_cap: Option<usize>,
     /// Courtesy preset for the configured route.
     pub preset: PathPreset,
     /// Operator overrides of the preset (`[port.route]` advanced fields).
@@ -445,6 +449,41 @@ enum Io {
 
 const XON: u8 = 0x11;
 const XOFF: u8 = 0x13;
+/// Most bytes written for one over on DV slow data: 179-byte writes always
+/// went out whole on the IC-9700 and ID-52 PLUS; a 1260-byte one did not.
+pub const SLOW_PIECE_BYTES: usize = 180;
+/// Bytes per write for a frame bigger than the radio's piece size.
+const FRAME_CHUNK: usize = 32;
+/// Margin after a piece's estimated air time before the next piece.
+const PIECE_GAP_MS: u64 = 400;
+
+/// Split a burst of enveloped frames (each ends with `[EOB]`) into
+/// contiguous pieces of whole frames, at most `cap` bytes each where a
+/// frame allows it.
+fn radio_pieces(b: &[u8], cap: usize) -> Vec<&[u8]> {
+    const EOB: &[u8] = b"[EOB]";
+    let mut ends = Vec::new();
+    let mut i = 0;
+    while let Some(p) = b[i..].windows(EOB.len()).position(|w| w == EOB) {
+        i += p + EOB.len();
+        ends.push(i);
+    }
+    if ends.last() != Some(&b.len()) {
+        ends.push(b.len());
+    }
+    let (mut out, mut start, mut prev) = (Vec::new(), 0, 0);
+    for end in ends {
+        if end - start > cap && prev > start {
+            out.push(&b[start..prev]);
+            start = prev;
+        }
+        prev = end;
+    }
+    if start < b.len() {
+        out.push(&b[start..]);
+    }
+    out
+}
 /// Longest XOFF honoured before writing resumes (D-RATS waits 15 s).
 const XOFF_LIMIT: Duration = Duration::from_secs(20);
 
@@ -669,6 +708,11 @@ pub async fn run_serial(
         let rx_tx = io_tx.clone();
         let xoff = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
         let (xoff_r, xoff_w, xonxoff) = (xoff.clone(), xoff.clone(), p.xonxoff);
+        let piece_cap = p.piece_cap;
+        let prof = make_profile(&persist.sense);
+        let on_air_ms = move |len: usize| {
+            prof.tail_ms + (len as u64 * 1000) / prof.payload_rate_bps.max(1) as u64
+        };
         std::thread::spawn(move || {
             let mut b = [0u8; 1024];
             loop {
@@ -699,34 +743,51 @@ pub async fn run_serial(
         let acc_tx = io_tx.clone();
         std::thread::spawn(move || {
             use std::sync::atomic::Ordering::SeqCst;
-            while let Ok((ids, bytes)) = wr_rx.recv() {
-                // XOFF holds back the next burst, never part of one: the
-                // IC-9700 transmits what it has and takes no more until the
-                // over ends, so a split write becomes several overs (bench
-                // Test 5b). Each burst goes to the driver in one write.
-                if xonxoff {
-                    let since = Instant::now();
-                    while xoff_w.load(SeqCst) {
-                        if since.elapsed() > XOFF_LIMIT {
-                            xoff_w.store(false, SeqCst);
-                            let _ = acc_tx.blocking_send(Io::XoffTimeout);
-                            break;
-                        }
-                        std::thread::sleep(Duration::from_millis(5));
-                    }
-                }
-                if writer
-                    .write_all(&bytes)
-                    .and_then(|_| writer.flush())
-                    .is_err()
-                {
-                    let _ = acc_tx.blocking_send(Io::Lost("write failed".into()));
+            // Wait while the radio says XOFF (up to XOFF_LIMIT).
+            let hold = || {
+                if !xonxoff {
                     return;
                 }
-                if acc_tx
-                    .blocking_send(Io::Accepted(ids, bytes.len()))
-                    .is_err()
-                {
+                let since = Instant::now();
+                while xoff_w.load(SeqCst) {
+                    if since.elapsed() > XOFF_LIMIT {
+                        xoff_w.store(false, SeqCst);
+                        let _ = acc_tx.blocking_send(Io::XoffTimeout);
+                        return;
+                    }
+                    std::thread::sleep(Duration::from_millis(5));
+                }
+            };
+            while let Ok((ids, bytes)) = wr_rx.recv() {
+                // The radio holds one over's worth: write the burst in
+                // frame-aligned pieces of at most `piece_cap` bytes, each
+                // in one go, and let each go on the air before the next
+                // (bench large-file test: a 1260-byte write lost all but
+                // ~260 bytes). A single frame larger than the cap goes in
+                // small XOFF-checked chunks: split overs, but nothing lost.
+                let pieces = match piece_cap {
+                    Some(cap) if bytes.len() > cap => radio_pieces(&bytes, cap),
+                    _ => vec![&bytes[..]],
+                };
+                let mut last = 0;
+                for (i, piece) in pieces.iter().enumerate() {
+                    if i > 0 {
+                        std::thread::sleep(Duration::from_millis(on_air_ms(last) + PIECE_GAP_MS));
+                    }
+                    let chunk = match piece_cap {
+                        Some(cap) if piece.len() > cap => FRAME_CHUNK,
+                        _ => piece.len().max(1),
+                    };
+                    for c in piece.chunks(chunk) {
+                        hold();
+                        if writer.write_all(c).and_then(|_| writer.flush()).is_err() {
+                            let _ = acc_tx.blocking_send(Io::Lost("write failed".into()));
+                            return;
+                        }
+                    }
+                    last = piece.len();
+                }
+                if acc_tx.blocking_send(Io::Accepted(ids, last)).is_err() {
                     return;
                 }
             }
@@ -839,7 +900,7 @@ pub async fn run_serial(
                         if !emit(&evt, vec![PortEvt::Written { port: p.name.clone(), blocked_ms }]).await {
                             return;
                         }
-                        sched.on_port_accepted(now());
+                        sched.on_port_accepted_tail(now(), len);
                         let air = Duration::from_millis(sched.profile().air_ms(len));
                         for id in ids {
                             if let Some(t) = tokens.remove(&id) {
@@ -899,5 +960,59 @@ pub async fn run_serial(
             return;
         }
         tokio::time::sleep(Duration::from_secs(1)).await;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use aether_ddt2::{wrap, EscapeSet, PayloadEncoding};
+
+    fn wire(seq: u16, payload: Vec<u8>) -> Vec<u8> {
+        let f = Frame::new(seq, 6, 4, "KK4ODA", "KK4ODA-1", payload);
+        wrap(
+            &f.encode(PayloadEncoding::Never).unwrap(),
+            &EscapeSet::legacy(),
+        )
+        .unwrap()
+    }
+
+    fn noise(n: usize, seed: u32) -> Vec<u8> {
+        let mut x = seed;
+        (0..n)
+            .map(|_| {
+                x = x.wrapping_mul(1_103_515_245).wrapping_add(12_345);
+                (x >> 16) as u8
+            })
+            .collect()
+    }
+
+    #[test]
+    fn a_slow_data_block_fits_one_radio_piece() {
+        // Compressed file data looks random; check several samples.
+        for seed in 1..20 {
+            let w = wire(1, noise(120, seed));
+            assert!(w.len() <= SLOW_PIECE_BYTES, "{} bytes on the wire", w.len());
+        }
+    }
+
+    #[test]
+    fn bursts_split_into_whole_frames_within_the_cap() {
+        let frames: Vec<Vec<u8>> = (0..4).map(|i| wire(i, noise(120, i as u32 + 7))).collect();
+        let reqack = wire(0, vec![1, 2, 3, 4]);
+        let burst: Vec<u8> = frames.iter().chain([&reqack]).flatten().copied().collect();
+        let pieces = radio_pieces(&burst, SLOW_PIECE_BYTES);
+        assert_eq!(pieces.concat(), burst, "nothing lost or reordered");
+        for p in &pieces {
+            assert!(p.len() <= SLOW_PIECE_BYTES, "{}", p.len());
+            assert!(p.ends_with(b"[EOB]"), "whole frames only");
+        }
+        assert!(pieces.len() >= 4, "{} pieces", pieces.len());
+        // Small bursts stay in one piece.
+        let small = wire(1, b"hello".to_vec());
+        assert_eq!(radio_pieces(&small, SLOW_PIECE_BYTES), vec![&small[..]]);
+        // A frame bigger than the cap is kept whole (written in chunks).
+        let big = wire(1, noise(400, 3));
+        assert_eq!(radio_pieces(&big, SLOW_PIECE_BYTES), vec![&big[..]]);
     }
 }
