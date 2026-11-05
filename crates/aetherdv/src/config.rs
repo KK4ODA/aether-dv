@@ -30,6 +30,7 @@
 //! profile = "icom-ic9700"
 //! mode = "slow"                     # slow | fast (radio setting must match)
 //! flow = "xonxoff"                  # xonxoff (default) | none | software, see below
+//! piece_bytes = 180                 # optional; most bytes per over on DV slow data
 //!
 //! [port.route]                      # optional; without it the port is direct (simplex)
 //! via = "repeater"                  # direct | repeater
@@ -255,6 +256,11 @@ pub enum PortConfig {
         /// DR#253/#262).
         #[serde(default = "default_flow")]
         flow: String,
+        /// Most bytes written for one over on DV slow data (default 180,
+        /// what the IC-9700 and ID-52 PLUS always sent whole on the bench).
+        /// For experiments; too large loses data on these radios.
+        #[serde(default)]
+        piece_bytes: Option<usize>,
         /// Optional CI-V control channel to the same radio (`[port.civ]`).
         civ: Option<CivConfig>,
         /// How this radio reaches other stations (`[port.route]`).
@@ -353,6 +359,18 @@ impl Config {
             } = p
             {
                 route.validate(p.name()).map_err(ConfigError::Invalid)?;
+            }
+            if let PortConfig::Serial {
+                piece_bytes: Some(n),
+                ..
+            } = p
+            {
+                if !(64..=2048).contains(n) {
+                    return Err(ConfigError::Invalid(format!(
+                        "port {}: piece_bytes must be 64 to 2048",
+                        p.name()
+                    )));
+                }
             }
             if let PortConfig::Serial { mode, flow, .. } = p {
                 if mode != "slow" && mode != "fast" {

@@ -384,3 +384,31 @@ fn shift_pauses_the_retransmission_timer() {
     );
     assert!(!tx.poll_transmit(due + 60_000).is_empty());
 }
+
+#[test]
+fn the_answer_after_a_held_write_is_accepted() {
+    // Bench: an 8-block burst took ~20 s to write over by over; the caller
+    // held and then shifted the timers by that much. The stale-ACK guard
+    // must not count the burst's air time a second time.
+    let a = SessionAddr {
+        session: 4,
+        src: "A".into(),
+        dst: "B".into(),
+    };
+    let mut cfg = SenderConfig::legacy_defaults();
+    cfg.block_size = 120;
+    cfg.window = 8;
+    cfg.path_rate_bps = 122;
+    cfg.per_over_ms = 1_300;
+    let mut tx = LegacySender::new(cfg, a, &data(3_000, 5));
+    let burst = tx.poll_transmit(0);
+    assert_eq!(burst.len(), 9); // 8 blocks + REQACK
+    tx.shift(20_000); // held while the radio took it
+    tx.burst_written(20_000);
+    let seqs: Vec<u8> = (0..8).collect();
+    let ack = Frame::new(0, 4, aether_ddt2::session::stateful::ACK, "B", "A", seqs);
+    tx.on_frame(21_500, &ack);
+    assert_eq!(tx.stats.early_acks_ignored, 0, "a real answer, not stale");
+    let next = tx.poll_transmit(21_500);
+    assert_eq!(next.len(), 9, "the next window goes at once");
+}
