@@ -161,23 +161,34 @@ fn unplug_is_detected_and_replug_reopens_by_stable_path() {
 fn loopback_throughput_far_exceeds_dv_rates() {
     // The serial path must not be the bottleneck at Fast Data (~435 B/s).
     // Legacy D-RATS writes 8 bytes then flushes and polls (comm.py:439).
-    let mut radio = fake_radio();
+    let radio = fake_radio();
     let mut port = open_port(&radio.slave_path).expect("open");
-    let data = vec![0x55u8; 64 * 1024];
+    const LEN: usize = 64 * 1024;
+    let data = vec![0x55u8; LEN];
     let t0 = Instant::now();
+    // The reader hands the master back instead of dropping it. Closing a PTY
+    // master hangs up the slave, and `tcdrain` (our `flush`) on a hung-up
+    // slave fails with EIO ("flush failed"). If the reader drained the last
+    // bytes and dropped the master before the writer reached `flush`, the
+    // test failed at random. The master must outlive the writer's flush.
+    let mut master = radio.master;
     let reader = std::thread::spawn(move || {
         let mut n = 0;
         let mut b = [0u8; 8192];
-        while n < 64 * 1024 {
-            n += radio.master.read(&mut b).unwrap();
+        while n < LEN {
+            match master.read(&mut b).expect("master read") {
+                0 => break, // EOF: slave side closed early; assert on n below
+                k => n += k,
+            }
         }
-        n
+        (n, master)
     });
     for chunk in data.chunks(512) {
         port.write_all(chunk).unwrap();
     }
     port.flush().unwrap();
-    let n = reader.join().unwrap();
+    let (n, _master) = reader.join().unwrap();
+    assert_eq!(n, data.len(), "radio side did not receive every byte");
     let rate = n as f64 / t0.elapsed().as_secs_f64();
     println!(
         "pty loopback: {n} B in {:?} = {:.0} B/s",
