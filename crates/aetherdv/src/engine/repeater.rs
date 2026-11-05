@@ -180,7 +180,7 @@ impl Engine {
             .as_ref()
             .map(|m| m.eq_ignore_ascii_case(&self.station.callsign));
         let notice = (g.route.scope == Scope::Direct)
-            .then(|| g.observed.as_ref().and_then(|o| o.calls.as_ref()))
+            .then_some(g.observed.as_ref())
             .flatten()
             .and_then(gateway_notice);
         json!({
@@ -321,6 +321,10 @@ impl Engine {
             if last_gate.as_ref() != Some(&gate) {
                 if let Some(l) = self.ports.get_mut(&n).and_then(|p| p.link.as_mut()) {
                     l.last_gate = Some(gate.clone());
+                    // Held for the radio's settings: notice the fix sooner.
+                    if let Some(c) = &l.civ_tx {
+                        let _ = c.send(CivReq::RouteFast(matches!(gate, Gate::Wrong(_))));
+                    }
                 }
                 let (g, code) = match &gate {
                     Gate::Open => ("open", None),
@@ -387,11 +391,7 @@ impl Engine {
                     .get(&port)
                     .and_then(|p| p.link.as_ref())
                     .is_some_and(|l| l.guard.route.scope == Scope::Direct);
-                let notice = if direct {
-                    o.calls.as_ref().and_then(gateway_notice)
-                } else {
-                    None
-                };
+                let notice = if direct { gateway_notice(o) } else { None };
                 let changed = self
                     .ports
                     .get_mut(&port)
@@ -873,14 +873,22 @@ mod tests {
 /// On a direct (simplex) port: the radio's R2 is a gateway (8th character
 /// `G`). Harmless on simplex, but on that repeater the data would go out
 /// through its gateway, to a linked reflector. Shown, never enforced.
-fn gateway_notice(c: &aether_civ::dstar::TxCalls) -> Option<String> {
+/// A gateway left in R2 of a direct (simplex) port. Icom radios keep R1/R2
+/// while duplex is off but neither show nor send them (IC-9700 bench), and
+/// duplex on already holds a direct port, so this is only said when duplex
+/// could not be read.
+fn gateway_notice(o: &crate::route::Observed) -> Option<String> {
+    if o.duplex.is_some() {
+        return None;
+    }
+    let c = o.calls.as_ref()?;
     let r2 = c.r2.trim_end();
     let gw = c.r2.len() == 8 && c.r2.ends_with('G') && !r2.is_empty();
     gw.then(|| {
         let r1 = c.r1.trim_end();
         let rpt = if r1.is_empty() { "that repeater".to_string() } else { r1.to_string() };
         format!(
-            "The radio is set to send via {r2} (a gateway). Harmless on simplex, but through {rpt} your data would go to its linked reflector. Clear R2 (and R1) for simplex."
+            "The radio has {r2} (a gateway) in R2. It is not sent on simplex, but Aether DV could not read whether duplex is on: on {rpt}'s channel your data would go to its linked reflector."
         )
     })
 }
@@ -888,21 +896,28 @@ fn gateway_notice(c: &aether_civ::dstar::TxCalls) -> Option<String> {
 #[cfg(test)]
 mod gateway_tests {
     use super::gateway_notice;
+    use crate::route::Observed;
     use aether_civ::dstar::TxCalls;
 
-    fn calls(r1: &str, r2: &str) -> TxCalls {
-        TxCalls {
-            ur: "CQCQCQ  ".into(),
-            r1: format!("{r1:<8}"),
-            r2: format!("{r2:<8}"),
+    fn obs(r1: &str, r2: &str, duplex: Option<bool>) -> Observed {
+        Observed {
+            calls: Some(TxCalls {
+                ur: "CQCQCQ  ".into(),
+                r1: format!("{r1:<8}"),
+                r2: format!("{r2:<8}"),
+            }),
+            duplex,
         }
     }
 
     #[test]
-    fn a_gateway_in_r2_is_noticed_on_simplex() {
-        let n = gateway_notice(&calls("W4DOC  D", "W4DOC  G")).unwrap();
+    fn a_gateway_in_r2_is_noticed_only_when_duplex_is_unknown() {
+        let n = gateway_notice(&obs("W4DOC  D", "W4DOC  G", None)).unwrap();
         assert!(n.contains("W4DOC  G") && n.contains("W4DOC  D"), "{n}");
-        assert!(gateway_notice(&calls("", "")).is_none());
-        assert!(gateway_notice(&calls("W4DOC  B", "W4DOC  B")).is_none());
+        // Simplex: stored but not sent. Duplex on: the guard holds the port.
+        assert!(gateway_notice(&obs("W4DOC  D", "W4DOC  G", Some(false))).is_none());
+        assert!(gateway_notice(&obs("W4DOC  D", "W4DOC  G", Some(true))).is_none());
+        assert!(gateway_notice(&obs("", "", None)).is_none());
+        assert!(gateway_notice(&obs("W4DOC  B", "W4DOC  B", None)).is_none());
     }
 }
