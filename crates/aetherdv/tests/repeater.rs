@@ -221,7 +221,7 @@ struct Bench {
     h: EngineHandle,
     ev: broadcast::Receiver<ApiEvent>,
     data: DataSide,
-    _keep: Vec<std::os::fd::OwnedFd>,
+    _keep: Vec<&'static std::os::fd::OwnedFd>,
 }
 
 /// Start an engine with one IC-9700 port. `civ = None` = no CI-V channel.
@@ -267,7 +267,11 @@ async fn bench_with(
         h,
         ev,
         data: data_side(File::from(data.master), radio),
-        _keep: keep,
+        // Held for the whole test process: engines from earlier tests keep
+        // running and reopen their port path after a loss, so a freed PTY
+        // number reused by a later test could be taken by an old engine
+        // (seen in CI as "timed out waiting for serial ready").
+        _keep: keep.into_iter().map(|fd| &*Box::leak(Box::new(fd))).collect(),
     }
 }
 
