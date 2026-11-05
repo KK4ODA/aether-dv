@@ -56,8 +56,10 @@ pub enum CivReq {
     Quiet(bool),
 }
 
-/// Longest quiet period, in case the end of a write is never reported.
-const QUIET_MAX: Duration = Duration::from_secs(10);
+/// Longest quiet period, in case the end of a write is never reported. An
+/// 8-block burst takes 28-46 s to write on the IC-9700 (bench, 0.3.4); a
+/// 10 s cap let polling resume mid-write.
+const QUIET_MAX: Duration = Duration::from_secs(120);
 
 /// Events to the engine.
 #[derive(Debug, Clone)]

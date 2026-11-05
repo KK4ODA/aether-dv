@@ -227,6 +227,7 @@ async function loadAll() {
     Engine.call('diag.events', { limit: 50 }),
   ]);
   S.ports = ports;
+  restorePieceBytes();
   S.stations = new Map(stations.map((s) => [s.callsign, s]));
   S.transfers = new Map(transfers.map((t) => [t.id, t]));
   S.events = events.reverse();
@@ -1421,6 +1422,7 @@ function renderPort() {
       h('div', { class: 'sheet-actions' },
         paused ? call('ports.resume', null, 'Resume sending') : call('ports.pause', null, 'Pause sending'),
         paused ? null : call('ports.pause', { minutes: 30 }, 'Pause for 30 minutes'))),
+    p.pieceBytes ? pieceSection(p, out) : null,
     r.via === 'repeater' && r.civRoute ? h('section', {}, h('h3', {}, 'Repeater access'),
       h('p', { class: 'muted' }, 'Sends one short check and reads the repeater’s acknowledgement.'),
       check ? h('p', {}, check.ok
@@ -1431,6 +1433,45 @@ function renderPort() {
   if (focused) {
     const again = [...dlg.querySelectorAll('button, a')].find((b) => b.textContent === focused);
     if (again) again.focus();
+  }
+}
+
+// Bytes per transmission on DV slow data: the radio holds about one
+// transmission's worth. 180 always went out whole on the bench; 220 lets the
+// acknowledgement ride with a block (fewer transmissions) but is unproven.
+const PIECE_CHOICES = [
+  [180, '180 bytes (tested)'],
+  [220, '220 bytes (fewer transmissions, test first)'],
+];
+const pieceKey = (id) => `aether.pieceBytes.${id}`;
+
+function pieceSection(p, out) {
+  const sel = h('select', {
+    id: 'piece-bytes', 'aria-describedby': 'piece-help',
+    onchange: () => setPieceBytes(p.id, Number(sel.value)).catch((e) => { out.textContent = e.message; }),
+  }, ...[...PIECE_CHOICES, ...(PIECE_CHOICES.some(([n]) => n === p.pieceBytes) ? [] : [[p.pieceBytes, `${p.pieceBytes} bytes (from the configuration)`]])]
+    .map(([n, label]) => h('option', { value: n }, label)));
+  sel.value = String(p.pieceBytes);
+  return h('section', {}, h('h3', {}, 'Transmission size'),
+    h('label', { class: 'muted' }, 'Bytes per transmission ', sel),
+    h('p', { class: 'muted', id: 'piece-help' }, 'The radio keeps about one transmission’s worth of data. If it drops bytes at a larger size, blocks are resent (you’ll see retries), but files are never damaged.'));
+}
+
+async function setPieceBytes(id, bytes) {
+  const r = await Engine.call('ports.setPieceBytes', { id, bytes });
+  const p = S.ports.find((x) => x.id === id);
+  if (p) p.pieceBytes = r.pieceBytes;
+  try { localStorage.setItem(pieceKey(id), String(bytes)); } catch { /* per-computer convenience */ }
+  render();
+}
+
+// Reapply this computer's choice after connecting (the engine starts from
+// its configuration).
+async function restorePieceBytes() {
+  for (const p of S.ports.filter((x) => x.pieceBytes)) {
+    let want = null;
+    try { want = Number(localStorage.getItem(pieceKey(p.id))) || null; } catch { /* none */ }
+    if (want && want !== p.pieceBytes) await setPieceBytes(p.id, want).catch(() => {});
   }
 }
 

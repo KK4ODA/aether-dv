@@ -89,6 +89,12 @@ pub enum Cmd {
         confirm_reflector: bool,
         reply: Reply<Value>,
     },
+    /// `ports.setPieceBytes`: most bytes per over on a DV slow data port.
+    SetPieceBytes {
+        port: String,
+        bytes: usize,
+        reply: Reply<Value>,
+    },
     /// `chat.cancel`: take back a queued chat line before it's sent.
     ChatCancel {
         port: String,
@@ -160,6 +166,8 @@ struct PortState {
     radio_fast: Option<bool>,
     /// Repeater operation state (radio ports only).
     link: Option<repeater::RadioLink>,
+    /// Most bytes per over on DV slow data (`None`: no limit or not slow).
+    piece_bytes: Option<usize>,
 }
 
 fn unix_ms() -> i64 {
@@ -588,7 +596,7 @@ impl Engine {
                 let mut v: Vec<Value> = self
                     .ports
                     .iter()
-                    .map(|(name, p)| json!({ "id": name, "name": name, "kind": p.kind, "pathKind": p.path_kind, "state": p.state, "detail": p.detail, "civ": p.civ.is_some(), "radioFastData": p.radio_fast, "route": self.route_json(name), "channel": self.channel_json(name) }))
+                    .map(|(name, p)| json!({ "id": name, "name": name, "kind": p.kind, "pathKind": p.path_kind, "state": p.state, "detail": p.detail, "civ": p.civ.is_some(), "radioFastData": p.radio_fast, "pieceBytes": p.piece_bytes, "route": self.route_json(name), "channel": self.channel_json(name) }))
                     .collect();
                 v.sort_by(|a, b| a["name"].as_str().cmp(&b["name"].as_str()));
                 let _ = r.send(Ok(Value::Array(v)));
@@ -643,6 +651,31 @@ impl Engine {
                     .send_frame(&port, &f, enc, Priority::Control, None)
                     .await
                     .map(|_| json!(true));
+                let _ = reply.send(res);
+            }
+            Cmd::SetPieceBytes { port, bytes, reply } => {
+                let res = match self.ports.get_mut(&port) {
+                    None => Err(ApiError::new(E_NOT_FOUND, format!("no port {port}"))),
+                    Some(p) if p.piece_bytes.is_none() => Err(ApiError::new(
+                        E_INVALID,
+                        "only DV slow data radio ports send in pieces",
+                    )),
+                    Some(_) if !(64..=2048).contains(&bytes) => {
+                        Err(ApiError::new(E_INVALID, "bytes must be 64 to 2048"))
+                    }
+                    Some(p) => {
+                        p.piece_bytes = Some(bytes);
+                        let _ = p.tx.send(PortCmd::PieceBytes(bytes)).await;
+                        Ok(json!({ "pieceBytes": bytes }))
+                    }
+                };
+                if res.is_ok() {
+                    self.log(
+                        "info",
+                        Some(&port),
+                        &format!("up to {bytes} bytes per transmission"),
+                    );
+                }
                 let _ = reply.send(res);
             }
             Cmd::ChatCancel { port, id, reply } => {
@@ -1098,6 +1131,12 @@ pub fn start(cfg: &Config) -> Result<EngineHandle, String> {
         let (tx, rx) = mpsc::channel::<PortCmd>(256);
         let tap = Tap::default();
         let civ_capable = matches!(pc, PortConfig::Serial { civ: Some(_), .. });
+        let piece_bytes = match pc {
+            PortConfig::Serial {
+                mode, piece_bytes, ..
+            } if mode == "slow" => Some(piece_bytes.unwrap_or(crate::ports::SLOW_PIECE_BYTES)),
+            _ => None,
+        };
         let (kind, path_kind, row_kind, profile) = match pc {
             PortConfig::Ratflector { .. } => ("ratflector", "internet", "ratflector", None),
             PortConfig::Serial { mode, profile, .. } => (
@@ -1238,6 +1277,7 @@ pub fn start(cfg: &Config) -> Result<EngineHandle, String> {
                 civ: civ_model,
                 radio_fast: None,
                 link,
+                piece_bytes,
             },
         );
     }
