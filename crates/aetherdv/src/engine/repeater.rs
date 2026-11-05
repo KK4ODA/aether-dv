@@ -46,6 +46,8 @@ pub(super) struct RadioLink {
     pub last_ack: Option<(i64, Option<String>)>,
     pub link_seen: Option<i64>,
     pub check: Option<AccessCheck>,
+    /// The gateway notice last logged (logged again only when it changes).
+    pub notice_logged: Option<String>,
 }
 
 impl RadioLink {
@@ -66,6 +68,7 @@ impl RadioLink {
             last_ack: None,
             link_seen: None,
             check: None,
+            notice_logged: None,
         }
     }
 }
@@ -176,7 +179,12 @@ impl Engine {
             .my_call
             .as_ref()
             .map(|m| m.eq_ignore_ascii_case(&self.station.callsign));
+        let notice = (g.route.scope == Scope::Direct)
+            .then(|| g.observed.as_ref().and_then(|o| o.calls.as_ref()))
+            .flatten()
+            .and_then(gateway_notice);
         json!({
+            "notice": notice,
             "via": if g.route.scope == Scope::Direct { "direct" } else { "repeater" },
             "scope": g.route.scope.as_str(),
             "repeater": g.route.repeater.as_ref().map(|r| r.trim_end()),
@@ -354,6 +362,7 @@ impl Engine {
 
     pub(super) async fn on_civ_evt(&mut self, port: String, e: CivEvt) {
         let now = self.now();
+        let mut notice_changed = false;
         match &e {
             CivEvt::Open(r) => {
                 self.tap_event(&port, "civ_open", json!({ "error": r.as_ref().err() }))
@@ -372,6 +381,28 @@ impl Engine {
                         "verdict": verdict.as_ref().and_then(|v| v.code()).unwrap_or("allow"),
                     }),
                 );
+                // From this reading (the guard takes it further down).
+                let direct = self
+                    .ports
+                    .get(&port)
+                    .and_then(|p| p.link.as_ref())
+                    .is_some_and(|l| l.guard.route.scope == Scope::Direct);
+                let notice = if direct {
+                    o.calls.as_ref().and_then(gateway_notice)
+                } else {
+                    None
+                };
+                let changed = self
+                    .ports
+                    .get_mut(&port)
+                    .and_then(|p| p.link.as_mut())
+                    .filter(|l| l.notice_logged != notice)
+                    .map(|l| l.notice_logged.clone_from(&notice))
+                    .is_some();
+                notice_changed = changed;
+                if let (true, Some(n)) = (changed, notice) {
+                    self.log("info", Some(&port), &n);
+                }
             }
             CivEvt::Route(Err(err)) => {
                 self.tap_event(&port, "route_error", json!({ "error": err }))
@@ -413,6 +444,12 @@ impl Engine {
             CivEvt::Route(Ok(obs)) => {
                 l.civ_error = None;
                 l.guard.on_reading(now, obs);
+                // The gate may not change (simplex stays open): publish so
+                // the app shows (or drops) the gateway notice.
+                if notice_changed {
+                    let v = self.route_json(&port);
+                    self.publish("port.route", json!({ "portId": port, "route": v }));
+                }
             }
             CivEvt::Route(Err(err)) => {
                 let unsupported = err.contains("does not answer the D-STAR");
@@ -830,5 +867,42 @@ mod tests {
         assert_eq!(ber_in("REF001 C  BER: 1.5%").as_deref(), Some("1.5%"));
         assert_eq!(ber_in("XLX123 B 0.3% -80dBm").as_deref(), Some("0.3%"));
         assert_eq!(ber_in("hello"), None);
+    }
+}
+
+/// On a direct (simplex) port: the radio's R2 is a gateway (8th character
+/// `G`). Harmless on simplex, but on that repeater the data would go out
+/// through its gateway, to a linked reflector. Shown, never enforced.
+fn gateway_notice(c: &aether_civ::dstar::TxCalls) -> Option<String> {
+    let r2 = c.r2.trim_end();
+    let gw = c.r2.len() == 8 && c.r2.ends_with('G') && !r2.is_empty();
+    gw.then(|| {
+        let r1 = c.r1.trim_end();
+        let rpt = if r1.is_empty() { "that repeater".to_string() } else { r1.to_string() };
+        format!(
+            "The radio is set to send via {r2} (a gateway). Harmless on simplex, but through {rpt} your data would go to its linked reflector. Clear R2 (and R1) for simplex."
+        )
+    })
+}
+
+#[cfg(test)]
+mod gateway_tests {
+    use super::gateway_notice;
+    use aether_civ::dstar::TxCalls;
+
+    fn calls(r1: &str, r2: &str) -> TxCalls {
+        TxCalls {
+            ur: "CQCQCQ  ".into(),
+            r1: format!("{r1:<8}"),
+            r2: format!("{r2:<8}"),
+        }
+    }
+
+    #[test]
+    fn a_gateway_in_r2_is_noticed_on_simplex() {
+        let n = gateway_notice(&calls("W4DOC  D", "W4DOC  G")).unwrap();
+        assert!(n.contains("W4DOC  G") && n.contains("W4DOC  D"), "{n}");
+        assert!(gateway_notice(&calls("", "")).is_none());
+        assert!(gateway_notice(&calls("W4DOC  B", "W4DOC  B")).is_none());
     }
 }

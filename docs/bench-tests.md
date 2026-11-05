@@ -92,7 +92,7 @@ Replace the COM numbers with yours (A4). Keep the files exactly in this form: on
 
 **IC-9700** (menu names from Icom's manuals; your firmware may word them slightly differently):
 - `SET > Connectors > USB (B)/DATA Function`: `USB (B) Function` = **DV Data**, `DV Data/GPS Out Baud Rate` = **9600**, `GPS Out` = **OFF**
-- `SET > Connectors > CI-V`: `CI-V Address` = **A2h**, `CI-V Transceive` = **ON**, `CI-V USB Port` = **Unlink from [REMOTE]**, `CI-V USB Baud Rate` = **19200**, `CI-V USB Echo Back` = **OFF**
+- `SET > Connectors > CI-V`: `CI-V Address` = **A2h**, `CI-V Transceive` = **OFF** (Aether DV asks for what it needs; the radio's own announcements add load and slowed it on the bench), `CI-V USB Port` = **Unlink from [REMOTE]**, `CI-V USB Baud Rate` = **19200**, `CI-V USB Echo Back` = **OFF**
 - `SET > DV/DD Set > DV Data TX` = **Auto**
 - `SET > DV/DD Set > DV Fast Data > Fast Data` = **OFF**
 - `MENU > GPS > GPS TX Mode` = **OFF** (GPS is its own icon on the MENU screen, not inside SET)

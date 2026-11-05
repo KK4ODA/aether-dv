@@ -221,7 +221,7 @@ struct Bench {
     h: EngineHandle,
     ev: broadcast::Receiver<ApiEvent>,
     data: DataSide,
-    _keep: Vec<std::os::fd::OwnedFd>,
+    _keep: Vec<&'static std::os::fd::OwnedFd>,
 }
 
 /// Start an engine with one IC-9700 port. `civ = None` = no CI-V channel.
@@ -267,7 +267,14 @@ async fn bench_with(
         h,
         ev,
         data: data_side(File::from(data.master), radio),
-        _keep: keep,
+        // Held for the whole test process: engines from earlier tests keep
+        // running and reopen their port path after a loss, so a freed PTY
+        // number reused by a later test could be taken by an old engine
+        // (seen in CI as "timed out waiting for serial ready").
+        _keep: keep
+            .into_iter()
+            .map(|fd| &*Box::leak(Box::new(fd)))
+            .collect(),
     }
 }
 
@@ -774,5 +781,23 @@ async fn queued_chat_can_be_cancelled() {
     assert!(
         !b.data.sent().iter().any(|f| has_text(f, "never mind")),
         "a cancelled line is never written"
+    );
+}
+
+/// On simplex, a gateway left in R2 is pointed out (never enforced).
+#[tokio::test]
+async fn simplex_port_notes_a_gateway_in_r2() {
+    let r = radio("CQCQCQ", "W4DOC  D", "W4DOC  G");
+    r.lock().unwrap().duplex = 0x10; // simplex, as on the bench
+    let mut b = bench("via = \"direct\"\n", Some(r)).await;
+    let ev = wait_for(&mut b.ev, "route with notice", |e| {
+        e.topic == "port.route" && e.data["route"]["notice"].is_string()
+    })
+    .await;
+    let n = ev.data["route"]["notice"].as_str().unwrap();
+    assert!(n.contains("W4DOC  G") && n.contains("simplex"), "{n}");
+    assert_eq!(
+        ev.data["route"]["gate"], "open",
+        "only a note: sending stays open"
     );
 }
