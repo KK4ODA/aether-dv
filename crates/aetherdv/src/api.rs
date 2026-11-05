@@ -285,6 +285,21 @@ async fn session(
                     (Err(e), ..) | (_, Err(e), ..) | (_, _, Err(e), _) | (.., Err(e)) => Err(e),
                 }
             }
+            "ports.setPieceBytes" => match (
+                s(&params, "id"),
+                params.get("bytes").and_then(Value::as_u64),
+            ) {
+                (Ok(port), Some(bytes)) => {
+                    ask(&engine, |reply| Cmd::SetPieceBytes {
+                        port,
+                        bytes: bytes as usize,
+                        reply,
+                    })
+                    .await
+                }
+                (Err(e), _) => Err(e),
+                (_, None) => Err(ApiError::new(E_INVALID, "bytes: a number is required")),
+            },
             "chat.cancel" => match (
                 s(&params, "portId"),
                 params.get("id").and_then(Value::as_i64),

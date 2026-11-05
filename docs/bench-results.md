@@ -79,3 +79,11 @@ Since 0.3.2, DV slow data is written in pieces of at most 180 bytes of whole fra
 **Stale-ACK guard after a held write (fixed in 0.3.4).** Releasing the write hold shifted every sender timer by the whole write time, including the guard that ignores ACKs arriving too early. That guard already allowed for the burst's air time, so it was counted twice: the real ACK was ignored and the sender waited for its retry timer, about 12 s per window. On the simulated link a 3 kB file took 104–112 s with 4-block windows. With the fix it takes 92–93 s, and with 8-block windows (also 0.3.4) 81–82 s.
 
 **`piece_bytes`** (new, per serial port, default 180) sets the most bytes per over. It's for experiments: at 220 the REQACK would join the last block of each window, but the radios haven't been shown to take 220-byte writes whole.
+
+## 2026-11-05: 0.3.4 on the radios; 0.3.5 changes
+
+**0.3.4, 5 kB IC-9700 → ID-52 PLUS: about 250 s (~20 B/s, against 322–328 s with 0.3.3).** No resends: 7,277 bytes sent and received. Each 8-block group took 9–10 transmissions and 28–46 s to write. Each new group started about 1.6 s after the answer. The ID-52 PLUS showed gaps of 1–7 s between pieces (each about 1.6 s on air), and sometimes several pieces in one transmission: 643 bytes in one 8.8 s over. The IC-9700 can chain pieces, but not reliably.
+
+**0.3.5:**
+- **CI-V quiet for the whole write.** The 10 s cap let polling resume during long writes, visible as CI-V readings mid-write; the cap is now 120 s.
+- **Transmission size in the app**, per DV slow data port: 180 (tested, default) or 220 bytes, also `ports.setPieceBytes`. At 220 the acknowledgement and the request ride with a block: 8 transmissions per 8-block group instead of 10. Simulated link, 3 kB: 76 s against 81–82 s. On the radios, 220 is unproven; if they drop bytes at that size, the blocks are resent.

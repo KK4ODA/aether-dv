@@ -259,6 +259,50 @@
       ]
     },
     {
+      "name": "ports.setPieceBytes",
+      "summary": "Most bytes written per transmission on a DV slow data radio port (64-2048; default 180, what the bench radios always sent whole). Takes effect from the next burst; not saved by the engine.",
+      "params": [
+        {
+          "name": "id",
+          "required": true,
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "bytes",
+          "required": true,
+          "schema": {
+            "type": "integer",
+            "minimum": 64,
+            "maximum": 2048
+          }
+        }
+      ],
+      "result": {
+        "name": "result",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "pieceBytes": {
+              "type": "integer"
+            }
+          }
+        }
+      },
+      "errors": [
+        {
+          "code": 1404,
+          "message": "not found"
+        }
+      ],
+      "tags": [
+        {
+          "name": "ports"
+        }
+      ]
+    },
+    {
       "name": "ports.create",
       "summary": "Create a port (radio or ratflector).",
       "params": [
@@ -2540,6 +2584,13 @@
                 "type": "null"
               }
             ]
+          },
+          "pieceBytes": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "description": "Most bytes per transmission (DV slow data ports)"
           }
         },
         "additionalProperties": false,

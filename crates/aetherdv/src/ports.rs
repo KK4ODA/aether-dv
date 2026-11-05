@@ -42,6 +42,9 @@ pub enum PortCmd {
     Withdraw {
         token: i64,
     },
+    /// Most bytes written per over (DV slow data); takes effect from the
+    /// next burst.
+    PieceBytes(usize),
 }
 
 /// What a radio port's scheduler is doing (sent when it changes).
@@ -500,7 +503,7 @@ impl Persist {
     /// Apply a non-send command. Returns true if the profile must change.
     fn apply(&mut self, c: &PortCmd, now: u64, sched: Option<&mut Scheduler>, tap: &Tap) -> bool {
         match c {
-            PortCmd::Send { .. } | PortCmd::Withdraw { .. } => {}
+            PortCmd::Send { .. } | PortCmd::Withdraw { .. } | PortCmd::PieceBytes(_) => {}
             PortCmd::Channel { source, busy } => tap.event(
                 "channel",
                 serde_json::json!({ "source": source.as_str(), "busy": busy.map(Busy::as_str) }),
@@ -514,7 +517,7 @@ impl Persist {
             PortCmd::Resume => tap.event("resume", serde_json::json!({})),
         }
         match c {
-            PortCmd::Send { .. } | PortCmd::Withdraw { .. } => false,
+            PortCmd::Send { .. } | PortCmd::Withdraw { .. } | PortCmd::PieceBytes(_) => false,
             PortCmd::Channel { source, busy } => {
                 if let Some(agg) = self.sense.report(*source, *busy) {
                     if let Some(s) = sched {
@@ -623,6 +626,13 @@ pub async fn run_serial(
 ) {
     let epoch = Instant::now();
     let now = || epoch.elapsed().as_millis() as u64;
+    // Shared with the writer thread, kept across reconnects (0 = no limit).
+    let piece_bytes = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(
+        p.piece_cap.unwrap_or(0),
+    ));
+    let cap_of = |a: &std::sync::atomic::AtomicUsize| {
+        Some(a.load(std::sync::atomic::Ordering::Relaxed)).filter(|&n| n > 0)
+    };
     let mut persist = Persist {
         route_hold: p.start_held,
         pause: None,
@@ -673,6 +683,9 @@ pub async fn run_serial(
                                 })
                                 .await;
                         }
+                        PortCmd::PieceBytes(n) => {
+                            piece_bytes.store(n, std::sync::atomic::Ordering::Relaxed);
+                        }
                         other => {
                             persist.apply(&other, now(), None, &p.tap);
                         }
@@ -708,7 +721,7 @@ pub async fn run_serial(
         let rx_tx = io_tx.clone();
         let xoff = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
         let (xoff_r, xoff_w, xonxoff) = (xoff.clone(), xoff.clone(), p.xonxoff);
-        let piece_cap = p.piece_cap;
+        let piece_shared = piece_bytes.clone();
         let prof = make_profile(&persist.sense);
         let on_air_ms = move |len: usize| {
             prof.tail_ms + (len as u64 * 1000) / prof.payload_rate_bps.max(1) as u64
@@ -759,6 +772,7 @@ pub async fn run_serial(
                 }
             };
             while let Ok((ids, bytes)) = wr_rx.recv() {
+                let piece_cap = Some(piece_shared.load(SeqCst)).filter(|&n| n > 0);
                 // The radio holds one over's worth: write the burst in
                 // frame-aligned pieces of at most `piece_cap` bytes, each
                 // in one go, and let each go on the air before the next
@@ -811,7 +825,7 @@ pub async fn run_serial(
                     serde_json::json!({
                         "bytes": bytes, "frames": burst.items.len(), "airEstMs": air_ms,
                         "keyupEstMs": sched.profile().keyup_ms,
-                        "pieces": p.piece_cap.map_or(1, |c| if bytes > c { radio_pieces(&burst.bytes, c).len() } else { 1 }),
+                        "pieces": cap_of(&piece_bytes).map_or(1, |c| if bytes > c { radio_pieces(&burst.bytes, c).len() } else { 1 }),
                     }),
                 );
                 p.tap.tx(&burst.bytes);
@@ -924,6 +938,10 @@ pub async fn run_serial(
                         next_item += 1;
                         if let Some(t) = token { tokens.insert(id, t); }
                         sched.enqueue(priority, Item { id, bytes });
+                    }
+                    Some(PortCmd::PieceBytes(n)) => {
+                        piece_bytes.store(n, std::sync::atomic::Ordering::Relaxed);
+                        p.tap.event("piece_bytes", serde_json::json!({ "bytes": n }));
                     }
                     Some(PortCmd::Withdraw { token }) => {
                         let id = tokens.iter().find(|(_, &t)| t == token).map(|(&id, _)| id);

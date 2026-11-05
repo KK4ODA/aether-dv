@@ -232,3 +232,4 @@ aside .hint { font-size: var(--fs-xs); padding: 0 var(--s5); margin: calc(-1 * v
 .sheet .kv th { color: var(--text-2); font-weight: 500; }
 .sheet > .acts { display: flex; gap: var(--s3); padding: var(--s4) var(--s5); }
 .line .meta .btn.quiet { padding: 0 var(--s2); height: auto; font-size: var(--fs-sm); }
+.sheet section select { background: var(--bg-sunken); color: var(--text-1); border: 1px solid var(--line-control); border-radius: var(--r-md); height: 28px; font: inherit; padding: 0 6px; margin-left: var(--s2); }
