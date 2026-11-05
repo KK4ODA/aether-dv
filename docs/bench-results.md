@@ -63,3 +63,11 @@ So CI-V polling (status 4×/s, TX state 10×/s during tests) roughly triples the
 **Large file (20,000 random bytes, IC-9700 → ID-52 PLUS): stuck at 0 blocks.** Each ARQ burst was about 1,260 bytes (4 × 256-byte blocks plus REQACK), written in one go. The IC-9700 transmitted only about 260 bytes of each (2.2 s on air against 11 s estimated). The ID-52 PLUS received every block cut short (bad checksums) and answered `ACK []` 25 times. The IC-9700's flow control during the write: XOFF after about 100 bytes, then everything arriving before the next XON was dropped (99 + 99 + 42 bytes got through). So the radio keeps roughly one over's worth (writes up to 179 bytes always went out whole) and loses the rest.
 
 Since 0.3.2, DV slow data is written in pieces of at most 180 bytes of whole frames, each left to go on the air before the next. File blocks are 120 bytes (about 170 on the wire), so each block fits one piece. A frame larger than a piece is written in XOFF-checked 32-byte chunks: split over several transmissions, but nothing lost. The cost is one transmission per block: about 25–30 bytes per second on DV slow data, measured over a simulated link.
+
+## 2026-11-05: Large file again (0.3.2): delivered, but slowly
+
+5,000 random bytes IC-9700 → ID-52 PLUS: **received**, in about 7 minutes (~12 B/s). Power was raised mid-test on both radios (IC-9700 at 129.8 s, ID-52 PLUS to Mid).
+
+- **Pieces worked:** the ID-52 PLUS received each piece as one over of about 160 bytes, with no truncated frames from oversized writes.
+- **Why so slow: retries fired during long writes.** A 4-block burst now takes 12–20 s to write, over by over. The retry timer kept running from hand-off and expired before the last piece was on the air. The IC-9700 then sent an acknowledgement request at the same moment the ID-52 PLUS answered: 52.2 s and 70.5 s on the two clocks, which are 0.1 s apart once aligned. The answer was lost, followed by resends (9,835 bytes sent for ~7,200 needed) and gaps of up to 20 s. Moving the timers after the write (0.3.1) was too late. Since 0.3.3 the transfer timers are held from hand-off until the whole burst has been written.
+- The summary's key-up for these bursts was not meaningful (CI-V is quiet during the whole write). It now shows the number of overs and leaves key-up blank for multi-over bursts.

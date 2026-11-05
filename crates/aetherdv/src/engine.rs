@@ -449,7 +449,13 @@ impl Engine {
                 result,
             } => self.on_radio_mode(&port, action, result),
             PortEvt::Sched { port, report } => self.on_sched(port, report).await,
-            PortEvt::Burst { port, air_ms, .. } => self.on_burst(&port, air_ms),
+            PortEvt::Burst { port, air_ms, .. } => {
+                // Transfer timers wait until the radio has taken the whole
+                // burst (it can take several overs).
+                let now = self.now();
+                self.xfers.hold(&port, xfer::Hold::Write, now);
+                self.on_burst(&port, air_ms)
+            }
             PortEvt::Written { port, blocked_ms } => {
                 if let Some(civ) = self
                     .ports
@@ -459,9 +465,11 @@ impl Engine {
                 {
                     let _ = civ.send(crate::civ::CivReq::Quiet(false));
                 }
-                // Below this the write is just the serial line at 9600 baud.
+                // The timers held since hand-off restart now, later by the
+                // whole write. Below 250 ms it's just the serial line.
+                let now = self.now();
+                self.xfers.release(&port, xfer::Hold::Write, now);
                 if blocked_ms >= 250 {
-                    self.xfers.shift_port(&port, blocked_ms);
                     self.tap_event(&port, "write_wait", json!({ "ms": blocked_ms }));
                 }
             }

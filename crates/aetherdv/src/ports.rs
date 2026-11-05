@@ -808,7 +808,11 @@ pub async fn run_serial(
                     (burst.bytes.len(), sched.profile().air_ms(burst.bytes.len()));
                 p.tap.event(
                     "burst",
-                    serde_json::json!({ "bytes": bytes, "frames": burst.items.len(), "airEstMs": air_ms, "keyupEstMs": sched.profile().keyup_ms }),
+                    serde_json::json!({
+                        "bytes": bytes, "frames": burst.items.len(), "airEstMs": air_ms,
+                        "keyupEstMs": sched.profile().keyup_ms,
+                        "pieces": p.piece_cap.map_or(1, |c| if bytes > c { radio_pieces(&burst.bytes, c).len() } else { 1 }),
+                    }),
                 );
                 p.tap.tx(&burst.bytes);
                 handed_at.push_back(now());
