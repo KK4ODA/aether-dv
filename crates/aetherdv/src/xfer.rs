@@ -275,9 +275,21 @@ pub struct Transfers {
     xfers: HashMap<u64, Xfer>,
     next_key: u64,
     next_id: u8,
-    /// Ports whose channel is held by others, and since when: their
-    /// transfers' timers are stopped (docs/10 §4.5).
-    paused: HashMap<String, Millis>,
+    /// Ports whose transfer timers are stopped, since when, and why (a
+    /// set of [`Hold`] bits): the channel is held (docs/10 §4.5) or a
+    /// burst is still being written to the radio.
+    paused: HashMap<String, (Millis, u8)>,
+}
+
+/// Why a port's transfer timers are stopped. Each reason is held and
+/// released on its own; the timers run again when none is left.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Hold {
+    /// Voice, courtesy pause, operator pause, route hold.
+    Channel = 1,
+    /// A burst is being written; the radio takes it piece by piece and
+    /// over by over (bench large-file test: up to 20 s for one burst).
+    Write = 2,
 }
 
 impl Transfers {
@@ -295,37 +307,46 @@ impl Transfers {
     /// Stop the timers of every transfer on `port` (voice, courtesy pause,
     /// operator pause, route hold): waiting is not the peer's fault.
     pub fn pause_port(&mut self, port: &str, now: Millis) {
-        self.paused.entry(port.to_string()).or_insert(now);
+        self.hold(port, Hold::Channel, now);
     }
 
     /// Restart them, later by the time they were stopped.
     pub fn resume_port(&mut self, port: &str, now: Millis) {
-        self.rebase(port, now);
-        self.paused.remove(port);
-    }
-
-    /// Move the port's transfer timers later by `delta`: the radio took
-    /// the data that much later than it was handed over, so answers come
-    /// that much later too.
-    pub fn shift_port(&mut self, port: &str, delta: Millis) {
-        for x in self.xfers.values_mut().filter(|x| x.port == port) {
-            x.ctl_deadline += delta;
-            x.last_activity += delta;
-            if let Some(tx) = x.tx.as_mut() {
-                tx.shift(delta);
-            }
-        }
+        self.release(port, Hold::Channel, now);
     }
 
     pub fn port_paused(&self, port: &str) -> bool {
-        self.paused.contains_key(port)
+        self.held(port, Hold::Channel)
+    }
+
+    /// Stop the port's transfer timers for `why`.
+    pub fn hold(&mut self, port: &str, why: Hold, now: Millis) {
+        let e = self.paused.entry(port.to_string()).or_insert((now, 0));
+        e.1 |= why as u8;
+    }
+
+    /// Drop the `why` hold; with none left, restart the timers, later by
+    /// the time they were stopped.
+    pub fn release(&mut self, port: &str, why: Hold, now: Millis) {
+        let Some(e) = self.paused.get_mut(port) else {
+            return;
+        };
+        e.1 &= !(why as u8);
+        if e.1 == 0 {
+            self.rebase(port, now);
+            self.paused.remove(port);
+        }
+    }
+
+    pub fn held(&self, port: &str, why: Hold) -> bool {
+        self.paused.get(port).is_some_and(|e| e.1 & why as u8 != 0)
     }
 
     /// Credit the time paused so far to the port's transfers and restart
     /// the pause clock at `now`, so that timers set from now on (a frame
     /// arrived, a transfer started) are not shifted again.
     fn rebase(&mut self, port: &str, now: Millis) {
-        let Some(since) = self.paused.get_mut(port) else {
+        let Some((since, _)) = self.paused.get_mut(port) else {
             return;
         };
         let delta = now.saturating_sub(*since);
@@ -1337,9 +1358,9 @@ mod tests {
     }
 
     #[test]
-    fn a_slow_radio_moves_the_offer_retry_by_the_write_delay() {
-        // The IC-9700 took the offer 6.5 s after hand-off (bench Test 5b);
-        // the retry must count from then, not from the hand-off.
+    fn timers_wait_while_a_burst_is_written_and_holds_nest() {
+        // A burst took 19 s to write (bench large-file test); its retry
+        // fired mid-write and collided with the peer's answer.
         let mut a = Transfers::new("KK4ODA", Limits::default());
         let req = SendRequest {
             port: "rf",
@@ -1351,17 +1372,22 @@ mod tests {
         };
         a.start_send(0, req).unwrap();
         let due = a.next_deadline().unwrap();
-        a.shift_port("rf", 6_500);
-        a.shift_port("net", 99_000); // other ports untouched
-        assert_eq!(a.next_deadline(), Some(due + 6_500));
+        a.hold("rf", Hold::Write, 0);
         assert!(
-            !a.poll(due)
+            !a.poll(due + 30_000)
                 .iter()
                 .any(|e| matches!(e, XEffect::Send { .. })),
-            "no early resend"
+            "no retry while writing"
         );
+        // Voice starts during the write and outlasts it.
+        a.pause_port("rf", 10_000);
+        a.release("rf", Hold::Write, 19_000);
+        assert!(a.held("rf", Hold::Channel) && !a.held("rf", Hold::Write));
+        assert_eq!(a.next_deadline(), None, "still held for voice");
+        a.resume_port("rf", 25_000);
+        assert_eq!(a.next_deadline(), Some(due + 25_000));
         assert!(a
-            .poll(due + 6_500)
+            .poll(due + 25_000)
             .iter()
             .any(|e| matches!(e, XEffect::Send { .. })));
     }
