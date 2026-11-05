@@ -537,6 +537,15 @@ impl Engine {
 
     pub(super) fn on_burst(&mut self, port: &str, air_ms: u64) {
         let now = self.now();
+        // No CI-V polling while the radio takes the data (bench Test 5c).
+        if let Some(civ) = self
+            .ports
+            .get(port)
+            .and_then(|p| p.link.as_ref())
+            .and_then(|l| l.civ_tx.as_ref())
+        {
+            let _ = civ.send(CivReq::Quiet(true));
+        }
         // Measure key-up and real air time while a capture runs.
         if let Some(p) = self.ports.get(port).filter(|p| p.tap.on()) {
             if let Some(civ) = p.link.as_ref().and_then(|l| l.civ_tx.as_ref()) {

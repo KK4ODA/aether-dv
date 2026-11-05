@@ -448,6 +448,21 @@ impl Engine {
             } => self.on_radio_mode(&port, action, result),
             PortEvt::Sched { port, report } => self.on_sched(port, report).await,
             PortEvt::Burst { port, air_ms, .. } => self.on_burst(&port, air_ms),
+            PortEvt::Written { port, blocked_ms } => {
+                if let Some(civ) = self
+                    .ports
+                    .get(&port)
+                    .and_then(|p| p.link.as_ref())
+                    .and_then(|l| l.civ_tx.as_ref())
+                {
+                    let _ = civ.send(crate::civ::CivReq::Quiet(false));
+                }
+                // Below this the write is just the serial line at 9600 baud.
+                if blocked_ms >= 250 {
+                    self.xfers.shift_port(&port, blocked_ms);
+                    self.tap_event(&port, "write_wait", json!({ "ms": blocked_ms }));
+                }
+            }
         }
     }
 

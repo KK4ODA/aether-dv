@@ -217,6 +217,12 @@ pub fn read(path: &Path) -> Result<(Value, Vec<Record>), String> {
     Ok((header, recs))
 }
 
+/// Received bytes without the radio's XON/XOFF (yEnc escapes both, so
+/// they are never data).
+fn data_len(bytes: &[u8]) -> usize {
+    bytes.iter().filter(|&&b| b != 0x11 && b != 0x13).count()
+}
+
 /// Plain-text report of one capture for a test summary: what the port
 /// did, transmission timing (key-up and real air time from CI-V), time
 /// spent waiting by reason, and the timeline events worth reading first.
@@ -238,7 +244,7 @@ pub fn report(header: &Value, records: &[Record]) -> String {
         records
             .iter()
             .map(|r| match r {
-                Record::Rx { bytes, .. } if rx => bytes.len(),
+                Record::Rx { bytes, .. } if rx => data_len(bytes),
                 Record::Tx { bytes, .. } if !rx => bytes.len(),
                 _ => 0,
             })
@@ -257,12 +263,16 @@ pub fn report(header: &Value, records: &[Record]) -> String {
     let mut bursts: Vec<(u64, u64, usize)> = Vec::new(); // (first, last, bytes)
     for r in records {
         if let Record::Rx { t, bytes } = r {
+            let n = data_len(bytes);
+            if n == 0 {
+                continue; // only XON/XOFF: shown as flow events
+            }
             match bursts.last_mut() {
                 Some(b) if *t <= b.1 + 1000 => {
                     b.1 = *t;
-                    b.2 += bytes.len();
+                    b.2 += n;
                 }
-                _ => bursts.push((*t, *t, bytes.len())),
+                _ => bursts.push((*t, *t, n)),
             }
         }
     }
@@ -420,6 +430,7 @@ pub fn report(header: &Value, records: &[Record]) -> String {
         "rx_message",
         "channel",
         "flow",
+        "write_wait",
     ];
     let mut lines = Vec::new();
     let mut last_route = String::new();

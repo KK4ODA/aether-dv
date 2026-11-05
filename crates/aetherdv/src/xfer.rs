@@ -304,6 +304,19 @@ impl Transfers {
         self.paused.remove(port);
     }
 
+    /// Move the port's transfer timers later by `delta`: the radio took
+    /// the data that much later than it was handed over, so answers come
+    /// that much later too.
+    pub fn shift_port(&mut self, port: &str, delta: Millis) {
+        for x in self.xfers.values_mut().filter(|x| x.port == port) {
+            x.ctl_deadline += delta;
+            x.last_activity += delta;
+            if let Some(tx) = x.tx.as_mut() {
+                tx.shift(delta);
+            }
+        }
+    }
+
     pub fn port_paused(&self, port: &str) -> bool {
         self.paused.contains_key(port)
     }
@@ -1321,6 +1334,36 @@ mod tests {
             .filter(|e| matches!(e, XEffect::Send { .. }))
             .count();
         assert_eq!(sends, 1, "the next retry, not a burst of missed ones");
+    }
+
+    #[test]
+    fn a_slow_radio_moves_the_offer_retry_by_the_write_delay() {
+        // The IC-9700 took the offer 6.5 s after hand-off (bench Test 5b);
+        // the retry must count from then, not from the hand-off.
+        let mut a = Transfers::new("KK4ODA", Limits::default());
+        let req = SendRequest {
+            port: "rf",
+            peer: "W4DRS",
+            class: Class::File,
+            name: "f",
+            content: b"x",
+            cfg: cfg(),
+        };
+        a.start_send(0, req).unwrap();
+        let due = a.next_deadline().unwrap();
+        a.shift_port("rf", 6_500);
+        a.shift_port("net", 99_000); // other ports untouched
+        assert_eq!(a.next_deadline(), Some(due + 6_500));
+        assert!(
+            !a.poll(due)
+                .iter()
+                .any(|e| matches!(e, XEffect::Send { .. })),
+            "no early resend"
+        );
+        assert!(a
+            .poll(due + 6_500)
+            .iter()
+            .any(|e| matches!(e, XEffect::Send { .. })));
     }
 
     #[test]

@@ -978,8 +978,21 @@ function transferCard(t) {
       h('span', { class: 'st pending' }, t.state === 'opening' ? 'Opening' : t.state === 'offering' ? 'Offering' : t.direction === 'send' ? 'Sending' : 'Receiving')),
     h('div', { class: 'bar', role: 'progressbar', 'aria-valuenow': pctv, 'aria-valuemin': 0, 'aria-valuemax': 100, 'aria-label': `${t.filename} progress` },
       h('span', { style: `width:${pctv}%` })),
-    h('div', { class: 'q2' }, h('span', {}, `${pctv}% of ${kb(t.totalBytes)}`), h('span', {}, t.retries ? `${t.retries} retries` : ''),
+    h('div', { class: 'q2' }, h('span', {}, xferStage(t)), h('span', {}, t.retries ? `${t.retries} retries` : ''),
       h('button', { class: 'btn quiet', type: 'button', onclick: () => cancelTransfer(t) }, 'Cancel')));
+}
+
+// Where a transfer is, in words. Progress counts acknowledged (or
+// received) blocks of the compressed data, so a small file jumps 0 to 100.
+function xferStage(t) {
+  if (t.state === 'opening' || t.state === 'offering') {
+    return t.direction === 'send' ? `Waiting for ${t.peer} to accept` : `Accepting from ${t.peer}`;
+  }
+  const n = t.blockSize ? Math.max(1, Math.ceil(t.totalBytes / t.blockSize)) : 0;
+  if (!n) return `${t.totalBytes ? Math.round((100 * t.doneBytes) / t.totalBytes) : 0}% of ${kb(t.totalBytes)}`;
+  const k = Math.min(n, Math.floor(t.doneBytes / t.blockSize) + (t.doneBytes >= t.totalBytes ? 1 : 0));
+  const done = Math.min(k, n);
+  return t.direction === 'send' ? `${done} of ${n} block${n === 1 ? '' : 's'} acknowledged` : `${done} of ${n} block${n === 1 ? '' : 's'} received`;
 }
 
 function cancelTransfer(t) {

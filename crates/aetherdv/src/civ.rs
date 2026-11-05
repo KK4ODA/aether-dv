@@ -49,7 +49,15 @@ pub enum CivReq {
     ReadRx,
     /// A burst went to the radio: watch its TX/RX state for this long.
     WatchTx { ms: u64 },
+    /// Stop polling while a burst is being handed to the radio (`true`),
+    /// or start again (`false`). The IC-9700 took data 3-4x slower with
+    /// CI-V polling running (bench Tests 5b/5c). Ends by itself after
+    /// [`QUIET_MAX`].
+    Quiet(bool),
 }
+
+/// Longest quiet period, in case the end of a write is never reported.
+const QUIET_MAX: Duration = Duration::from_secs(10);
 
 /// Events to the engine.
 #[derive(Debug, Clone)]
@@ -228,6 +236,8 @@ struct State {
     tx_state: Option<bool>,
     tx_on: Option<bool>,
     tx_watch_until: Option<Instant>,
+    /// No polling until then (a burst is being written).
+    quiet_until: Option<Instant>,
     last_busy: Option<Busy>,
     last_route: Option<Instant>,
     route_due: bool,
@@ -287,6 +297,7 @@ fn run(
             tx_state: unknown,
             tx_on: None,
             tx_watch_until: None,
+            quiet_until: None,
             last_busy: None,
             last_route: None,
             route_due: dstar_ok,
@@ -315,7 +326,7 @@ fn refuse(r: CivReq, msg: &str) {
         CivReq::SetRoute { reply, .. } => {
             let _ = reply.send(Err(msg.to_string()));
         }
-        CivReq::ReadRoute | CivReq::ReadRx | CivReq::WatchTx { .. } => {}
+        CivReq::ReadRoute | CivReq::ReadRx | CivReq::WatchTx { .. } | CivReq::Quiet(_) => {}
     }
 }
 
@@ -364,6 +375,20 @@ fn session(
                     send(CivEvt::RxMessage(m));
                 }
             }
+        }
+        // Quiet while our data goes to the radio: answer requests and read
+        // what the radio pushes, but don't poll.
+        if st.quiet_until.is_some_and(|u| Instant::now() < u) {
+            match rx.recv_timeout(POLL_EVERY) {
+                Ok(req) => {
+                    if let Err(e) = handle(p, r, st, req, send) {
+                        return Some(e);
+                    }
+                }
+                Err(std_mpsc::RecvTimeoutError::Timeout) => {}
+                Err(std_mpsc::RecvTimeoutError::Disconnected) => return None,
+            }
+            continue;
         }
         if st.route != Some(false) {
             if !my_call_read {
@@ -447,6 +472,10 @@ fn session(
                     Some(on) => {
                         st.tx_state = Some(true);
                         if st.tx_on != Some(on) {
+                            // The over ended: stop polling (less CI-V traffic).
+                            if st.tx_on == Some(true) && !on {
+                                st.tx_watch_until = None;
+                            }
                             st.tx_on = Some(on);
                             r.tap
                                 .event("tx", serde_json::json!({ "on": on, "via": "civ" }));
@@ -596,8 +625,12 @@ fn handle(
             }
         }
         CivReq::ReadRx => read_rx(r, send)?,
+        CivReq::Quiet(on) => {
+            st.quiet_until = on.then(|| Instant::now() + QUIET_MAX);
+        }
         CivReq::WatchTx { ms } => {
-            st.tx_watch_until = Some(Instant::now() + Duration::from_millis(ms + 3_000));
+            // The IC-9700 can take 6.5 s to key up (bench Test 5b).
+            st.tx_watch_until = Some(Instant::now() + Duration::from_millis(ms + 10_000));
         }
         CivReq::SetRoute { calls, reply } => {
             let res = match calls.set_request(p.addr) {
