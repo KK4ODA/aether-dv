@@ -112,6 +112,13 @@ pub enum PortEvt {
         bytes: usize,
         air_ms: u64,
     },
+    /// The OS finished writing a burst `blocked_ms` after it was handed
+    /// over. The IC-9700 takes data only when it is ready to transmit
+    /// (0-6.5 s on the bench), so transfer timers move by that much.
+    Written {
+        port: String,
+        blocked_ms: u64,
+    },
 }
 
 fn deliver(port: &str, d: &mut Deframer, bytes: &[u8], out: &mut Vec<PortEvt>) {
@@ -369,9 +376,9 @@ pub struct SerialParams {
     pub mode: String,
     /// The OS driver's XON/XOFF (legacy `flow = "software"`).
     pub software_flow: bool,
-    /// The engine honours the radio's XOFF/XON itself: writes go out in
-    /// small pieces and pause on XOFF; the two bytes are removed from
-    /// received data (yEnc escapes them, so they are never payload).
+    /// The engine honours the radio's XOFF/XON itself: no burst starts
+    /// while the radio says XOFF; the two bytes are removed from received
+    /// data (yEnc escapes them, so they are never payload).
     pub xonxoff: bool,
     /// Courtesy preset for the configured route.
     pub preset: PathPreset,
@@ -438,9 +445,6 @@ enum Io {
 
 const XON: u8 = 0x11;
 const XOFF: u8 = 0x13;
-/// Bytes written between XOFF checks: 33 ms at 9600 baud. The ID-52 PLUS
-/// sent XOFF about 50 ms into a 120-byte write.
-const WRITE_CHUNK: usize = 32;
 /// Longest XOFF honoured before writing resumes (D-RATS waits 15 s).
 const XOFF_LIMIT: Duration = Duration::from_secs(20);
 
@@ -696,12 +700,11 @@ pub async fn run_serial(
         std::thread::spawn(move || {
             use std::sync::atomic::Ordering::SeqCst;
             while let Ok((ids, bytes)) = wr_rx.recv() {
-                let chunk = if xonxoff {
-                    WRITE_CHUNK
-                } else {
-                    bytes.len().max(1)
-                };
-                for piece in bytes.chunks(chunk) {
+                // XOFF holds back the next burst, never part of one: the
+                // IC-9700 transmits what it has and takes no more until the
+                // over ends, so a split write becomes several overs (bench
+                // Test 5b). Each burst goes to the driver in one write.
+                if xonxoff {
                     let since = Instant::now();
                     while xoff_w.load(SeqCst) {
                         if since.elapsed() > XOFF_LIMIT {
@@ -711,14 +714,14 @@ pub async fn run_serial(
                         }
                         std::thread::sleep(Duration::from_millis(5));
                     }
-                    if writer
-                        .write_all(piece)
-                        .and_then(|_| writer.flush())
-                        .is_err()
-                    {
-                        let _ = acc_tx.blocking_send(Io::Lost("write failed".into()));
-                        return;
-                    }
+                }
+                if writer
+                    .write_all(&bytes)
+                    .and_then(|_| writer.flush())
+                    .is_err()
+                {
+                    let _ = acc_tx.blocking_send(Io::Lost("write failed".into()));
+                    return;
                 }
                 if acc_tx
                     .blocking_send(Io::Accepted(ids, bytes.len()))
@@ -735,6 +738,8 @@ pub async fn run_serial(
         );
         persist.restore(&mut sched, now());
         let mut deframer = Deframer::default();
+        // When each burst still being written was handed to the writer.
+        let mut handed_at: std::collections::VecDeque<u64> = Default::default();
         let lost_reason = loop {
             if let Some(burst) = sched.poll(now()) {
                 let ids = burst.items.iter().map(|i| i.id).collect();
@@ -745,6 +750,7 @@ pub async fn run_serial(
                     serde_json::json!({ "bytes": bytes, "frames": burst.items.len(), "airEstMs": air_ms, "keyupEstMs": sched.profile().keyup_ms }),
                 );
                 p.tap.tx(&burst.bytes);
+                handed_at.push_back(now());
                 if wr_tx.send((ids, burst.bytes)).is_err() {
                     break "writer stopped".to_string();
                 }
@@ -829,6 +835,10 @@ pub async fn run_serial(
                         // When the OS finished the write: separates PC/USB
                         // delay from the radio's own key-up in the summary.
                         p.tap.event("written", serde_json::json!({ "bytes": len }));
+                        let blocked_ms = handed_at.pop_front().map_or(0, |t| now().saturating_sub(t));
+                        if !emit(&evt, vec![PortEvt::Written { port: p.name.clone(), blocked_ms }]).await {
+                            return;
+                        }
                         sched.on_port_accepted(now());
                         let air = Duration::from_millis(sched.profile().air_ms(len));
                         for id in ids {

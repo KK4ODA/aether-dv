@@ -32,3 +32,26 @@ Fit: **0.67 s + 1 s per 122 bytes**. The engine's profile uses these figures sin
 - **Caller reports.** The IC-9700 reports the caller (`20 00`) about 0.5 s after a transmission starts and again about 1.6 s after it ends.
 - **CI-V call-sign reads** work in VFO mode: UR `CQCQCQ`, R1 `W4DOC  D`, R2 `W4DOC  G` read correctly (first part of HW-R1).
 - **Files.** A 2 kB text file (180 bytes compressed) crossed in 8 overs, about 25 s each way, with no retransmissions. Throughput still needs a less compressible file.
+
+## 2026-11-05: Tests 5b and 5c (0.3.0)
+
+Same setup. 5b repeats Test 5 with flow control on and the new chat screen; 5c sends three chats from the IC-9700 with CI-V turned off.
+
+### The IC-9700 takes data only when it is ready to transmit
+
+The summary's new **write s** column (data handed to the OS until the write returns) matches **keyup s** on the IC-9700: the USB write itself waits until the radio keys up. A slow PC can't explain this (47 bytes take milliseconds); the radio holds off its USB input.
+
+| Radio | write s |
+|---|---|
+| IC-9700, CI-V polling on (5b) | 0.05–6.5 s; quiet-channel chats 4.45, 5.68, 6.52 |
+| IC-9700, CI-V off (5c) | 0.11, 1.71, 1.34 |
+| ID-52 PLUS (no CI-V) | 0.06–0.84, mostly ~0.2 |
+
+So CI-V polling (status 4×/s, TX state 10×/s during tests) roughly triples the IC-9700's delay, and the radio still takes up to ~2 s by itself. Since 0.3.1 the engine stops all CI-V polling while a burst is being written.
+
+### Other findings
+
+- **Split writes became split overs.** With 0.2.5–0.3.0 writing in 32-byte pieces, the IC-9700 transmitted what it had and took nothing more until the over ended. A 179-byte burst reached the ID-52 PLUS as 32 + 32 + 83 bytes over about 12 s. Each burst now goes to the driver in one write; XOFF holds the next burst back.
+- **Retry timers counted from hand-off.** The file offer was written 6.5 s late, so its retry fired while the first copy was barely on the air, and the ID-52 PLUS answered twice. Transfer timers now move by the write delay.
+- **Flow control** worked on both radios (XOFF/XON 0.4–1.4 s apart, writes paused).
+- **Air time** matched the new estimate within about 0.15 s on average.
