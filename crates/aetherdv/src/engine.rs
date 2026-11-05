@@ -223,6 +223,10 @@ pub fn arq_config(path_kind: &str) -> SenderConfig {
             // One block per over: a 120-byte block is ~170 bytes on the
             // wire, inside the radio's piece size (ports::SLOW_PIECE_BYTES).
             c.block_size = 120;
+            // 8 blocks per REQACK (960 bytes in flight): half the round
+            // trips of 4, which cost 3-5 s each with the IC-9700. D-RATS
+            // receivers accept any count.
+            c.window = 8;
             c.rto_initial = 12_000;
             // Measured on the bench (Test 5): see ModeProfile::dv_slow.
             c.path_rate_bps = 122;
@@ -1144,6 +1148,7 @@ pub fn start(cfg: &Config) -> Result<EngineHandle, String> {
                 mode,
                 flow,
                 route,
+                piece_bytes,
                 ..
             } => {
                 let r = crate::route::Route::from_config(route.as_ref());
@@ -1154,7 +1159,8 @@ pub fn start(cfg: &Config) -> Result<EngineHandle, String> {
                 };
                 let rc = route.clone().unwrap_or_default();
                 // DV slow data: what the radios took for one over on the bench.
-                let piece_cap = (mode == "slow").then_some(crate::ports::SLOW_PIECE_BYTES);
+                let piece_cap = (mode == "slow")
+                    .then_some(piece_bytes.unwrap_or(crate::ports::SLOW_PIECE_BYTES));
                 let params = SerialParams {
                     piece_cap,
                     tap: tap.clone(),
@@ -1258,7 +1264,7 @@ pub fn start(cfg: &Config) -> Result<EngineHandle, String> {
                 "kind": "ratflector", "name": name, "host": host, "tcpPort": tcp_port,
                 "password": password.as_ref().map(|_| "(set, not included)"),
             }),
-            PortConfig::Serial { name, path, baud, profile, mode, flow, civ, route } => json!({
+            PortConfig::Serial { name, path, baud, profile, mode, flow, civ, route, .. } => json!({
                 "kind": "serial", "name": name, "path": path, "baud": baud,
                 "profile": profile, "mode": mode, "flow": flow,
                 "route": route.as_ref().map(|r| json!({ "via": r.via, "repeater": r.repeater, "scope": r.scope, "recheckMin": r.recheck_min, "inferVoice": r.infer_voice, "answerBroadcast": r.answer_broadcast })),

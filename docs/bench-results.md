@@ -71,3 +71,11 @@ Since 0.3.2, DV slow data is written in pieces of at most 180 bytes of whole fra
 - **Pieces worked:** the ID-52 PLUS received each piece as one over of about 160 bytes, with no truncated frames from oversized writes.
 - **Why so slow: retries fired during long writes.** A 4-block burst now takes 12–20 s to write, over by over. The retry timer kept running from hand-off and expired before the last piece was on the air. The IC-9700 then sent an acknowledgement request at the same moment the ID-52 PLUS answered: 52.2 s and 70.5 s on the two clocks, which are 0.1 s apart once aligned. The answer was lost, followed by resends (9,835 bytes sent for ~7,200 needed) and gaps of up to 20 s. Moving the timers after the write (0.3.1) was too late. Since 0.3.3 the transfer timers are held from hand-off until the whole burst has been written.
 - The summary's key-up for these bursts was not meaningful (CI-V is quiet during the whole write). It now shows the number of overs and leaves key-up blank for multi-over bursts.
+
+## 2026-11-05: CI-V Transceive off; 8-block windows
+
+**Transceive OFF** (the only IC-9700 setting changed after a full settings check): 5 kB in 322 s, against 328 s with it on. Per-window write times were unchanged: 15–38 s, against 16–45 s. Both runs were clean (7,464–7,467 bytes, no resends). The IC-9700's 1–3 s before it takes the next piece after each over looks built in. Transceive stays OFF: it does no harm, and the radio's announcements are unneeded load.
+
+**Stale-ACK guard after a held write (fixed in 0.3.4).** Releasing the write hold shifted every sender timer by the whole write time, including the guard that ignores ACKs arriving too early. That guard already allowed for the burst's air time, so it was counted twice: the real ACK was ignored and the sender waited for its retry timer, about 12 s per window. On the simulated link a 3 kB file took 104–112 s with 4-block windows. With the fix it takes 92–93 s, and with 8-block windows (also 0.3.4) 81–82 s.
+
+**`piece_bytes`** (new, per serial port, default 180) sets the most bytes per over. It's for experiments: at 220 the REQACK would join the last block of each window, but the radios haven't been shown to take 220-byte writes whole.

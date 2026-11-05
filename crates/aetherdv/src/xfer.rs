@@ -336,6 +336,13 @@ impl Transfers {
             self.rebase(port, now);
             self.paused.remove(port);
         }
+        if why == Hold::Write {
+            for x in self.xfers.values_mut().filter(|x| x.port == port) {
+                if let Some(tx) = x.tx.as_mut() {
+                    tx.burst_written(now);
+                }
+            }
+        }
     }
 
     pub fn held(&self, port: &str, why: Hold) -> bool {

@@ -199,6 +199,16 @@ impl LegacySender {
         self.air_end += delta;
     }
 
+    /// The radio has taken the whole burst (written over by over; the
+    /// caller held the timers meanwhile and has just shifted them). The
+    /// estimates behind the stale-ACK guard and the RTT sample assumed
+    /// the burst went out at once; after a held write they would count
+    /// its air time twice. An answer can come from now on.
+    pub fn burst_written(&mut self, now: Millis) {
+        self.earliest_answer = self.earliest_answer.min(now);
+        self.air_end = self.air_end.min(now);
+    }
+
     /// When the caller should next call [`Self::poll_transmit`].
     pub fn next_deadline(&self) -> Option<Millis> {
         (self.state == SenderState::Sending).then_some(self.deadline)
