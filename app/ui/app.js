@@ -857,6 +857,11 @@ function updateEstimate() {
   } else if (port && port.route && port.route.scope === 'reflector') {
     est.textContent += ' Goes to every repeater on the linked reflector.';
   }
+  if (port && port.route && port.route.notice) {
+    est.append(' ', h('button', {
+      class: 'btn quiet note', type: 'button', title: port.route.notice, onclick: () => openPort(port.id),
+    }, 'R2 is a gateway'));
+  }
 }
 
 function chatItems() {
@@ -1350,6 +1355,7 @@ function renderPort() {
       ? `Stations in range of ${r.repeater}. Stays local even when the repeater is linked to a reflector.`
       : 'Stations in range of this radio.';
   const route = [];
+  if (r.notice) route.push(h('p', { class: 'warn' }, r.notice));
   if (r.gate === 'confirm') {
     if (r.needs && r.needs.route) {
       route.push(h('p', {}, 'This radio can’t report its call signs to Aether DV. Check them on the radio’s screen. Storing them in a memory channel used only for data keeps them from changing.'));

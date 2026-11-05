@@ -30,6 +30,7 @@
           "steps": [
             { "title": "Radio menus", "items": [
               "SET > Connectors > USB (B)/DATA Function > USB (B) Function = DV Data (USB A stays CI-V)",
+              "SET > Connectors > CI-V > CI-V Transceive = OFF (Aether DV polls what it needs; less load on the radio)",
               "SET > DV/DD Set > DV Data TX = Auto",
               "SET > DV/DD Set > DV Fast Data > Fast Data = OFF (slow data, for shared nets)",
               "MENU > GPS > GPS TX Mode = OFF"
