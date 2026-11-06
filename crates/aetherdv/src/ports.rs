@@ -109,6 +109,12 @@ pub enum PortEvt {
         port: String,
         report: SchedReport,
     },
+    /// The port held itself to have the radio's route re-read before
+    /// transmitting ([`SerialParams::preflight`]); a `RouteHold(false)`
+    /// lets it go.
+    RouteCheck {
+        port: String,
+    },
     /// A burst was handed to the radio (estimated air time follows).
     Burst {
         port: String,
@@ -396,7 +402,16 @@ pub struct SerialParams {
     /// Start with the route guard holding the port (until the engine's
     /// first check releases it), so nothing slips out before it.
     pub start_held: bool,
+    /// Have the radio's route re-read before the first transmission after
+    /// [`PREFLIGHT_QUIET_MS`] of quiet (repeater ports with CI-V): with CI-V
+    /// Transceive off the radio announces no change, and the regular
+    /// re-read is a minute apart (bench Test 3).
+    pub preflight: bool,
 }
+
+/// Quiet time after which a repeater port re-reads the route before sending.
+/// Long enough that the overs of one transfer don't each wait for a read.
+pub const PREFLIGHT_QUIET_MS: u64 = 20_000;
 
 /// Optional overrides of a path preset.
 #[derive(Debug, Clone, Default)]
@@ -493,6 +508,8 @@ const XOFF_LIMIT: Duration = Duration::from_secs(20);
 /// Holds and channel sense that outlive a reconnect.
 struct Persist {
     route_hold: bool,
+    /// No pre-transmission route read is needed before this time.
+    fresh_until: u64,
     /// `Some(None)` = paused until resumed; `Some(Some(t))` = until t.
     pause: Option<Option<u64>>,
     sense: ChannelSense,
@@ -546,6 +563,9 @@ impl Persist {
             }
             PortCmd::RouteHold(h) => {
                 self.route_hold = *h;
+                if !*h {
+                    self.fresh_until = now + PREFLIGHT_QUIET_MS;
+                }
                 if let Some(s) = sched {
                     s.set_route_held(*h, now);
                 }
@@ -635,6 +655,7 @@ pub async fn run_serial(
     };
     let mut persist = Persist {
         route_hold: p.start_held,
+        fresh_until: 0,
         pause: None,
         sense: ChannelSense::default(),
         infer: VoiceInference::default(),
@@ -816,6 +837,21 @@ pub async fn run_serial(
         // When each burst still being written was handed to the writer.
         let mut handed_at: std::collections::VecDeque<u64> = Default::default();
         let lost_reason = loop {
+            if p.preflight
+                && !persist.route_hold
+                && handed_at.is_empty()
+                && sched.queued() > 0
+                && now() >= persist.fresh_until
+            {
+                persist.route_hold = true;
+                sched.set_route_held(true, now());
+                p.tap.event("route_check", serde_json::json!({}));
+                let _ = evt
+                    .send(PortEvt::RouteCheck {
+                        port: p.name.clone(),
+                    })
+                    .await;
+            }
             if let Some(burst) = sched.poll(now()) {
                 let ids = burst.items.iter().map(|i| i.id).collect();
                 let (bytes, air_ms) =
@@ -830,6 +866,7 @@ pub async fn run_serial(
                 );
                 p.tap.tx(&burst.bytes);
                 handed_at.push_back(now());
+                persist.fresh_until = persist.fresh_until.max(now() + PREFLIGHT_QUIET_MS);
                 if wr_tx.send((ids, burst.bytes)).is_err() {
                     break "writer stopped".to_string();
                 }
@@ -915,6 +952,7 @@ pub async fn run_serial(
                         // delay from the radio's own key-up in the summary.
                         p.tap.event("written", serde_json::json!({ "bytes": len }));
                         let blocked_ms = handed_at.pop_front().map_or(0, |t| now().saturating_sub(t));
+                        persist.fresh_until = persist.fresh_until.max(now() + PREFLIGHT_QUIET_MS);
                         if !emit(&evt, vec![PortEvt::Written { port: p.name.clone(), blocked_ms }]).await {
                             return;
                         }

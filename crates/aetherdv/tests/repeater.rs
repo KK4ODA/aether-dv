@@ -827,3 +827,42 @@ async fn putting_the_radio_right_resumes_sending_quickly() {
     .await;
     assert!(open.is_ok(), "sending resumed within 20 s of the fix");
 }
+
+/// After a quiet spell, a repeater port re-reads the radio before sending:
+/// a route changed on the radio (which, with CI-V Transceive off, announces
+/// nothing) holds the message instead of sending it the wrong way. Then a
+/// correct radio lets it go.
+#[tokio::test]
+async fn a_repeater_port_rereads_the_radio_before_sending_after_a_quiet_spell() {
+    let r = radio("CQCQCQ", "W4DOC  B", "");
+    let mut b = bench(REPEATER, Some(r.clone())).await;
+    wait_for(&mut b.ev, "route open", |e| {
+        e.topic == "port.route" && e.data["route"]["gate"] == "open"
+    })
+    .await;
+    // Changed on the radio's screen: nothing is announced, and the regular
+    // re-read is a minute away.
+    r.lock().unwrap().r2 = pad("W4DOC  G");
+    tokio::time::sleep(Duration::from_millis(
+        aetherdv::ports::PREFLIGHT_QUIET_MS + 1_000,
+    ))
+    .await;
+    chat(&b, "check first").await.unwrap();
+    wait_for(&mut b.ev, "held for the gateway", |e| {
+        e.topic == "port.route" && e.data["route"]["code"] == "would_reach_reflector"
+    })
+    .await;
+    tokio::time::sleep(Duration::from_millis(1_000)).await;
+    assert!(
+        !b.data.sent().iter().any(|f| has_text(f, "check first")),
+        "nothing goes out on the changed route"
+    );
+    r.lock().unwrap().r2 = pad("");
+    timeout(Duration::from_secs(20), async {
+        while !b.data.sent().iter().any(|f| has_text(f, "check first")) {
+            tokio::time::sleep(Duration::from_millis(200)).await;
+        }
+    })
+    .await
+    .expect("sent once the radio is right again");
+}
