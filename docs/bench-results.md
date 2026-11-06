@@ -101,4 +101,4 @@ Since 0.3.2, DV slow data is written in pieces of at most 180 bytes of whole fra
 - **Reflector > Use Reflector:** R2 WX4GPB G, held as "would reach the linked reflector".
 - **Gateway CQ:** UR is a routing command ("/PP5DSTC", "/W4DOC C") with R2 on the gateway: blocked both times.
 
-While sending was allowed, a change on the radio took up to 60 s to be noticed (the regular re-read), because with CI-V Transceive off the radio announces nothing. For repeater ports, the route should be re-read before each transmission.
+While sending was allowed, a change on the radio took up to 60 s to be noticed (the regular re-read), because with CI-V Transceive off the radio announces nothing. Since 0.3.7, a repeater port with CI-V re-reads the route before its first transmission after 20 s of quiet (not between the overs of one transfer), and holds the message if the route has changed.

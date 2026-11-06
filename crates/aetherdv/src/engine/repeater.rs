@@ -353,7 +353,8 @@ impl Engine {
                         };
                         self.log("info", Some(&n), &format!("sending held: {what}"));
                     }
-                    Gate::Open if last_gate.is_some() => {
+                    // Not after a routine check before sending (Checking).
+                    Gate::Open if last_gate.as_ref().is_some_and(|g| *g != Gate::Checking) => {
                         self.log("info", Some(&n), "route OK; sending resumes");
                     }
                     _ => {}
@@ -597,6 +598,24 @@ impl Engine {
                 chk.over_end = Some(end);
             }
         }
+    }
+
+    /// The port held itself before transmitting after a quiet spell: read
+    /// the radio's route now. The port stays held until the guard is open
+    /// on the new reading (or whatever the guard says, if it can't read).
+    pub(super) async fn on_route_check(&mut self, port: &str) {
+        if let Some(l) = self.ports.get_mut(port).and_then(|p| p.link.as_mut()) {
+            match &l.civ_tx {
+                Some(tx) if l.guard.civ && l.guard.route.scope != Scope::Direct => {
+                    l.guard.invalidate();
+                    l.held_sent = Some(true);
+                    let _ = tx.send(CivReq::ReadRoute);
+                }
+                // Nothing to read: send the guard's state again.
+                _ => l.held_sent = None,
+            }
+        }
+        self.route_tick().await;
     }
 
     /// The radio port reconnected: the radio may have been changed.

@@ -461,6 +461,7 @@ impl Engine {
                 result,
             } => self.on_radio_mode(&port, action, result),
             PortEvt::Sched { port, report } => self.on_sched(port, report).await,
+            PortEvt::RouteCheck { port } => self.on_route_check(&port).await,
             PortEvt::Burst { port, air_ms, .. } => {
                 // Transfer timers wait until the radio has taken the whole
                 // burst (it can take several overs).
@@ -1224,6 +1225,7 @@ pub fn start(cfg: &Config) -> Result<EngineHandle, String> {
                     start_held: !crate::route::Guard::new(r.clone(), civ_capable, 30)
                         .gate(0)
                         .is_open(),
+                    preflight: civ_capable && r.scope != crate::route::Scope::Direct,
                 };
                 tokio::spawn(run_serial(params, rx, evt_tx.clone()));
             }
