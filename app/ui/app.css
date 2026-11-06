@@ -46,7 +46,13 @@ button { font: inherit; color: inherit; }
 .plate:has(> .plate-btn) { padding: 0; }
 .plate-btn { all: unset; box-sizing: border-box; display: grid; grid-template-columns: auto auto; column-gap: var(--s5);
   align-content: center; width: 100%; height: 100%; padding: 0 var(--s5) 0 calc(var(--s4) + 6px); cursor: pointer; }
+/* A plate that opens details says so: a chevron at its right edge, brighter
+   on hover, and a tooltip. Without it nothing marks the plate as clickable. */
+.plate-btn { position: relative; padding-right: calc(var(--s5) + 18px); }
+.plate-btn::after { content: ""; position: absolute; right: var(--s4); top: 50%; width: 7px; height: 7px;
+  border-right: 2px solid var(--text-3); border-bottom: 2px solid var(--text-3); transform: translateY(-70%) rotate(45deg); }
 .plate-btn:hover { background: var(--bg-hover); }
+.plate-btn:hover::after, .plate-btn:focus-visible::after { border-color: var(--text-1); }
 .plate-btn:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
 .air { display: inline-flex; gap: 3px; margin-right: 6px; vertical-align: -1px; }
 .air i { width: 7px; height: 7px; border-radius: 50%; border: 1px solid var(--line-strong); display: inline-block; }

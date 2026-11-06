@@ -435,7 +435,7 @@ function renderStrip() {
       if (r) kids.push(h('span', { class: 'plate-route' }, where || 'Direct'), h('span', { class: 'plate-chan' }, status));
       if (!r) return h('li', { class: 'plate', 'data-mode': m.mode, 'data-state': down ? 'down' : 'ok', 'aria-label': label }, ...kids);
       return h('li', { class: 'plate', 'data-mode': m.mode, 'data-state': down ? 'down' : held ? 'held' : 'ok' },
-        h('button', { class: 'plate-btn', 'aria-label': `${label}. Open route and channel`, onclick: () => openPort(p.id) }, ...kids));
+        h('button', { class: 'plate-btn', title: 'Route and channel details', 'aria-label': `${label}. Open route and channel`, onclick: () => openPort(p.id) }, ...kids));
     }),
     h('li', { class: 'strip-end' }, S.ports.length ? '' : 'No ports configured'));
 }

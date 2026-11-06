@@ -93,3 +93,12 @@ Since 0.3.2, DV slow data is written in pieces of at most 180 bytes of whole fra
 **5 kB IC-9700 → ID-52 PLUS: about 285 s at 180 bytes, about 268 s at 220 bytes.** Both files arrived intact. At 220 there were no resends, and every 220-byte piece arrived whole, so the radios take that size. Both runs were within the spread of 0.3.4 (about 250 s). The time is set by the IC-9700's own pauses between transmissions: 10–18 s at times, with CI-V quiet and the channel clear. Tuning of DV slow data speed stops here; 180 stays the default and 220 is the user's choice.
 
 **UR/R1/R2 over CI-V.** The summaries reported R1 "W4DOC D" and R2 "W4DOC G" while the IC-9700's call-sign screen showed R1 and R2 blank (MAIN, VFO, DV, duplex off). The radio keeps R1/R2 while duplex is off, but neither shows nor sends them: with DUP− set, the same screen showed W4DOC D / W4DOC G, and with duplex off the ID-52 PLUS's RX history showed no repeater fields for the IC-9700's calls. CI-V `1F 01` returns the stored values either way. Since 0.3.6 the summary says when R1/R2 are stored but not sent, and the gateway note appears only when duplex can't be read (duplex on already holds a direct port).
+
+## 2026-11-06: Test 3, call signs over CI-V (0.3.6)
+
+**IC-9700: CI-V reads UR/R1/R2 and duplex correctly in VFO, memory and DR mode.** Every change on the radio was picked up; while sending was held (re-read every 10 s) the new reading arrived before the operator had clicked the marker. DR mode, FROM WX4GPB C:
+- **Local CQ:** UR CQCQCQ, R1 WX4GPB C, R2 blank: what Aether DV requires for "this repeater only". Sending allowed.
+- **Reflector > Use Reflector:** R2 WX4GPB G, held as "would reach the linked reflector".
+- **Gateway CQ:** UR is a routing command ("/PP5DSTC", "/W4DOC C") with R2 on the gateway: blocked both times.
+
+While sending was allowed, a change on the radio took up to 60 s to be noticed (the regular re-read), because with CI-V Transceive off the radio announces nothing. For repeater ports, the route should be re-read before each transmission.
