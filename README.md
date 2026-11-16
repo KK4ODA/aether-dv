@@ -10,7 +10,7 @@ Aether DV exists because of D-RATS and the people who built and maintain it; see
 
 ## Download
 
-Installers for Windows, macOS (Apple silicon) and Linux (.deb, .rpm, AppImage) are on the [releases page](https://github.com/KK4ODA/aether-dv-releases/releases/latest). The app checks for updates when it starts and offers to install them.
+Installers for Windows, macOS (Apple silicon) and Linux (.deb, .rpm, AppImage) are on the [releases page](https://github.com/KK4ODA/aether-dv-releases/releases). The app checks for updates when it starts and offers to install them.
 
 To connect a radio, see [Part A of the bench test guide](docs/bench-tests.md#part-a--preparation-once) and the example configurations for the [IC-9700](examples/ic9700.toml) and [ID-52 PLUS](examples/id52plus.toml). The app's **Radio Setup** view has step-by-step settings for each supported radio.
 
