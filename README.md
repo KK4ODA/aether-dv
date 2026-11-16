@@ -80,7 +80,7 @@ On the bench, IC-9700 to ID-52 PLUS on 2 m simplex ([bench results](docs/bench-r
 | [docs/adr/](docs/adr/) | Architecture Decision Records (all *Proposed*) |
 | [docs/07-test-and-validation-plan.md](docs/07-test-and-validation-plan.md) | Validation levels and first hardware tests |
 | [docs/08-risks-and-roadmap.md](docs/08-risks-and-roadmap.md) | Risks and phased roadmap with acceptance criteria |
-| [docs/phase-c/README.md](docs/phase-c/README.md) | Building and running the engine and app from source |
+| [docs/phase-c/README.md](docs/phase-c/README.md) | Phase C status, and how to run the engine and app from source |
 | [docs/bench-tests.md](docs/bench-tests.md) | Setting up two radios, and the bench tests step by step |
 | [docs/bench-results.md](docs/bench-results.md) | What the bench tests found, release by release |
 | [docs/releases/](docs/releases/) | Release notes |
