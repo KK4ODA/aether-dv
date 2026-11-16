@@ -4,7 +4,61 @@ An open-source D-STAR data communications application for amateur radio. It work
 
 Aether DV exists because of D-RATS and the people who built and maintain it; see [Acknowledgements](#acknowledgements).
 
-> **Status: early releases (0.2.x).** The desktop app and engine handle chat, files, ICS-213 messages, position reports, ratflectors and repeater operation. Bench-tested on an IC-9700 and an ID-52 PLUS on simplex; not yet tested through repeaters or against running D-RATS stations. Current state and how to run it: [docs/phase-c/README.md](docs/phase-c/README.md); bench tests: [docs/bench-tests.md](docs/bench-tests.md).
+> **Status: early releases (0.3.x, currently 0.3.7).** Bench-tested on an IC-9700 and an ID-52 PLUS on simplex. Not yet tested through repeaters or against running D-RATS stations. Results so far: [docs/bench-results.md](docs/bench-results.md).
+
+![Chat on the IC-9700: a conversation tab for KK4ODA-1, two files waiting to send with their progress, and the station heard in the side panel](docs/screens/chat.png)
+
+## Download
+
+Installers for Windows, macOS (Apple silicon) and Linux (.deb, .rpm, AppImage) are on the [releases page](https://github.com/KK4ODA/aether-dv-releases/releases/latest). The app checks for updates when it starts and offers to install them.
+
+To connect a radio, see [Part A of the bench test guide](docs/bench-tests.md#part-a--preparation-once) and the example configurations for the [IC-9700](examples/ic9700.toml) and [ID-52 PLUS](examples/id52plus.toml). The app's **Radio Setup** view has step-by-step settings for each supported radio.
+
+## What it does
+
+**Chat**
+- One tab per radio port, an All traffic tab, and a tab for each station you talk to directly.
+- Send to **Everyone (CQCQCQ)** or to one station. Your own call sign is shown in red italics so your lines stand out.
+- Queued lines can be cancelled before they go out. **Clear** hides a tab's history without deleting it.
+- Right-click a station in **Heard** to ping it, ask its version, send it a file or open a conversation, or to **Ping all stations**.
+- Keyboard: Enter sends, Ctrl+1 to Ctrl+9 switch tabs, Ctrl+L clears.
+
+**Files**
+- **Send file…** in Chat, or drop a file on the chat. Progress shows in blocks acknowledged by the other station.
+- Transfers can be cancelled. Received files go to *Documents/Aether DV/Received*, with a **Show file** button for each.
+
+**Messages**
+- ICS-213 general messages, compatible with D-RATS forms, with inbox, outbox, sent and drafts, and a delivery timeline for each message.
+
+**Radio and channel**
+- **DV slow data** tuned on real radios: Aether DV honours the radio's XON/XOFF flow control and writes no more than one transmission's worth of data at a time. The size is adjustable per port: 180 bytes (default) or 220.
+- **CI-V** (Icom): Aether DV reads the radio's UR, R1, R2 and duplex settings and detects voice on the channel, so data waits for voice users.
+- **Repeater-aware.** A port can be set up for direct (simplex), a repeater only, or a repeater's linked reflector. Aether DV checks that the radio's call signs match before it sends, and checks again before transmitting after a quiet spell. It holds sending if they don't match and blocks UR routing commands to the gateway. The panel behind each port plate in the top bar explains what's wrong and how to fix it.
+- **Pause sending**, indefinitely or for 30 minutes, and air-time limits on repeaters.
+- Ratflector ports (Internet), position reports (NMEA and D-PRS), and DV Fast Data mode (not yet bench-tested).
+
+**Diagnostics**
+- **Radio test** records everything on every port (data, CI-V and timing) with your markers, and produces a summary to share.
+- **Write support bundle** collects the engine log and the state of each port for a bug report. Message bodies, passwords and the API token are never included; recordings of the traffic only if you choose.
+
+## Screenshots
+
+| | |
+|---|---|
+| ![Transfers: two files sending with progress bars and Cancel, a received CSV file with Show file, an ICS-213 form received](docs/screens/transfers.png) | ![Messages: an ICS-213 General Message from KK4ODA-1 with its fields and a delivery timeline](docs/screens/messages.png) |
+| **Transfers**: progress, Cancel, and Show file for received files. | **Messages**: ICS-213 with a delivery timeline. |
+| ![Port panel for the IC-9700: who receives your data, channel state with Pause sending, and transmission size](docs/screens/port.png) | |
+| **Port panel**: route, channel and transmission size. Click a port plate in the top bar to open it. | |
+
+The screenshots show the desktop app connected to two Aether DV engines over a simulated simplex link, with a simulated IC-9700 CI-V port.
+
+## Tested so far
+
+On the bench, IC-9700 to ID-52 PLUS on 2 m simplex ([bench results](docs/bench-results.md)):
+- **Chat and ping**, both ways.
+- **Files:** 5 kB arrived intact, confirmed by SHA-256, at about 20 bytes per second on DV slow data. The limit is the IC-9700's own pause of 1–18 s between transmissions.
+- **Voice:** the ID-52 PLUS holds data by itself while it receives voice. On the IC-9700, Aether DV sees voice over CI-V within 0.2–0.4 s and holds data until it ends.
+- **CI-V:** the IC-9700's UR, R1, R2 and duplex are read correctly in VFO, memory and DR mode.
 
 ## Goals, in priority order
 
@@ -15,7 +69,7 @@ Aether DV exists because of D-RATS and the people who built and maintain it; see
 5. First-class ratflector support, including a standalone server
 6. Cross-platform, offline-capable, easy to install and maintain
 
-## Where to start
+## Documents
 
 | Document | What it covers |
 |---|---|
@@ -26,6 +80,10 @@ Aether DV exists because of D-RATS and the people who built and maintain it; see
 | [docs/adr/](docs/adr/) | Architecture Decision Records (all *Proposed*) |
 | [docs/07-test-and-validation-plan.md](docs/07-test-and-validation-plan.md) | Validation levels and first hardware tests |
 | [docs/08-risks-and-roadmap.md](docs/08-risks-and-roadmap.md) | Risks and phased roadmap with acceptance criteria |
+| [docs/phase-c/README.md](docs/phase-c/README.md) | Building and running the engine and app from source |
+| [docs/bench-tests.md](docs/bench-tests.md) | Setting up two radios, and the bench tests step by step |
+| [docs/bench-results.md](docs/bench-results.md) | What the bench tests found, release by release |
+| [docs/releases/](docs/releases/) | Release notes |
 
 ## Validation levels
 
